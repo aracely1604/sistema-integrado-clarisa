@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
+<<<<<<< HEAD
 import { EmailAuthProvider, reauthenticateWithCredential, signInWithEmailAndPassword, updatePassword } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, limit, query, updateDoc, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+=======
+>>>>>>> d122f2063d999dfcf76b97707f0a08257fa54f94
 
 function Perfil({ notify }) {
   const sesion = JSON.parse(localStorage.getItem('sesion'));
@@ -12,6 +15,7 @@ function Perfil({ notify }) {
 
   if (!sesion) return null;
 
+<<<<<<< HEAD
   const buscarDocumentoUsuario = async () => {
     const posiblesIds = [sesion.rut, sesion.uid].filter(Boolean);
 
@@ -53,6 +57,9 @@ function Perfil({ notify }) {
   };
 
   const cambiarContrasena = async (e) => {
+=======
+  const cambiarContrasena = (e) => {
+>>>>>>> d122f2063d999dfcf76b97707f0a08257fa54f94
     e.preventDefault();
 
     if (actual !== sesion.pass) {
@@ -60,8 +67,13 @@ function Perfil({ notify }) {
       return;
     }
 
+<<<<<<< HEAD
     if (nueva.length < 6) {
       notify('La nueva contrasena debe tener al menos 6 caracteres.', 'error');
+=======
+    if (nueva.length < 4) {
+      notify('La nueva contrasena debe tener al menos 4 caracteres.', 'error');
+>>>>>>> d122f2063d999dfcf76b97707f0a08257fa54f94
       return;
     }
 
@@ -70,6 +82,7 @@ function Perfil({ notify }) {
       return;
     }
 
+<<<<<<< HEAD
     try {
       try {
         await actualizarContrasenaAuth();
@@ -104,6 +117,22 @@ function Perfil({ notify }) {
       console.error('Error al cambiar contrasena:', error);
       notify('No se pudo actualizar la contrasena en Firebase.', 'error');
     }
+=======
+    const usuarios = JSON.parse(localStorage.getItem('usuarios')) || [];
+    const usuariosActualizados = usuarios.map((usuario) => {
+      const mismoUsuario = usuario.user === sesion.user || usuario.rut === sesion.rut;
+      return mismoUsuario ? { ...usuario, pass: nueva } : usuario;
+    });
+    const sesionActualizada = { ...sesion, pass: nueva };
+
+    localStorage.setItem('usuarios', JSON.stringify(usuariosActualizados));
+    localStorage.setItem('sesion', JSON.stringify(sesionActualizada));
+    setActual('');
+    setNueva('');
+    setConfirmar('');
+    setAbierto(false);
+    notify('Contrasena actualizada correctamente.', 'success');
+>>>>>>> d122f2063d999dfcf76b97707f0a08257fa54f94
   };
 
   return (
