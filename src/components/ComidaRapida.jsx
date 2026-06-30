@@ -1,5 +1,6 @@
 import React from 'react';
 import Perfil from './Perfil';
+import PuntoVenta from './PuntoVenta';
 import { cerrarSesion } from '../utils/auth';
 
 function ComidaRapida({ navigate, notify }) {
@@ -8,7 +9,14 @@ function ComidaRapida({ navigate, notify }) {
     setTimeout(() => navigate('login'), 0);
     return null;
   }
+
   const usuario = sesion.user || "cajero";
+  const productos = [
+    { nombre: 'Completo', precio: 2200 },
+    { nombre: 'Hamburguesa', precio: 3500 },
+    { nombre: 'Papas fritas', precio: 2000 },
+    { nombre: 'Bebida', precio: 1200 },
+  ];
 
   return (
     <main className="dashboard-page">
@@ -22,11 +30,9 @@ function ComidaRapida({ navigate, notify }) {
 
       <Perfil notify={notify} />
 
-      <section className="work-panel">
-        <h2>Ventas de comida rapida</h2>
-        <p className="muted">Aqui puedes continuar agregando el modulo de productos y pedidos.</p>
-      </section>
+      <PuntoVenta localId="comida_rapida" localNombre="Comida rapida" productos={productos} usuario={usuario} notify={notify} />
     </main>
   );
 }
+
 export default ComidaRapida;
