@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { obtenerVistaInicial } from '../utils/auth';
 import { auth, db } from '../firebase';
 
@@ -8,8 +8,22 @@ function Login({ navigate, notify }) {
   const [user, setUser] = useState('');
   const [pass, setPass] = useState('');
 
+  const iniciarSesion = (usuario) => {
+    localStorage.setItem('sesion', JSON.stringify(usuario));
+    notify('Bienvenido/a ' + (usuario.nombre || usuario.user), 'success');
+    navigate(obtenerVistaInicial(usuario));
+  };
+
+  const buscarUsuarioFirestore = async (email, clave) => {
+    const usuariosRef = collection(db, 'usuarios');
+    const consulta = query(usuariosRef, where('user', '==', email), limit(5));
+    const resultado = await getDocs(consulta);
+    const encontrado = resultado.docs.map((documento) => documento.data()).find((usuario) => usuario.pass === clave);
+    return encontrado || null;
+  };
+
   const handleLogin = async () => {
-    const email = user.trim();
+    const email = user.trim().toLowerCase();
     const p = pass.trim();
 
     if (!email || !p) {
@@ -20,25 +34,36 @@ function Login({ navigate, notify }) {
     try {
       const credenciales = await signInWithEmailAndPassword(auth, email, p);
       const uid = credenciales.user.uid;
-      const docRef = doc(db, 'usuarios', uid);
-      const docSnap = await getDoc(docRef);
+      const docSnap = await getDoc(doc(db, 'usuarios', uid));
 
       if (docSnap.exists()) {
-        const datosUsuario = docSnap.data();
-        localStorage.setItem('sesion', JSON.stringify(datosUsuario));
-        notify('Bienvenido/a ' + (datosUsuario.nombre || datosUsuario.user), 'success');
-        navigate(obtenerVistaInicial(datosUsuario));
-      } else {
-        notify('Usuario autenticado, pero no tiene datos en Firestore.', 'error');
+        iniciarSesion(docSnap.data());
+        return;
       }
+
+      const usuarioPorCorreo = await buscarUsuarioFirestore(email, p);
+      if (usuarioPorCorreo) {
+        iniciarSesion(usuarioPorCorreo);
+        return;
+      }
+
+      notify('Usuario autenticado, pero no tiene datos en Firestore.', 'error');
     } catch (error) {
+      try {
+        const usuarioFirebase = await buscarUsuarioFirestore(email, p);
+        if (usuarioFirebase) {
+          iniciarSesion(usuarioFirebase);
+          return;
+        }
+      } catch (errorFirestore) {
+        console.error(errorFirestore);
+      }
+
       const usuarios = JSON.parse(localStorage.getItem('usuarios')) || [];
       const ok = usuarios.find((x) => x.user === email && x.pass === p);
 
       if (ok) {
-        localStorage.setItem('sesion', JSON.stringify(ok));
-        notify('Bienvenido/a ' + (ok.nombre || ok.user), 'success');
-        navigate(obtenerVistaInicial(ok));
+        iniciarSesion(ok);
       } else {
         console.error(error);
         notify('Correo o contrasena incorrectos', 'error');

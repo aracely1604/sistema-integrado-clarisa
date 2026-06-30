@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { cerrarSesion, obtenerOpcionRol, obtenerVistaInicial, opcionesRol, rutConFormatoValido, rutValido } from '../utils/auth';
 
@@ -35,12 +35,21 @@ function Portal({ navigate, notify }) {
     setForm({ ...form, [campo]: valor });
   };
 
+  const obtenerMensajeFirebase = (error) => {
+    if (error.code === 'auth/email-already-in-use') return 'El correo ya esta registrado.';
+    if (error.code === 'auth/invalid-email') return 'El correo ingresado no es valido.';
+    if (error.code === 'auth/weak-password') return 'La contrasena inicial debe tener al menos 6 caracteres.';
+    if (error.code === 'permission-denied') return 'Firebase no permite guardar usuarios. Revisa las reglas de Firestore.';
+    if (error.code === 'auth/operation-not-allowed') return 'Activa Email/Password en Firebase Authentication.';
+    return error.message || 'Error al crear el usuario.';
+  };
+
   const crearUsuario = async (e) => {
     e.preventDefault();
     const nombre = form.nombre.trim();
     const apellido = form.apellido.trim();
     const rut = form.rut.trim();
-    const correo = form.correo.trim();
+    const correo = form.correo.trim().toLowerCase();
 
     if (!nombre || !apellido || !rut || !correo) {
       notify('Completa todos los campos para crear el usuario.', 'error');
@@ -57,9 +66,32 @@ function Portal({ navigate, notify }) {
       return;
     }
 
+    const usuarioRef = doc(db, 'usuarios', rut);
+
     try {
-      const credencialesUsuario = await createUserWithEmailAndPassword(auth, correo, rut);
-      const uid = credencialesUsuario.user.uid;
+      const usuarioExistente = await getDoc(usuarioRef);
+      if (usuarioExistente.exists()) {
+        notify('Ya existe un usuario con ese RUT.', 'error');
+        return;
+      }
+
+      let uid = 'rut-' + rut.replaceAll('.', '').replace('-', '').toLowerCase();
+      let authDisponible = true;
+
+      try {
+        const credencialesUsuario = await createUserWithEmailAndPassword(auth, correo, rut);
+        uid = credencialesUsuario.user.uid;
+      } catch (errorAuth) {
+        authDisponible = false;
+        if (errorAuth.code === 'auth/email-already-in-use') {
+          notify('El correo ya esta registrado.', 'error');
+          return;
+        }
+        if (errorAuth.code !== 'auth/operation-not-allowed' && errorAuth.code !== 'auth/admin-restricted-operation') {
+          throw errorAuth;
+        }
+      }
+
       const opcionRol = obtenerOpcionRol(form.rol);
       const nuevoUsuario = {
         uid,
@@ -72,25 +104,23 @@ function Portal({ navigate, notify }) {
         local: opcionRol.local,
       };
 
-      await setDoc(doc(db, 'usuarios', uid), nuevoUsuario);
+      await setDoc(usuarioRef, nuevoUsuario);
 
       const usuariosLocales = JSON.parse(localStorage.getItem('usuarios')) || [];
-      localStorage.setItem('usuarios', JSON.stringify([...usuariosLocales, nuevoUsuario]));
+      const usuariosSinDuplicado = usuariosLocales.filter((usuario) => usuario.rut !== rut && usuario.user !== correo);
+      localStorage.setItem('usuarios', JSON.stringify([...usuariosSinDuplicado, nuevoUsuario]));
 
       setForm({ nombre: '', apellido: '', rut: '', correo: '', rol: 'cajero_almacen' });
       setMostrarCrear(false);
-      notify('Usuario creado exitosamente. Puede ingresar con su correo.', 'success');
+
+      if (authDisponible) {
+        notify('Usuario creado exitosamente. Puede ingresar con su correo.', 'success');
+      } else {
+        notify('Usuario guardado en Firebase. Para login con Auth activa Email/Password.', 'success');
+      }
     } catch (error) {
       console.error('Error al registrar en Firebase:', error);
-      let mensajeError = 'Error al crear el usuario.';
-
-      if (error.code === 'auth/email-already-in-use') {
-        mensajeError = 'El correo ya esta registrado en la base de datos.';
-      } else if (error.code === 'auth/weak-password') {
-        mensajeError = 'La contrasena inicial debe tener al menos 6 caracteres.';
-      }
-
-      notify(mensajeError, 'error');
+      notify(obtenerMensajeFirebase(error), 'error');
     }
   };
 
