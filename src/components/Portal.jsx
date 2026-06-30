@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import { cerrarSesion, obtenerOpcionRol, obtenerVistaInicial, opcionesRol, rutConFormatoValido, rutValido } from '../utils/auth';
 
 function Portal({ navigate, notify }) {
@@ -7,10 +10,11 @@ function Portal({ navigate, notify }) {
     nombre: '',
     apellido: '',
     rut: '',
+    correo: '',
     rol: 'cajero_almacen',
   });
-  let sesion = JSON.parse(localStorage.getItem("sesion"));
-  
+  const sesion = JSON.parse(localStorage.getItem('sesion'));
+
   if (!sesion) {
     setTimeout(() => navigate('login'), 0);
     return null;
@@ -21,7 +25,7 @@ function Portal({ navigate, notify }) {
     return null;
   }
 
-  let nombreRol = 'Administrador';
+  const nombreRol = 'Administrador';
 
   const irModuloVentas = () => {
     navigate('admin');
@@ -31,14 +35,15 @@ function Portal({ navigate, notify }) {
     setForm({ ...form, [campo]: valor });
   };
 
-  const crearUsuario = (e) => {
+  const crearUsuario = async (e) => {
     e.preventDefault();
     const nombre = form.nombre.trim();
     const apellido = form.apellido.trim();
     const rut = form.rut.trim();
+    const correo = form.correo.trim();
 
-    if (!nombre || !apellido || !rut) {
-      notify('Completa nombre, apellido y RUT para crear el usuario.', 'error');
+    if (!nombre || !apellido || !rut || !correo) {
+      notify('Completa todos los campos para crear el usuario.', 'error');
       return;
     }
 
@@ -52,27 +57,41 @@ function Portal({ navigate, notify }) {
       return;
     }
 
-    const usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-    if (usuarios.some((usuario) => usuario.rut === rut || usuario.user === rut)) {
-      notify('Ya existe un usuario con ese RUT.', 'error');
-      return;
+    try {
+      const credencialesUsuario = await createUserWithEmailAndPassword(auth, correo, rut);
+      const uid = credencialesUsuario.user.uid;
+      const opcionRol = obtenerOpcionRol(form.rol);
+      const nuevoUsuario = {
+        uid,
+        user: correo,
+        pass: rut,
+        nombre,
+        apellido,
+        rut,
+        rol: opcionRol.rol,
+        local: opcionRol.local,
+      };
+
+      await setDoc(doc(db, 'usuarios', uid), nuevoUsuario);
+
+      const usuariosLocales = JSON.parse(localStorage.getItem('usuarios')) || [];
+      localStorage.setItem('usuarios', JSON.stringify([...usuariosLocales, nuevoUsuario]));
+
+      setForm({ nombre: '', apellido: '', rut: '', correo: '', rol: 'cajero_almacen' });
+      setMostrarCrear(false);
+      notify('Usuario creado exitosamente. Puede ingresar con su correo.', 'success');
+    } catch (error) {
+      console.error('Error al registrar en Firebase:', error);
+      let mensajeError = 'Error al crear el usuario.';
+
+      if (error.code === 'auth/email-already-in-use') {
+        mensajeError = 'El correo ya esta registrado en la base de datos.';
+      } else if (error.code === 'auth/weak-password') {
+        mensajeError = 'La contrasena inicial debe tener al menos 6 caracteres.';
+      }
+
+      notify(mensajeError, 'error');
     }
-
-    const opcionRol = obtenerOpcionRol(form.rol);
-    const nuevoUsuario = {
-      user: rut,
-      pass: rut,
-      nombre,
-      apellido,
-      rut,
-      rol: opcionRol.rol,
-      local: opcionRol.local,
-    };
-
-    localStorage.setItem("usuarios", JSON.stringify([...usuarios, nuevoUsuario]));
-    setForm({ nombre: '', apellido: '', rut: '', rol: 'cajero_almacen' });
-    setMostrarCrear(false);
-    notify(`Usuario creado. Puede ingresar con RUT ${rut}.`, 'success');
   };
 
   return (
@@ -97,8 +116,8 @@ function Portal({ navigate, notify }) {
             <strong>Panel admin</strong>
             <small>Ver resumen de ventas y control general.</small>
           </button>
-          
-          <button onClick={() => notify("Derivando al Modulo de Inventario (Equipo N 4).", 'info')} className="module-card module-blue">
+
+          <button onClick={() => notify('Derivando al Modulo de Inventario (Equipo N 4).', 'info')} className="module-card module-blue">
             <span className="module-icon">Stock</span>
             <strong>Inventario</strong>
             <small>Consulta y control de productos.</small>
@@ -131,6 +150,10 @@ function Portal({ navigate, notify }) {
               <label>
                 Apellido
                 <input className="field" value={form.apellido} onChange={(e) => actualizarCampo('apellido', e.target.value)} />
+              </label>
+              <label>
+                Correo electronico
+                <input className="field" type="email" placeholder="ejemplo@gmail.com" value={form.correo} onChange={(e) => actualizarCampo('correo', e.target.value)} />
               </label>
               <label>
                 RUT
