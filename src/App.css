@@ -310,14 +310,16 @@
 }
 
 .period-toggle,
-.local-selector {
+.local-selector,
+.payment-method-selector {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
 .period-toggle button,
-.local-selector button {
+.local-selector button,
+.payment-method-selector button {
   min-height: 38px;
   padding: 9px 13px;
   border: 1px solid #cbd5e1;
@@ -330,20 +332,29 @@
 }
 
 .period-toggle button.active,
-.local-selector button.active {
+.local-selector button.active,
+.payment-method-selector button.active {
   border-color: #0f766e;
   background: #0f766e;
   color: #fff;
   box-shadow: 0 10px 24px rgba(15, 118, 110, 0.2);
 }
 
+.payment-method-selector {
+  margin-top: 14px;
+}
+
 .local-selector {
   margin: 20px 0;
 }
 
+.local-selector.in-chart {
+  margin: 14px 0 0;
+}
+
 .chart-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
+  grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1.15fr);
   gap: 18px;
 }
 
@@ -412,6 +423,30 @@
   background: #7c3aed;
 }
 
+.bar-pay-debito {
+  background: #2563eb;
+}
+
+.bar-pay-efectivo {
+  background: #16a34a;
+}
+
+.bar-pay-transferencia {
+  background: #9333ea;
+}
+
+.bar-pay-junaeb {
+  background: #f59e0b;
+}
+
+.bar-pay-pluxe {
+  background: #db2777;
+}
+
+.payment-chart-card {
+  margin-top: 18px;
+}
+
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
@@ -446,6 +481,56 @@
 
 .legend-dot.bar-comida_rapida {
   color: #ea580c;
+}
+
+.legend-dot.bar-pay-debito {
+  color: #2563eb;
+}
+
+.legend-dot.bar-pay-efectivo {
+  color: #16a34a;
+}
+
+.legend-dot.bar-pay-transferencia {
+  color: #9333ea;
+}
+
+.legend-dot.bar-pay-junaeb {
+  color: #f59e0b;
+}
+
+.legend-dot.bar-pay-pluxe {
+  color: #db2777;
+}
+
+.payment-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.payment-summary.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.payment-summary-row {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+
+.payment-summary-row.active {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.payment-summary-row strong {
+  color: #0f172a;
 }
 
 .chart-empty {
@@ -604,6 +689,37 @@
   font-size: 26px;
 }
 
+.payment-panel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.payment-panel label {
+  color: #334155;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.cash-paid-field {
+  display: block;
+  margin-top: 12px;
+}
+
+.cash-paid-field small {
+  display: block;
+  margin-top: 8px;
+  color: #0f766e;
+  font-weight: 900;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+  box-shadow: none;
+}
+
 .profile-panel {
   margin-bottom: 18px;
   background: rgba(255, 255, 255, 0.92);
@@ -748,6 +864,7 @@
   .form-grid,
   .stats-grid,
   .chart-grid,
+  .payment-summary,
   .product-grid,
   .pos-layout,
   .profile-form {

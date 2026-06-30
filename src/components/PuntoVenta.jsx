@@ -1,13 +1,21 @@
 import React, { useEffect, useState } from 'react';
 
-function PuntoVenta({ localId, localNombre, productos, usuario, notify }) {
+const metodosBase = ['Debito', 'Efectivo', 'Transferencia'];
+
+function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosPago = metodosBase }) {
   const [carrito, setCarrito] = useState([]);
   const [cajaAbierta, setCajaAbierta] = useState(false);
+  const [metodoPago, setMetodoPago] = useState(metodosPago[0] || '');
+  const [montoEfectivo, setMontoEfectivo] = useState('');
 
   useEffect(() => {
     const cajas = JSON.parse(localStorage.getItem('cajas')) || [];
     setCajaAbierta(cajas.some((caja) => caja.local === localId && caja.usuario === usuario));
   }, [localId, usuario]);
+
+  const total = carrito.reduce((suma, producto) => suma + producto.precio, 0);
+  const montoPagado = Number(montoEfectivo);
+  const vuelto = metodoPago === 'Efectivo' && montoPagado >= total ? montoPagado - total : 0;
 
   const guardarCajas = (cajas) => {
     localStorage.setItem('cajas', JSON.stringify(cajas));
@@ -38,7 +46,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify }) {
 
   const cerrarCaja = () => {
     if (carrito.length > 0) {
-      notify('Vacía el carrito antes de cerrar caja.', 'error');
+      notify('Vacia el carrito antes de cerrar caja.', 'error');
       return;
     }
 
@@ -62,7 +70,46 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify }) {
     setCarrito(carrito.filter((_, index) => index !== indexProducto));
   };
 
-  const total = carrito.reduce((suma, producto) => suma + producto.precio, 0);
+  const registrarPago = () => {
+    if (!cajaAbierta) {
+      notify('Debes abrir caja antes de registrar el pago.', 'error');
+      return;
+    }
+
+    if (carrito.length === 0) {
+      notify('Agrega productos al carrito antes de pagar.', 'error');
+      return;
+    }
+
+    if (!metodoPago) {
+      notify('Selecciona un metodo de pago.', 'error');
+      return;
+    }
+
+    if (metodoPago === 'Efectivo' && (!montoPagado || montoPagado < total)) {
+      notify('Ingresa un monto en efectivo igual o mayor al total.', 'error');
+      return;
+    }
+
+    const ventas = JSON.parse(localStorage.getItem('ventas')) || [];
+    const nuevaVenta = {
+      id: `${localId}-${Date.now()}`,
+      local: localId,
+      localNombre,
+      usuario,
+      productos: carrito,
+      total,
+      metodoPago,
+      montoPagado: metodoPago === 'Efectivo' ? montoPagado : total,
+      vuelto: metodoPago === 'Efectivo' ? montoPagado - total : 0,
+      fecha: new Date().toISOString(),
+    };
+
+    localStorage.setItem('ventas', JSON.stringify([...ventas, nuevaVenta]));
+    setCarrito([]);
+    setMontoEfectivo('');
+    notify(`Venta registrada con ${metodoPago} por $${total.toLocaleString('es-CL')}.`, 'success');
+  };
 
   return (
     <>
@@ -120,6 +167,47 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify }) {
           <div className="cart-total">
             <span>Total</span>
             <strong>${total.toLocaleString('es-CL')}</strong>
+          </div>
+
+          <div className="payment-panel">
+            <label htmlFor={`metodo-pago-${localId}`}>Metodo de pago</label>
+            <select
+              id={`metodo-pago-${localId}`}
+              className="field"
+              value={metodoPago}
+              onChange={(e) => {
+                setMetodoPago(e.target.value);
+                setMontoEfectivo('');
+              }}
+              disabled={!cajaAbierta}
+            >
+              {metodosPago.map((metodo) => (
+                <option value={metodo} key={metodo}>{metodo}</option>
+              ))}
+            </select>
+
+            {metodoPago === 'Efectivo' && (
+              <label className="cash-paid-field" htmlFor={`monto-efectivo-${localId}`}>
+                Monto pagado
+                <input
+                  id={`monto-efectivo-${localId}`}
+                  className="field"
+                  type="number"
+                  min={total}
+                  value={montoEfectivo}
+                  onChange={(e) => setMontoEfectivo(e.target.value)}
+                  placeholder="Ingresa el monto recibido"
+                  disabled={!cajaAbierta}
+                />
+                {montoPagado >= total && (
+                  <small>Vuelto: ${vuelto.toLocaleString('es-CL')}</small>
+                )}
+              </label>
+            )}
+
+            <button className="btn btn-primary btn-full" onClick={registrarPago} disabled={!cajaAbierta || carrito.length === 0}>
+              Registrar pago
+            </button>
           </div>
         </aside>
       </section>

@@ -9,11 +9,28 @@ const locales = [
 
 const localesVentas = locales.filter((local) => local.id !== 'general');
 
+const metodosPago = [
+  { id: 'debito', nombre: 'Debito' },
+  { id: 'efectivo', nombre: 'Efectivo' },
+  { id: 'transferencia', nombre: 'Transferencia' },
+  { id: 'junaeb', nombre: 'Junaeb' },
+  { id: 'pluxe', nombre: 'Pluxe' },
+];
+
 const normalizarLocal = (venta) => {
   const valor = String(venta.local || venta.modulo || venta.sucursal || '').toLowerCase();
   if (valor.includes('caf')) return 'cafeteria';
   if (valor.includes('comida') || valor.includes('rapida') || valor.includes('rapido')) return 'comida_rapida';
   return 'almacen';
+};
+
+const normalizarMetodoPago = (venta) => {
+  const valor = String(venta.metodoPago || venta.metodo || venta.pago || '').toLowerCase();
+  if (valor.includes('efectivo')) return 'efectivo';
+  if (valor.includes('transfer')) return 'transferencia';
+  if (valor.includes('junaeb')) return 'junaeb';
+  if (valor.includes('pluxe')) return 'pluxe';
+  return 'debito';
 };
 
 const obtenerFechaVenta = (venta) => {
@@ -72,6 +89,31 @@ const prepararSeries = (ventas, periodo) => {
   return [...grupos.values()].sort((a, b) => a.clave.localeCompare(b.clave)).slice(-8);
 };
 
+const prepararSeriesMetodosPago = (ventas, periodo) => {
+  const grupos = new Map();
+
+  ventas.forEach((venta) => {
+    const fecha = obtenerFechaVenta(venta);
+    const clave = clavePeriodo(fecha, periodo);
+    const actual = grupos.get(clave) || {
+      clave,
+      fecha,
+      etiqueta: formatearPeriodo(fecha, periodo),
+      debito: 0,
+      efectivo: 0,
+      transferencia: 0,
+      junaeb: 0,
+      pluxe: 0,
+    };
+    const metodo = normalizarMetodoPago(venta);
+
+    actual[metodo] += obtenerMonto(venta);
+    grupos.set(clave, actual);
+  });
+
+  return [...grupos.values()].sort((a, b) => a.clave.localeCompare(b.clave)).slice(-8);
+};
+
 function Barras({ datos, campos }) {
   const maximo = Math.max(1, ...datos.flatMap((dato) => campos.map((campo) => dato[campo.id] || 0)));
 
@@ -108,6 +150,7 @@ function Admin({ navigate }) {
   const [ventas, setVentas] = useState([]);
   const [cajas, setCajas] = useState([]);
   const [localActivo, setLocalActivo] = useState('general');
+  const [metodoActivo, setMetodoActivo] = useState('todos');
   const [periodo, setPeriodo] = useState('diario');
 
   useEffect(() => {
@@ -118,6 +161,7 @@ function Admin({ navigate }) {
   const ventasNormalizadas = ventas.map((venta) => ({
     ...venta,
     localNormalizado: normalizarLocal(venta),
+    metodoPagoNormalizado: normalizarMetodoPago(venta),
     total: obtenerMonto(venta),
   }));
   const ventasFiltradas = localActivo === 'general'
@@ -125,8 +169,41 @@ function Admin({ navigate }) {
     : ventasNormalizadas.filter((venta) => venta.localNormalizado === localActivo);
   const datosGeneral = prepararSeries(ventasNormalizadas, periodo);
   const datosLocal = prepararSeries(ventasFiltradas, periodo);
-  const totalFiltrado = ventasFiltradas.reduce((a, b) => a + b.total, 0);
+  const datosMetodosPago = prepararSeriesMetodosPago(ventasFiltradas, periodo);
   const nombreLocalActivo = locales.find((local) => local.id === localActivo)?.nombre || 'General';
+  const datosVentasActivas = localActivo === 'general' ? datosGeneral : datosLocal;
+  const camposVentasActivas = localActivo === 'general'
+    ? localesVentas.map((local) => ({
+      id: local.id,
+      nombre: local.nombre,
+      className: `bar-${local.id}`,
+    }))
+    : [{
+      id: localActivo,
+      nombre: nombreLocalActivo,
+      className: `bar-${localActivo}`,
+    }];
+  const camposMetodosActivos = metodoActivo === 'todos'
+    ? metodosPago.map((metodo) => ({
+      id: metodo.id,
+      nombre: metodo.nombre,
+      className: `bar-pay-${metodo.id}`,
+    }))
+    : [{
+      id: metodoActivo,
+      nombre: metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Metodo',
+      className: `bar-pay-${metodoActivo}`,
+    }];
+  const totalFiltrado = ventasFiltradas.reduce((a, b) => a + b.total, 0);
+  const totalMetodos = metodosPago.map((metodo) => ({
+    ...metodo,
+    total: ventasFiltradas
+      .filter((venta) => venta.metodoPagoNormalizado === metodo.id)
+      .reduce((suma, venta) => suma + venta.total, 0),
+  }));
+  const nombreMetodoActivo = metodoActivo === 'todos'
+    ? 'Todos los metodos'
+    : metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Metodo';
 
   return (
     <main className="dashboard-page">
@@ -164,54 +241,63 @@ function Admin({ navigate }) {
           </div>
         </div>
 
-        <div className="local-selector">
-          {locales.map((local) => (
-            <button
-              className={localActivo === local.id ? 'active' : ''}
-              onClick={() => setLocalActivo(local.id)}
-              key={local.id}
-            >
-              {local.nombre}
-            </button>
-          ))}
-        </div>
-
         <div className="chart-grid">
           <article className="chart-card">
             <div className="chart-title">
-              <h3>General de los 3 locales</h3>
-              <span>${ventasNormalizadas.reduce((a, b) => a + b.total, 0).toLocaleString('es-CL')}</span>
+              <h3>{localActivo === 'general' ? 'General de los 3 locales' : nombreLocalActivo}</h3>
+              <span>${totalFiltrado.toLocaleString('es-CL')}</span>
+            </div>
+            <div className="local-selector in-chart">
+              {locales.map((local) => (
+                <button
+                  className={localActivo === local.id ? 'active' : ''}
+                  onClick={() => setLocalActivo(local.id)}
+                  key={local.id}
+                >
+                  {local.nombre}
+                </button>
+              ))}
             </div>
             <Barras
-              datos={datosGeneral}
-              campos={localesVentas.map((local) => ({
-                id: local.id,
-                nombre: local.nombre,
-                className: `bar-${local.id}`,
-              }))}
+              datos={datosVentasActivas}
+              campos={camposVentasActivas}
             />
             <div className="chart-legend">
-              {localesVentas.map((local) => (
-                <span className={`legend-dot bar-${local.id}`} key={local.id}>{local.nombre}</span>
+              {camposVentasActivas.map((campo) => (
+                <span className={`legend-dot ${campo.className}`} key={campo.id}>{campo.nombre}</span>
               ))}
             </div>
           </article>
 
           <article className="chart-card">
             <div className="chart-title">
-              <h3>{nombreLocalActivo === 'General' ? 'Detalle general' : nombreLocalActivo}</h3>
+              <h3>{nombreMetodoActivo}</h3>
               <span>${totalFiltrado.toLocaleString('es-CL')}</span>
             </div>
+            <div className="payment-method-selector">
+              <button className={metodoActivo === 'todos' ? 'active' : ''} onClick={() => setMetodoActivo('todos')}>Todos</button>
+              {metodosPago.map((metodo) => (
+                <button
+                  className={metodoActivo === metodo.id ? 'active' : ''}
+                  onClick={() => setMetodoActivo(metodo.id)}
+                  key={metodo.id}
+                >
+                  {metodo.nombre}
+                </button>
+              ))}
+            </div>
             <Barras
-              datos={datosLocal}
-              campos={[
-                {
-                  id: localActivo === 'general' ? 'total' : localActivo,
-                  nombre: nombreLocalActivo,
-                  className: localActivo === 'general' ? 'bar-total' : `bar-${localActivo}`,
-                },
-              ]}
+              datos={datosMetodosPago}
+              campos={camposMetodosActivos}
             />
+            <div className="payment-summary compact">
+              {totalMetodos.map((metodo) => (
+                <div className={`payment-summary-row ${metodoActivo === metodo.id ? 'active' : ''}`} key={metodo.id}>
+                  <span className={`legend-dot bar-pay-${metodo.id}`}>{metodo.nombre}</span>
+                  <strong>${metodo.total.toLocaleString('es-CL')}</strong>
+                </div>
+              ))}
+            </div>
           </article>
         </div>
       </section>

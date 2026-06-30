@@ -30,7 +30,14 @@ function Cafeteria({ navigate, notify }) {
 
       <Perfil notify={notify} />
 
-      <PuntoVenta localId="cafeteria" localNombre="Cafeteria" productos={productos} usuario={usuario} notify={notify} />
+      <PuntoVenta
+        localId="cafeteria"
+        localNombre="Cafeteria"
+        productos={productos}
+        usuario={usuario}
+        notify={notify}
+        metodosPago={['Debito', 'Efectivo', 'Transferencia', 'Junaeb', 'Pluxe']}
+      />
     </main>
   );
 }
