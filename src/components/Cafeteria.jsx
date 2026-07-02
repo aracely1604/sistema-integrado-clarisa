@@ -1,6 +1,7 @@
 import React from 'react';
 import Perfil from './Perfil';
 import PuntoVenta from './PuntoVenta';
+import Reloj from './Reloj';
 import { cerrarSesion } from '../utils/auth';
 
 function Cafeteria({ navigate, notify }) {
@@ -16,6 +17,10 @@ function Cafeteria({ navigate, notify }) {
     { nombre: 'Te', precio: 1200 },
     { nombre: 'Sandwich', precio: 2500 },
     { nombre: 'Queque', precio: 1800 },
+    { nombre: 'Capuccino', precio: 2200 },
+    { nombre: 'Jugo natural', precio: 2000 },
+    { nombre: 'Muffin', precio: 1700 },
+    { nombre: 'Ensalada', precio: 2900 },
   ];
 
   return (
@@ -23,7 +28,8 @@ function Cafeteria({ navigate, notify }) {
       <header className="dashboard-topbar">
         <div>
           <p className="eyebrow">Cajero cafeteria: {usuario}</p>
-          <h1>Cafeteria</h1>
+          <h1>Punto de Venta Cafetería</h1>
+          <Reloj />
         </div>
         <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesion</button>
       </header>
@@ -32,7 +38,7 @@ function Cafeteria({ navigate, notify }) {
 
       <PuntoVenta
         localId="cafeteria"
-        localNombre="Cafeteria"
+        localNombre="Cafetería"
         productos={productos}
         usuario={usuario}
         notify={notify}

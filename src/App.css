@@ -295,6 +295,63 @@
   box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
 }
 
+.open-cash-panel {
+  max-width: 1120px;
+  margin: 18px auto 0;
+  padding: 22px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+}
+
+.datetime-line {
+  margin: 8px 0 0;
+  color: #0f766e;
+  font-weight: 900;
+}
+
+.cash-meta {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.open-cash-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.open-cash-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.open-cash-row strong,
+.open-cash-row span,
+.open-cash-row small {
+  display: block;
+}
+
+.open-cash-row strong {
+  color: #0f172a;
+}
+
+.open-cash-row span,
+.open-cash-row small {
+  margin-top: 4px;
+  color: #64748b;
+}
+
 .analytics-head,
 .chart-title {
   display: flex;
@@ -875,7 +932,71 @@
     grid-template-columns: 1fr;
   }
 
+  .open-cash-row {
+    grid-template-columns: 1fr;
+  }
+
   .dashboard-page {
     padding: 18px;
   }
 }
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: #1f2937;
+}
+.dashboard-page {
+  padding: 20px;
+  background: #f5f7fb;
+}
+.stats-grid,
+.open-cash-panel,
+.analytics-panel {
+  margin-bottom: 24px;
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+}
+button {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+}
+
+button.active {
+  background: #2563eb;
+  color: white;
+}
+.stat-card {
+  background: white;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.stat-card strong {
+  font-size: 20px;
+}
+.chart-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 28px;
+}
+
+.local-selector button,
+.payment-method-selector button {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.local-selector button:hover,
+.payment-method-selector button:hover {
+  background: #f3f4f6;
+}
+

@@ -1,16 +1,38 @@
 import React, { useEffect, useState } from 'react';
+import { doc, setDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const metodosBase = ['Debito', 'Efectivo', 'Transferencia'];
+
+const formatearFechaHora = (fecha) => {
+  return fecha.toLocaleString('es-CL', {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  });
+};
 
 function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosPago = metodosBase }) {
   const [carrito, setCarrito] = useState([]);
   const [cajaAbierta, setCajaAbierta] = useState(false);
+  const [cajaActual, setCajaActual] = useState(null);
   const [metodoPago, setMetodoPago] = useState(metodosPago[0] || '');
   const [montoEfectivo, setMontoEfectivo] = useState('');
+  const [ahora, setAhora] = useState(new Date());
+  const sesion = JSON.parse(localStorage.getItem("sesion")) || {};
+  const nombre = sesion.nombre || "";
+  const apellido = sesion.apellido || "";
+
+
+  useEffect(() => {
+    const reloj = setInterval(() => setAhora(new Date()), 1000);
+    return () => clearInterval(reloj);
+  }, []);
 
   useEffect(() => {
     const cajas = JSON.parse(localStorage.getItem('cajas')) || [];
-    setCajaAbierta(cajas.some((caja) => caja.local === localId && caja.usuario === usuario));
+    const cajaEncontrada = cajas.find((caja) => caja.local === localId && caja.usuario === usuario);
+    setCajaActual(cajaEncontrada || null);
+    setCajaAbierta(Boolean(cajaEncontrada));
   }, [localId, usuario]);
 
   const total = carrito.reduce((suma, producto) => suma + producto.precio, 0);
@@ -21,11 +43,12 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
     localStorage.setItem('cajas', JSON.stringify(cajas));
   };
 
-  const abrirCaja = () => {
+  const abrirCaja = async () => {
     const cajas = JSON.parse(localStorage.getItem('cajas')) || [];
-    const existeCaja = cajas.some((caja) => caja.local === localId && caja.usuario === usuario);
+    const existeCaja = cajas.find((caja) => caja.local === localId && caja.usuario === usuario);
 
     if (existeCaja) {
+      setCajaActual(existeCaja);
       setCajaAbierta(true);
       notify('La caja ya esta abierta.', 'info');
       return;
@@ -36,25 +59,53 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       local: localId,
       localNombre,
       usuario,
+      nombre,
+      apellido,
+      estado: 'abierta',
       abiertaDesde: new Date().toISOString(),
     };
 
     guardarCajas([...cajas, nuevaCaja]);
+    setCajaActual(nuevaCaja);
     setCajaAbierta(true);
-    notify(`Caja de ${localNombre} abierta.`, 'success');
+
+    try {
+      await setDoc(doc(db, 'cajas', nuevaCaja.id), nuevaCaja);
+      notify(`Caja de ${localNombre} abierta por ${nombre} ${apellido}.`, 'success');
+    } catch (error) {
+      console.error('Error al guardar apertura de caja en Firebase:', error);
+      notify('Caja abierta localmente, pero no se pudo guardar en Firebase.', 'error');
+    }
   };
 
-  const cerrarCaja = () => {
+  const cerrarCaja = async () => {
     if (carrito.length > 0) {
       notify('Vacia el carrito antes de cerrar caja.', 'error');
       return;
     }
 
     const cajas = JSON.parse(localStorage.getItem('cajas')) || [];
+    const cajaParaCerrar = cajaActual || cajas.find((caja) => caja.local === localId && caja.usuario === usuario);
     const cajasActualizadas = cajas.filter((caja) => !(caja.local === localId && caja.usuario === usuario));
+    const cerradaEn = new Date().toISOString();
+
     guardarCajas(cajasActualizadas);
+    setCajaActual(null);
     setCajaAbierta(false);
-    notify(`Caja de ${localNombre} cerrada.`, 'success');
+
+    try {
+      if (cajaParaCerrar?.id) {
+        await updateDoc(doc(db, 'cajas', cajaParaCerrar.id), {
+          estado: 'cerrada',
+          cerradaEn,
+          cerradaPor: usuario,
+        });
+      }
+      notify(`Caja de ${localNombre} cerrada por ${nombre} ${apellido}.`, 'success');
+    } catch (error) {
+      console.error('Error al guardar cierre de caja en Firebase:', error);
+      notify('Caja cerrada localmente, pero no se pudo actualizar en Firebase.', 'error');
+    }
   };
 
   const agregarProducto = (producto) => {
@@ -70,7 +121,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
     setCarrito(carrito.filter((_, index) => index !== indexProducto));
   };
 
-  const registrarPago = () => {
+  const registrarPago = async () => {
     if (!cajaAbierta) {
       notify('Debes abrir caja antes de registrar el pago.', 'error');
       return;
@@ -94,6 +145,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
     const ventas = JSON.parse(localStorage.getItem('ventas')) || [];
     const nuevaVenta = {
       id: `${localId}-${Date.now()}`,
+      cajaId: cajaActual?.id || null,
       local: localId,
       localNombre,
       usuario,
@@ -106,9 +158,16 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
     };
 
     localStorage.setItem('ventas', JSON.stringify([...ventas, nuevaVenta]));
-    setCarrito([]);
-    setMontoEfectivo('');
-    notify(`Venta registrada con ${metodoPago} por $${total.toLocaleString('es-CL')}.`, 'success');
+
+    try {
+      await setDoc(doc(db, 'ventas', nuevaVenta.id), nuevaVenta);
+      setCarrito([]);
+      setMontoEfectivo('');
+      notify(`Venta registrada con ${metodoPago} por $${total.toLocaleString('es-CL')}.`, 'success');
+    } catch (error) {
+      console.error('Error al guardar venta en Firebase:', error);
+      notify('Venta guardada localmente, pero no se pudo guardar en Firebase.', 'error');
+    }
   };
 
   return (
@@ -117,7 +176,8 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
         <div>
           <p className="eyebrow">Caja</p>
           <h2>{cajaAbierta ? 'Caja abierta' : 'Caja cerrada'}</h2>
-          <p className="muted">{localNombre} - {usuario}</p>
+          <p className="muted">{localNombre} - {nombre} {apellido}</p>
+          
         </div>
         <button className={cajaAbierta ? 'btn btn-danger' : 'btn btn-primary'} onClick={cajaAbierta ? cerrarCaja : abrirCaja}>
           {cajaAbierta ? 'Cerrar caja' : 'Abrir caja'}

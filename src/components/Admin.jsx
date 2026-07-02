@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-
+import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { db } from '../firebase';
+import jsPDF from "jspdf";
 const locales = [
   { id: 'general', nombre: 'General' },
-  { id: 'almacen', nombre: 'Almacen' },
-  { id: 'cafeteria', nombre: 'Cafeteria' },
-  { id: 'comida_rapida', nombre: 'Comida rapida' },
+  { id: 'almacen', nombre: 'Almacén' },
+  { id: 'cafeteria', nombre: 'Cafetería' },
+  { id: 'comida_rapida', nombre: 'Comida Rápida' },
 ];
 
-const localesVentas = locales.filter((local) => local.id !== 'general');
 
 const metodosPago = [
   { id: 'debito', nombre: 'Debito' },
@@ -62,6 +63,21 @@ const clavePeriodo = (fecha, periodo) => {
 };
 
 const obtenerMonto = (venta) => Number(venta.total || venta.monto || venta.valor || 0);
+
+const formatearFechaHora = (valor) => {
+  const fecha = valor ? new Date(valor) : new Date();
+  return fecha.toLocaleString('es-CL', {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  });
+};
+
+const unirPorId = (localesGuardados, remotos) => {
+  const mapa = new Map();
+  localesGuardados.forEach((item) => mapa.set(item.id, item));
+  remotos.forEach((item) => mapa.set(item.id, item));
+  return [...mapa.values()];
+};
 
 const prepararSeries = (ventas, periodo) => {
   const grupos = new Map();
@@ -149,14 +165,68 @@ function Barras({ datos, campos }) {
 function Admin({ navigate }) {
   const [ventas, setVentas] = useState([]);
   const [cajas, setCajas] = useState([]);
-  const [localActivo, setLocalActivo] = useState('general');
   const [metodoActivo, setMetodoActivo] = useState('todos');
   const [periodo, setPeriodo] = useState('diario');
+  const [ahora, setAhora] = useState(new Date());
+  const [mostrarLocales, setMostrarLocales] = useState(false);
+  const [reportePeriodo, setReportePeriodo] = useState("diario");
+  const [reporteLocal, setReporteLocal] = useState("almacen");
+  const [localActivo, setLocalActivo] = useState('general');
 
   useEffect(() => {
-    setVentas(JSON.parse(localStorage.getItem("ventas")) || []);
-    setCajas(JSON.parse(localStorage.getItem("cajas")) || []);
+    const reloj = setInterval(() => setAhora(new Date()), 1000);
+    return () => clearInterval(reloj);
   }, []);
+
+  useEffect(() => {
+    const cargarDatos = async () => {
+      const ventasLocales = JSON.parse(localStorage.getItem("ventas")) || [];
+      const cajasLocales = JSON.parse(localStorage.getItem("cajas")) || [];
+
+      setVentas(ventasLocales);
+      setCajas(cajasLocales);
+
+      try {
+        const ventasFirebase = await getDocs(collection(db, 'ventas'));
+        const ventasRemotas = ventasFirebase.docs.map((documento) => ({ id: documento.id, ...documento.data() }));
+        const ventasUnidas = unirPorId(ventasLocales, ventasRemotas);
+        setVentas(ventasUnidas);
+        localStorage.setItem('ventas', JSON.stringify(ventasUnidas));
+      } catch (error) {
+        console.error('No se pudieron cargar ventas de Firebase:', error);
+      }
+
+      try {
+        const cajasFirebase = await getDocs(query(collection(db, 'cajas'), where('estado', '==', 'abierta')));
+        const cajasRemotas = cajasFirebase.docs.map((documento) => ({ id: documento.id, ...documento.data() }));
+        const cajasUnidas = unirPorId(cajasLocales, cajasRemotas).filter((caja) => caja.estado !== 'cerrada');
+        setCajas(cajasUnidas);
+        localStorage.setItem('cajas', JSON.stringify(cajasUnidas));
+      } catch (error) {
+        console.error('No se pudieron cargar cajas de Firebase:', error);
+      }
+    };
+
+    cargarDatos();
+  }, []);
+
+  const cerrarCajaAdmin = async (caja) => {
+    const cerradaEn = new Date().toISOString();
+    const cajasActualizadas = cajas.filter((item) => item.id !== caja.id);
+
+    setCajas(cajasActualizadas);
+    localStorage.setItem('cajas', JSON.stringify(cajasActualizadas));
+
+    try {
+      await updateDoc(doc(db, 'cajas', caja.id), {
+        estado: 'cerrada',
+        cerradaEn,
+        cerradaPor: 'admin',
+      });
+    } catch (error) {
+      console.error('No se pudo cerrar la caja en Firebase:', error);
+    }
+  };
 
   const ventasNormalizadas = ventas.map((venta) => ({
     ...venta,
@@ -164,16 +234,19 @@ function Admin({ navigate }) {
     metodoPagoNormalizado: normalizarMetodoPago(venta),
     total: obtenerMonto(venta),
   }));
-  const ventasFiltradas = localActivo === 'general'
+  const ventasFiltradas =
+  localActivo === 'general'
     ? ventasNormalizadas
-    : ventasNormalizadas.filter((venta) => venta.localNormalizado === localActivo);
+    : ventasNormalizadas.filter(
+        (venta) => venta.localNormalizado === localActivo
+      );
   const datosGeneral = prepararSeries(ventasNormalizadas, periodo);
   const datosLocal = prepararSeries(ventasFiltradas, periodo);
   const datosMetodosPago = prepararSeriesMetodosPago(ventasFiltradas, periodo);
   const nombreLocalActivo = locales.find((local) => local.id === localActivo)?.nombre || 'General';
   const datosVentasActivas = localActivo === 'general' ? datosGeneral : datosLocal;
   const camposVentasActivas = localActivo === 'general'
-    ? localesVentas.map((local) => ({
+    ? locales.map((local) => ({
       id: local.id,
       nombre: local.nombre,
       className: `bar-${local.id}`,
@@ -195,6 +268,13 @@ function Admin({ navigate }) {
       className: `bar-pay-${metodoActivo}`,
     }];
   const totalFiltrado = ventasFiltradas.reduce((a, b) => a + b.total, 0);
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  const ventasHoy = ventasNormalizadas.filter((venta) => {
+    return obtenerFechaVenta(venta).toISOString().slice(0, 10) === hoy;
+  });
+
+const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
   const totalMetodos = metodosPago.map((metodo) => ({
     ...metodo,
     total: ventasFiltradas
@@ -204,27 +284,204 @@ function Admin({ navigate }) {
   const nombreMetodoActivo = metodoActivo === 'todos'
     ? 'Todos los metodos'
     : metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Metodo';
+  
+  const generarPDF = () => {
+    const doc = new jsPDF();
 
+    let ventasReporte = ventasNormalizadas
+      .filter((venta) => venta.localNormalizado === reporteLocal)
+      .filter((venta) => {
+        const fecha = obtenerFechaVenta(venta);
+        const hoy = new Date();
+
+        switch (reportePeriodo) {
+          case "diario":
+            return fecha.toDateString() === hoy.toDateString();
+
+          case "semanal":
+            return fecha >= obtenerInicioSemana(hoy);
+
+          case "mensual":
+            return (
+              fecha.getMonth() === hoy.getMonth() &&
+              fecha.getFullYear() === hoy.getFullYear()
+            );
+
+          case "anual":
+            return fecha.getFullYear() === hoy.getFullYear();
+
+          default:
+            return true;
+      }
+    });
+
+      let titulo = "REPORTE GENERAL DE VENTAS";
+
+      if (reporteLocal === "almacen")
+        titulo = "REPORTE - ALMACÉN";
+
+      if (reporteLocal === "cafeteria")
+        titulo = "REPORTE - CAFETERÍA";
+
+      if (reporteLocal === "comida_rapida")
+        titulo = "REPORTE - COMIDA RÁPIDA";
+
+      doc.text(titulo, 15, 20);
+
+      const total = ventasReporte.reduce(
+        (suma, venta) => suma + venta.total,
+        0
+      );
+
+      doc.text(
+        `Total vendido: $${total.toLocaleString("es-CL")}`,
+        15,
+        35
+      );
+
+      let y = 55;
+
+      ventasReporte.forEach((venta) => {
+        doc.text(venta.usuario || "-", 15, y);
+        doc.text(venta.local || venta.modulo || "-", 55, y);
+        doc.text(venta.metodoPago || "-", 100, y);
+        doc.text(obtenerFechaVenta(venta).toLocaleDateString("es-CL"), 135, y);
+        doc.text(`$${venta.total.toLocaleString("es-CL")}`, 175, y);
+
+        y += 8;
+
+        if (y > 280) {
+          doc.addPage();
+          y = 20;
+        }
+      });
+
+      doc.save("reporte.pdf");
+    };
   return (
+    
     <main className="dashboard-page">
       <header className="dashboard-topbar">
         <div>
           <p className="eyebrow">Administrador</p>
           <h1>Panel de control</h1>
+          <p className="datetime-line">{formatearFechaHora(ahora)}</p>
         </div>
-        <button className="btn btn-secondary" onClick={() => navigate('portal')}>Volver al portal</button>
-      </header>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            className="btn btn-primary" onClick={() => setMostrarLocales(!mostrarLocales)}> Locales</button>
 
+          <button
+            className="btn btn-secondary" onClick={() => navigate("portal")}> Volver al portal</button>
+          </div>
+      </header>
+        {mostrarLocales && (
+          <section className="portal-shell" style={{ margin: "30px auto 50px auto", maxWidth: "1100px"}}>
+            <div className="portal-header">
+              <div>
+                <p className="eyebrow">Módulos de Caja</p>
+                  <h2>Selecciona un local</h2>
+                <p className="muted">
+                  Accede directamente al punto de venta de cualquier local.
+                </p>
+              </div>
+
+              <button
+                className="btn btn-secondary"
+                onClick={() => setMostrarLocales(false)}
+              >
+                Cerrar
+              </button>
+              </div>
+
+              <div className="action-grid">
+
+                <button
+                  className="module-card module-green"
+                  onClick={() => navigate("almacen")}
+                >
+                <span className="module-icon">Almacén</span>
+                <strong></strong>
+                <small>Ingresar al punto de venta del almacén.</small>
+                </button>
+
+                <button
+                  className="module-card module-blue"
+                  onClick={() => navigate("cafeteria")}
+                >
+                <span className="module-icon">Cafetería</span>
+                <strong></strong>
+                <small>Ingresar al punto de venta de cafetería.</small>
+                </button>
+
+                <button
+                  className="module-card module-orange"
+                  onClick={() => navigate("comida_rapida")}
+                >
+                <span className="module-icon">Comida Rápida</span>
+                <strong></strong>
+                <small>Ingresar al punto de venta de comida rápida.</small>
+                </button>
+
+              </div>
+          </section>
+        )}
       <section className="stats-grid">
+        
         <div className="stat-card">
           <span>Ventas totales</span>
-          <strong>${ventasNormalizadas.reduce((a, b) => a + b.total, 0).toLocaleString('es-CL')}</strong>
+
+          <strong>
+            ${ventasNormalizadas.reduce((a, b) => a + b.total, 0).toLocaleString("es-CL")}
+          </strong>
+
           <small>{ventas.length} ventas registradas</small>
         </div>
+
+        <div className="stat-card">
+          <span>Ventas de hoy</span>
+
+          <strong>
+            ${totalHoy.toLocaleString("es-CL")}
+          </strong>
+
+          <small>{ventasHoy.length} ventas realizadas hoy</small>
+        </div>
+
         <div className="stat-card">
           <span>Cajas abiertas</span>
+
           <strong>{cajas.length}</strong>
+
           <small>Movimientos disponibles</small>
+        </div>
+
+</section>
+
+      <section className="open-cash-panel">
+        <div className="analytics-head">
+          <div>
+            <p className="eyebrow">Control de cajas</p>
+            <h2>Cajas abiertas</h2>
+            <p className="muted">Puedes cerrar una caja desde aqui si quedo abierta.</p>
+          </div>
+        </div>
+
+        <div className="open-cash-list">
+          {cajas.length === 0 ? (
+            <p className="muted">No hay cajas abiertas.</p>
+          ) : (
+            cajas.map((caja) => (
+              <div className="open-cash-row" key={caja.id}>
+                <div>
+                  <strong>{caja.localNombre || caja.local}</strong>
+                  <span> {caja.nombre? `${caja.nombre} ${caja.apellido}`: caja.usuario}</span>
+                  <small>Abierta: {formatearFechaHora(caja.abiertaDesde)}</small>
+                </div>
+                <button className="btn btn-danger" onClick={() => cerrarCajaAdmin(caja)}>Cerrar caja</button>
+              </div>
+            ))
+          )}
         </div>
       </section>
 
@@ -233,11 +490,12 @@ function Admin({ navigate }) {
           <div>
             <p className="eyebrow">Graficos de ventas</p>
             <h2>Resumen por local</h2>
-            <p className="muted">Selecciona un local y cambia entre vista diaria o semanal.</p>
+            <p className="muted">Selecciona un local y cambia entre vista diaria, semanal o mensual.</p>
           </div>
           <div className="period-toggle">
             <button className={periodo === 'diario' ? 'active' : ''} onClick={() => setPeriodo('diario')}>Dia</button>
-            <button className={periodo === 'semanal' ? 'active' : ''} onClick={() => setPeriodo('semanal')}>Semana</button>
+            <button className={periodo === 'semanal' ? 'active' : ''} onClick={() => setPeriodo('semanal')}>Semanal</button>
+            <button className={periodo === 'mensual' ? 'active' : ''} onClick={() => setPeriodo('mensual')}>Mensual</button>
           </div>
         </div>
 
@@ -298,6 +556,40 @@ function Admin({ navigate }) {
                 </div>
               ))}
             </div>
+            <section className="open-cash-panel">
+              <div className="analytics-head">
+                <div>
+                  <p className="eyebrow">Reportes</p>
+                    <h2>Descargar Reporte PDF</h2>
+                </div>
+              </div>
+
+              <div className="report-options">
+
+                <div className='report-field'>
+                  <h4>Periodo</h4>
+                  <div className="period-toggle">
+                    <button className={reportePeriodo === 'diario' ? 'active' : ''} onClick={() => setReportePeriodo("diario")}>Diario</button>
+                    <button className={reportePeriodo === 'semanal' ? 'active' : ''} onClick={() => setReportePeriodo("semanal")}>Semanal</button>
+                    <button className={reportePeriodo === 'mensual' ? 'active' : ''} onClick={() => setReportePeriodo("mensual")}>Mensual</button>
+                    <button className={reportePeriodo === 'anual' ? 'active' : ''} onClick={() => setReportePeriodo("anual")}>Anual</button>
+                  </div>
+                </div>
+
+                <div className="report-field">
+                  <h4>Local</h4>
+                  <div className="local-selector in-chart">
+                    <button className={reporteLocal === 'almacen' ? 'active' : ''} onClick={() => setReporteLocal("almacen")}>Almacén</button>
+                    <button className={reporteLocal === 'cafeteria' ? 'active' : ''} onClick={() => setReporteLocal("cafeteria")}>Cafetería</button>
+                    <button className={reporteLocal === 'comida_rapida' ? 'active' : ''} onClick={() => setReporteLocal("comida_rapida")}>Comida Rápida</button>
+                  </div>
+                </div>
+
+                <button className="btn btn-primary" onClick={generarPDF} style={{ width: '100%', marginTop: '10px' }}>
+                  Descargar Reporte PDF
+                </button>
+              </div>
+            </section>
           </article>
         </div>
       </section>

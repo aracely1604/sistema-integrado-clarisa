@@ -96,7 +96,7 @@ function Login({ navigate, notify }) {
         <button onClick={handleLogin} className="btn btn-primary btn-full">
           Entrar
         </button>
-        <p className="hint">Admin inicial: usuario admin / contrasena admin</p>
+        <p className="hint">Admin inicial: usuario admin / contraseña admin</p>
       </section>
     </main>
   );
