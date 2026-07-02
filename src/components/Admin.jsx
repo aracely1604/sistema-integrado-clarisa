@@ -586,7 +586,7 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
                 </div>
 
                 <button className="btn btn-primary" onClick={generarPDF} style={{ width: '100%', marginTop: '10px' }}>
-                  Descargar Reporte PDF
+                  Descargar Reporte de PDF
                 </button>
               </div>
             </section>
