@@ -2,7 +2,8 @@ import React from 'react';
 import Perfil from './Perfil';
 import PuntoVenta from './PuntoVenta';
 import Reloj from './Reloj';
-import { cerrarSesion } from '../utils/auth';
+import { cerrarSesion } from '../models/authModel';
+import { obtenerProductosLocal } from '../models/productModel';
 
 function Almacen({ navigate, notify }) {
   const sesion = JSON.parse(localStorage.getItem("sesion"));
@@ -12,16 +13,7 @@ function Almacen({ navigate, notify }) {
   }
 
   const usuario = sesion.user || "cajero";
-  const productos = [
-    { nombre: 'Arroz 1 kg', precio: 1800 },
-    { nombre: 'Bebida lata', precio: 1200 },
-    { nombre: 'Pan', precio: 800 },
-    { nombre: 'Leche', precio: 1400 },
-    { nombre: 'Azucar 1 kg', precio: 1600 },
-    { nombre: 'Fideos', precio: 1100 },
-    { nombre: 'Aceite 900 ml', precio: 2800 },
-    { nombre: 'Huevos docena', precio: 3200 },
-  ];
+  const productos = obtenerProductosLocal('almacen');
 
   return (
     <main className="dashboard-page">
@@ -31,9 +23,14 @@ function Almacen({ navigate, notify }) {
           <h1>Punto de Venta Almacén</h1>
           <Reloj />
         </div>
-        <button onClick={() => cerrarSesion(navigate)} className="btn btn-danger">
-          Cerrar sesion
-        </button>
+        <div className="admin-actions">
+          <button onClick={() => navigate('admin')} className="btn btn-secondary">
+            Volver al panel
+          </button>
+          <button onClick={() => cerrarSesion(navigate)} className="btn btn-danger">
+            Cerrar sesion
+          </button>
+        </div>
       </header>
 
       <Perfil notify={notify} />

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
-import { obtenerVistaInicial } from '../utils/auth';
+import { obtenerVistaInicial } from '../models/authModel';
 import { auth, db } from '../firebase';
+import '../styles/views/login.css';
 
 function Login({ navigate, notify }) {
   const [user, setUser] = useState('');

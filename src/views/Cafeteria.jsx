@@ -2,7 +2,8 @@ import React from 'react';
 import Perfil from './Perfil';
 import PuntoVenta from './PuntoVenta';
 import Reloj from './Reloj';
-import { cerrarSesion } from '../utils/auth';
+import { cerrarSesion } from '../models/authModel';
+import { obtenerMetodosPagoLocal, obtenerProductosLocal } from '../models/productModel';
 
 function Cafeteria({ navigate, notify }) {
   const sesion = JSON.parse(localStorage.getItem("sesion"));
@@ -12,16 +13,7 @@ function Cafeteria({ navigate, notify }) {
   }
 
   const usuario = sesion.user || "cajero";
-  const productos = [
-    { nombre: 'Cafe', precio: 1500 },
-    { nombre: 'Te', precio: 1200 },
-    { nombre: 'Sandwich', precio: 2500 },
-    { nombre: 'Queque', precio: 1800 },
-    { nombre: 'Capuccino', precio: 2200 },
-    { nombre: 'Jugo natural', precio: 2000 },
-    { nombre: 'Muffin', precio: 1700 },
-    { nombre: 'Ensalada', precio: 2900 },
-  ];
+  const productos = obtenerProductosLocal('cafeteria');
 
   return (
     <main className="dashboard-page">
@@ -31,7 +23,10 @@ function Cafeteria({ navigate, notify }) {
           <h1>Punto de Venta Cafetería</h1>
           <Reloj />
         </div>
-        <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesion</button>
+        <div className="admin-actions">
+          <button className="btn btn-secondary" onClick={() => navigate('admin')}>Volver al panel</button>
+          <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesion</button>
+        </div>
       </header>
 
       <Perfil notify={notify} />
@@ -42,7 +37,7 @@ function Cafeteria({ navigate, notify }) {
         productos={productos}
         usuario={usuario}
         notify={notify}
-        metodosPago={['Debito', 'Efectivo', 'Transferencia', 'Junaeb', 'Pluxe']}
+        metodosPago={obtenerMetodosPagoLocal('cafeteria')}
       />
     </main>
   );

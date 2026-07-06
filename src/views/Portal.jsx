@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import { cerrarSesion, obtenerOpcionRol, obtenerVistaInicial, opcionesRol, rutConFormatoValido, rutValido } from '../utils/auth';
+import { cerrarSesion, obtenerOpcionRol, obtenerVistaInicial, opcionesRol, rutConFormatoValido, rutValido } from '../models/authModel';
+import '../styles/views/portal.css';
 
 function Portal({ navigate, notify }) {
   const [mostrarCrear, setMostrarCrear] = useState(false);

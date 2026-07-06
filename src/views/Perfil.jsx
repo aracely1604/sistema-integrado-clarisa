@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { EmailAuthProvider, reauthenticateWithCredential, signInWithEmailAndPassword, updatePassword } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, limit, query, updateDoc, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import '../styles/views/profile.css';
 
 function Perfil({ notify }) {
   const sesion = JSON.parse(localStorage.getItem('sesion'));

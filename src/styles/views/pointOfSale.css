@@ -1,0 +1,7 @@
+.cash-panel .btn {
+  flex: 0 0 auto;
+}
+
+.payment-panel .field {
+  display: block;
+}

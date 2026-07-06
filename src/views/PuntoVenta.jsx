@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import '../styles/views/pointOfSale.css';
 
 const metodosBase = ['Debito', 'Efectivo', 'Transferencia'];
 

@@ -1,0 +1,52 @@
+.admin-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.admin-local-panel {
+  max-width: 1120px;
+  margin: 30px auto 50px;
+}
+
+.admin-stats-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.report-panel {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.report-options {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.report-field h4 {
+  margin: 0 0 10px;
+  color: #334155;
+}
+
+.report-download {
+  width: 100%;
+}
+
+@media (max-width: 760px) {
+  .admin-actions {
+    justify-content: stretch;
+  }
+
+  .admin-actions .btn {
+    width: 100%;
+  }
+
+  .admin-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}

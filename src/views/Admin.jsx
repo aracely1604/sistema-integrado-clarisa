@@ -1,14 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import jsPDF from 'jspdf';
 import { db } from '../firebase';
-import jsPDF from "jspdf";
+import '../styles/views/admin.css';
+
 const locales = [
-  { id: 'general', nombre: 'General' },
   { id: 'almacen', nombre: 'Almacén' },
   { id: 'cafeteria', nombre: 'Cafetería' },
   { id: 'comida_rapida', nombre: 'Comida Rápida' },
 ];
 
+const opcionesLocales = [{ id: 'general', nombre: 'General' }, ...locales];
+const opcionesReporteLocales = [{ id: 'todos', nombre: 'Los 3 locales' }, ...locales];
 
 const metodosPago = [
   { id: 'debito', nombre: 'Debito' },
@@ -130,6 +133,26 @@ const prepararSeriesMetodosPago = (ventas, periodo) => {
   return [...grupos.values()].sort((a, b) => a.clave.localeCompare(b.clave)).slice(-8);
 };
 
+const nombreLocalReporte = (localId) => {
+  if (localId === 'todos') return 'Los 3 locales';
+  return locales.find((local) => local.id === localId)?.nombre || 'Local';
+};
+
+const nombrePeriodoReporte = (periodo) => {
+  const nombres = {
+    diario: 'Diario',
+    semanal: 'Semanal',
+    mensual: 'Mensual',
+    anual: 'Anual',
+  };
+  return nombres[periodo] || 'General';
+};
+
+const limpiarTextoPDF = (valor, max = 26) => {
+  const texto = String(valor || '-');
+  return texto.length > max ? `${texto.slice(0, max - 3)}...` : texto;
+};
+
 function Barras({ datos, campos }) {
   const maximo = Math.max(1, ...datos.flatMap((dato) => campos.map((campo) => dato[campo.id] || 0)));
 
@@ -169,8 +192,8 @@ function Admin({ navigate }) {
   const [periodo, setPeriodo] = useState('diario');
   const [ahora, setAhora] = useState(new Date());
   const [mostrarLocales, setMostrarLocales] = useState(false);
-  const [reportePeriodo, setReportePeriodo] = useState("diario");
-  const [reporteLocal, setReporteLocal] = useState("almacen");
+  const [reportePeriodo, setReportePeriodo] = useState('diario');
+  const [reporteLocal, setReporteLocal] = useState('todos');
   const [localActivo, setLocalActivo] = useState('general');
 
   useEffect(() => {
@@ -180,8 +203,8 @@ function Admin({ navigate }) {
 
   useEffect(() => {
     const cargarDatos = async () => {
-      const ventasLocales = JSON.parse(localStorage.getItem("ventas")) || [];
-      const cajasLocales = JSON.parse(localStorage.getItem("cajas")) || [];
+      const ventasLocales = JSON.parse(localStorage.getItem('ventas')) || [];
+      const cajasLocales = JSON.parse(localStorage.getItem('cajas')) || [];
 
       setVentas(ventasLocales);
       setCajas(cajasLocales);
@@ -235,131 +258,156 @@ function Admin({ navigate }) {
     total: obtenerMonto(venta),
   }));
   const ventasFiltradas =
-  localActivo === 'general'
-    ? ventasNormalizadas
-    : ventasNormalizadas.filter(
-        (venta) => venta.localNormalizado === localActivo
-      );
+    localActivo === 'general'
+      ? ventasNormalizadas
+      : ventasNormalizadas.filter((venta) => venta.localNormalizado === localActivo);
   const datosGeneral = prepararSeries(ventasNormalizadas, periodo);
   const datosLocal = prepararSeries(ventasFiltradas, periodo);
   const datosMetodosPago = prepararSeriesMetodosPago(ventasFiltradas, periodo);
-  const nombreLocalActivo = locales.find((local) => local.id === localActivo)?.nombre || 'General';
+  const nombreLocalActivo = opcionesLocales.find((local) => local.id === localActivo)?.nombre || 'General';
   const datosVentasActivas = localActivo === 'general' ? datosGeneral : datosLocal;
-  const camposVentasActivas = localActivo === 'general'
-    ? locales.map((local) => ({
-      id: local.id,
-      nombre: local.nombre,
-      className: `bar-${local.id}`,
-    }))
-    : [{
-      id: localActivo,
-      nombre: nombreLocalActivo,
-      className: `bar-${localActivo}`,
-    }];
-  const camposMetodosActivos = metodoActivo === 'todos'
-    ? metodosPago.map((metodo) => ({
-      id: metodo.id,
-      nombre: metodo.nombre,
-      className: `bar-pay-${metodo.id}`,
-    }))
-    : [{
-      id: metodoActivo,
-      nombre: metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Metodo',
-      className: `bar-pay-${metodoActivo}`,
-    }];
+  const camposVentasActivas =
+    localActivo === 'general'
+      ? locales.map((local) => ({
+          id: local.id,
+          nombre: local.nombre,
+          className: `bar-${local.id}`,
+        }))
+      : [
+          {
+            id: localActivo,
+            nombre: nombreLocalActivo,
+            className: `bar-${localActivo}`,
+          },
+        ];
+  const camposMetodosActivos =
+    metodoActivo === 'todos'
+      ? metodosPago.map((metodo) => ({
+          id: metodo.id,
+          nombre: metodo.nombre,
+          className: `bar-pay-${metodo.id}`,
+        }))
+      : [
+          {
+            id: metodoActivo,
+            nombre: metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Metodo',
+            className: `bar-pay-${metodoActivo}`,
+          },
+        ];
+  const totalGeneral = ventasNormalizadas.reduce((a, b) => a + b.total, 0);
   const totalFiltrado = ventasFiltradas.reduce((a, b) => a + b.total, 0);
   const hoy = new Date().toISOString().slice(0, 10);
-
-  const ventasHoy = ventasNormalizadas.filter((venta) => {
-    return obtenerFechaVenta(venta).toISOString().slice(0, 10) === hoy;
-  });
-
-const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
+  const ventasHoy = ventasNormalizadas.filter((venta) => obtenerFechaVenta(venta).toISOString().slice(0, 10) === hoy);
+  const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
   const totalMetodos = metodosPago.map((metodo) => ({
     ...metodo,
     total: ventasFiltradas
       .filter((venta) => venta.metodoPagoNormalizado === metodo.id)
       .reduce((suma, venta) => suma + venta.total, 0),
   }));
-  const nombreMetodoActivo = metodoActivo === 'todos'
-    ? 'Todos los metodos'
-    : metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Metodo';
-  
-  const generarPDF = () => {
-    const doc = new jsPDF();
+  const nombreMetodoActivo =
+    metodoActivo === 'todos'
+      ? 'Todos los metodos'
+      : metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Metodo';
 
-    let ventasReporte = ventasNormalizadas
-      .filter((venta) => venta.localNormalizado === reporteLocal)
+  const filtrarVentasReporte = () => {
+    return ventasNormalizadas
+      .filter((venta) => reporteLocal === 'todos' || venta.localNormalizado === reporteLocal)
       .filter((venta) => {
         const fecha = obtenerFechaVenta(venta);
-        const hoy = new Date();
+        const hoyReporte = new Date();
 
         switch (reportePeriodo) {
-          case "diario":
-            return fecha.toDateString() === hoy.toDateString();
-
-          case "semanal":
-            return fecha >= obtenerInicioSemana(hoy);
-
-          case "mensual":
-            return (
-              fecha.getMonth() === hoy.getMonth() &&
-              fecha.getFullYear() === hoy.getFullYear()
-            );
-
-          case "anual":
-            return fecha.getFullYear() === hoy.getFullYear();
-
+          case 'diario':
+            return fecha.toDateString() === hoyReporte.toDateString();
+          case 'semanal':
+            return fecha >= obtenerInicioSemana(hoyReporte);
+          case 'mensual':
+            return fecha.getMonth() === hoyReporte.getMonth() && fecha.getFullYear() === hoyReporte.getFullYear();
+          case 'anual':
+            return fecha.getFullYear() === hoyReporte.getFullYear();
           default:
             return true;
-      }
-    });
-
-      let titulo = "REPORTE GENERAL DE VENTAS";
-
-      if (reporteLocal === "almacen")
-        titulo = "REPORTE - ALMACÉN";
-
-      if (reporteLocal === "cafeteria")
-        titulo = "REPORTE - CAFETERÍA";
-
-      if (reporteLocal === "comida_rapida")
-        titulo = "REPORTE - COMIDA RÁPIDA";
-
-      doc.text(titulo, 15, 20);
-
-      const total = ventasReporte.reduce(
-        (suma, venta) => suma + venta.total,
-        0
-      );
-
-      doc.text(
-        `Total vendido: $${total.toLocaleString("es-CL")}`,
-        15,
-        35
-      );
-
-      let y = 55;
-
-      ventasReporte.forEach((venta) => {
-        doc.text(venta.usuario || "-", 15, y);
-        doc.text(venta.local || venta.modulo || "-", 55, y);
-        doc.text(venta.metodoPago || "-", 100, y);
-        doc.text(obtenerFechaVenta(venta).toLocaleDateString("es-CL"), 135, y);
-        doc.text(`$${venta.total.toLocaleString("es-CL")}`, 175, y);
-
-        y += 8;
-
-        if (y > 280) {
-          doc.addPage();
-          y = 20;
         }
       });
+  };
 
-      doc.save("reporte.pdf");
+  const generarPDF = () => {
+    const ventasReporte = filtrarVentasReporte();
+    const total = ventasReporte.reduce((suma, venta) => suma + venta.total, 0);
+    const doc = new jsPDF({ orientation: 'landscape' });
+    const anchoPagina = doc.internal.pageSize.getWidth();
+    const margen = 14;
+    const anchoTabla = anchoPagina - margen * 2;
+    const subtitulo = `${nombreLocalReporte(reporteLocal)} - ${nombrePeriodoReporte(reportePeriodo)}`;
+
+    const dibujarEncabezado = () => {
+      doc.setFillColor(15, 118, 110);
+      doc.rect(0, 0, anchoPagina, 28, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('REPORTE DE VENTAS', margen, 12);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(subtitulo, margen, 21);
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(`Total vendido: $${total.toLocaleString('es-CL')}`, margen, 39);
+      doc.text(`Ventas: ${ventasReporte.length}`, margen + 82, 39);
+      doc.text(`Generado: ${formatearFechaHora(new Date())}`, margen + 130, 39);
+
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margen, 48, anchoTabla, 9, 'F');
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Usuario', margen + 3, 54);
+      doc.text('Local', margen + 70, 54);
+      doc.text('Metodo', margen + 122, 54);
+      doc.text('Fecha', margen + 174, 54);
+      doc.text('Total', margen + 238, 54);
     };
+
+    dibujarEncabezado();
+
+    if (ventasReporte.length === 0) {
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('helvetica', 'normal');
+      doc.text('No hay ventas registradas para los filtros seleccionados.', margen, 70);
+      doc.save('reporte-ventas.pdf');
+      return;
+    }
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    let y = 66;
+
+    ventasReporte.forEach((venta) => {
+      if (y > 188) {
+        doc.addPage();
+        dibujarEncabezado();
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        y = 66;
+      }
+
+      doc.setDrawColor(226, 232, 240);
+      doc.line(margen, y + 3, anchoPagina - margen, y + 3);
+      doc.setTextColor(15, 23, 42);
+      doc.text(limpiarTextoPDF(venta.usuario, 32), margen + 3, y);
+      doc.text(limpiarTextoPDF(venta.localNombre || venta.local || venta.modulo, 22), margen + 70, y);
+      doc.text(limpiarTextoPDF(venta.metodoPago, 18), margen + 122, y);
+      doc.text(formatearFechaHora(obtenerFechaVenta(venta)), margen + 174, y);
+      doc.text(`$${venta.total.toLocaleString('es-CL')}`, margen + 238, y);
+      y += 10;
+    });
+
+    doc.save('reporte-ventas.pdf');
+  };
+
   return (
-    
     <main className="dashboard-page">
       <header className="dashboard-topbar">
         <div>
@@ -367,96 +415,70 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
           <h1>Panel de control</h1>
           <p className="datetime-line">{formatearFechaHora(ahora)}</p>
         </div>
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button
-            className="btn btn-primary" onClick={() => setMostrarLocales(!mostrarLocales)}> Locales</button>
-
-          <button
-            className="btn btn-secondary" onClick={() => navigate("portal")}> Volver al portal</button>
-          </div>
+        <div className="admin-actions">
+          <button className="btn btn-primary" onClick={() => setMostrarLocales(!mostrarLocales)}>
+            Locales
+          </button>
+          <button className="btn btn-secondary" onClick={() => navigate('portal')}>
+            Volver al portal
+          </button>
+        </div>
       </header>
-        {mostrarLocales && (
-          <section className="portal-shell" style={{ margin: "30px auto 50px auto", maxWidth: "1100px"}}>
-            <div className="portal-header">
-              <div>
-                <p className="eyebrow">Módulos de Caja</p>
-                  <h2>Selecciona un local</h2>
-                <p className="muted">
-                  Accede directamente al punto de venta de cualquier local.
-                </p>
-              </div>
 
-              <button
-                className="btn btn-secondary"
-                onClick={() => setMostrarLocales(false)}
-              >
-                Cerrar
-              </button>
-              </div>
+      {mostrarLocales && (
+        <section className="admin-local-panel portal-shell">
+          <div className="portal-header">
+            <div>
+              <p className="eyebrow">Modulos de caja</p>
+              <h2>Selecciona un local</h2>
+              <p className="muted">Accede directamente al punto de venta de cualquier local.</p>
+            </div>
+            <button className="btn btn-secondary" onClick={() => setMostrarLocales(false)}>
+              Volver al panel
+            </button>
+          </div>
 
-              <div className="action-grid">
+          <div className="action-grid">
+            <button className="module-card module-green" onClick={() => navigate('almacen')}>
+              <span className="module-icon">Almacén</span>
+              <strong>Punto de venta</strong>
+              <small>Ingresar al punto de venta del almacén.</small>
+            </button>
 
-                <button
-                  className="module-card module-green"
-                  onClick={() => navigate("almacen")}
-                >
-                <span className="module-icon">Almacén</span>
-                <strong></strong>
-                <small>Ingresar al punto de venta del almacén.</small>
-                </button>
+            <button className="module-card module-blue" onClick={() => navigate('cafeteria')}>
+              <span className="module-icon">Cafetería</span>
+              <strong>Punto de venta</strong>
+              <small>Ingresar al punto de venta de cafetería.</small>
+            </button>
 
-                <button
-                  className="module-card module-blue"
-                  onClick={() => navigate("cafeteria")}
-                >
-                <span className="module-icon">Cafetería</span>
-                <strong></strong>
-                <small>Ingresar al punto de venta de cafetería.</small>
-                </button>
+            <button className="module-card module-orange" onClick={() => navigate('comida_rapida')}>
+              <span className="module-icon">Comida</span>
+              <strong>Punto de venta</strong>
+              <small>Ingresar al punto de venta de comida rápida.</small>
+            </button>
+          </div>
+        </section>
+      )}
 
-                <button
-                  className="module-card module-orange"
-                  onClick={() => navigate("comida_rapida")}
-                >
-                <span className="module-icon">Comida Rápida</span>
-                <strong></strong>
-                <small>Ingresar al punto de venta de comida rápida.</small>
-                </button>
-
-              </div>
-          </section>
-        )}
-      <section className="stats-grid">
-        
+      <section className="stats-grid admin-stats-grid">
         <div className="stat-card">
           <span>Ventas totales</span>
-
-          <strong>
-            ${ventasNormalizadas.reduce((a, b) => a + b.total, 0).toLocaleString("es-CL")}
-          </strong>
-
+          <strong>${totalGeneral.toLocaleString('es-CL')}</strong>
           <small>{ventas.length} ventas registradas</small>
         </div>
 
         <div className="stat-card">
           <span>Ventas de hoy</span>
-
-          <strong>
-            ${totalHoy.toLocaleString("es-CL")}
-          </strong>
-
+          <strong>${totalHoy.toLocaleString('es-CL')}</strong>
           <small>{ventasHoy.length} ventas realizadas hoy</small>
         </div>
 
         <div className="stat-card">
           <span>Cajas abiertas</span>
-
           <strong>{cajas.length}</strong>
-
           <small>Movimientos disponibles</small>
         </div>
-
-</section>
+      </section>
 
       <section className="open-cash-panel">
         <div className="analytics-head">
@@ -475,10 +497,12 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
               <div className="open-cash-row" key={caja.id}>
                 <div>
                   <strong>{caja.localNombre || caja.local}</strong>
-                  <span> {caja.nombre? `${caja.nombre} ${caja.apellido}`: caja.usuario}</span>
+                  <span>{caja.nombre ? `${caja.nombre} ${caja.apellido}` : caja.usuario}</span>
                   <small>Abierta: {formatearFechaHora(caja.abiertaDesde)}</small>
                 </div>
-                <button className="btn btn-danger" onClick={() => cerrarCajaAdmin(caja)}>Cerrar caja</button>
+                <button className="btn btn-danger" onClick={() => cerrarCajaAdmin(caja)}>
+                  Cerrar caja
+                </button>
               </div>
             ))
           )}
@@ -488,14 +512,20 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
       <section className="analytics-panel">
         <div className="analytics-head">
           <div>
-            <p className="eyebrow">Graficos de ventas</p>
+            <p className="eyebrow">Gráficos de ventas</p>
             <h2>Resumen por local</h2>
             <p className="muted">Selecciona un local y cambia entre vista diaria, semanal o mensual.</p>
           </div>
           <div className="period-toggle">
-            <button className={periodo === 'diario' ? 'active' : ''} onClick={() => setPeriodo('diario')}>Dia</button>
-            <button className={periodo === 'semanal' ? 'active' : ''} onClick={() => setPeriodo('semanal')}>Semanal</button>
-            <button className={periodo === 'mensual' ? 'active' : ''} onClick={() => setPeriodo('mensual')}>Mensual</button>
+            <button className={periodo === 'diario' ? 'active' : ''} onClick={() => setPeriodo('diario')}>
+              Día
+            </button>
+            <button className={periodo === 'semanal' ? 'active' : ''} onClick={() => setPeriodo('semanal')}>
+              Semanal
+            </button>
+            <button className={periodo === 'mensual' ? 'active' : ''} onClick={() => setPeriodo('mensual')}>
+              Mensual
+            </button>
           </div>
         </div>
 
@@ -506,7 +536,7 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
               <span>${totalFiltrado.toLocaleString('es-CL')}</span>
             </div>
             <div className="local-selector in-chart">
-              {locales.map((local) => (
+              {opcionesLocales.map((local) => (
                 <button
                   className={localActivo === local.id ? 'active' : ''}
                   onClick={() => setLocalActivo(local.id)}
@@ -516,13 +546,12 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
                 </button>
               ))}
             </div>
-            <Barras
-              datos={datosVentasActivas}
-              campos={camposVentasActivas}
-            />
+            <Barras datos={datosVentasActivas} campos={camposVentasActivas} />
             <div className="chart-legend">
               {camposVentasActivas.map((campo) => (
-                <span className={`legend-dot ${campo.className}`} key={campo.id}>{campo.nombre}</span>
+                <span className={`legend-dot ${campo.className}`} key={campo.id}>
+                  {campo.nombre}
+                </span>
               ))}
             </div>
           </article>
@@ -533,7 +562,9 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
               <span>${totalFiltrado.toLocaleString('es-CL')}</span>
             </div>
             <div className="payment-method-selector">
-              <button className={metodoActivo === 'todos' ? 'active' : ''} onClick={() => setMetodoActivo('todos')}>Todos</button>
+              <button className={metodoActivo === 'todos' ? 'active' : ''} onClick={() => setMetodoActivo('todos')}>
+                Todos
+              </button>
               {metodosPago.map((metodo) => (
                 <button
                   className={metodoActivo === metodo.id ? 'active' : ''}
@@ -544,10 +575,7 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
                 </button>
               ))}
             </div>
-            <Barras
-              datos={datosMetodosPago}
-              campos={camposMetodosActivos}
-            />
+            <Barras datos={datosMetodosPago} campos={camposMetodosActivos} />
             <div className="payment-summary compact">
               {totalMetodos.map((metodo) => (
                 <div className={`payment-summary-row ${metodoActivo === metodo.id ? 'active' : ''}`} key={metodo.id}>
@@ -556,37 +584,51 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
                 </div>
               ))}
             </div>
-            <section className="open-cash-panel">
+
+            <section className="report-panel">
               <div className="analytics-head">
                 <div>
                   <p className="eyebrow">Reportes</p>
-                    <h2>Descargar Reporte PDF</h2>
+                  <h2>Descargar reporte PDF</h2>
                 </div>
               </div>
 
               <div className="report-options">
-
-                <div className='report-field'>
+                <div className="report-field">
                   <h4>Periodo</h4>
                   <div className="period-toggle">
-                    <button className={reportePeriodo === 'diario' ? 'active' : ''} onClick={() => setReportePeriodo("diario")}>Diario</button>
-                    <button className={reportePeriodo === 'semanal' ? 'active' : ''} onClick={() => setReportePeriodo("semanal")}>Semanal</button>
-                    <button className={reportePeriodo === 'mensual' ? 'active' : ''} onClick={() => setReportePeriodo("mensual")}>Mensual</button>
-                    <button className={reportePeriodo === 'anual' ? 'active' : ''} onClick={() => setReportePeriodo("anual")}>Anual</button>
+                    <button className={reportePeriodo === 'diario' ? 'active' : ''} onClick={() => setReportePeriodo('diario')}>
+                      Diario
+                    </button>
+                    <button className={reportePeriodo === 'semanal' ? 'active' : ''} onClick={() => setReportePeriodo('semanal')}>
+                      Semanal
+                    </button>
+                    <button className={reportePeriodo === 'mensual' ? 'active' : ''} onClick={() => setReportePeriodo('mensual')}>
+                      Mensual
+                    </button>
+                    <button className={reportePeriodo === 'anual' ? 'active' : ''} onClick={() => setReportePeriodo('anual')}>
+                      Anual
+                    </button>
                   </div>
                 </div>
 
                 <div className="report-field">
                   <h4>Local</h4>
                   <div className="local-selector in-chart">
-                    <button className={reporteLocal === 'almacen' ? 'active' : ''} onClick={() => setReporteLocal("almacen")}>Almacén</button>
-                    <button className={reporteLocal === 'cafeteria' ? 'active' : ''} onClick={() => setReporteLocal("cafeteria")}>Cafetería</button>
-                    <button className={reporteLocal === 'comida_rapida' ? 'active' : ''} onClick={() => setReporteLocal("comida_rapida")}>Comida Rápida</button>
+                    {opcionesReporteLocales.map((local) => (
+                      <button
+                        className={reporteLocal === local.id ? 'active' : ''}
+                        onClick={() => setReporteLocal(local.id)}
+                        key={local.id}
+                      >
+                        {local.nombre}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                <button className="btn btn-primary" onClick={generarPDF} style={{ width: '100%', marginTop: '10px' }}>
-                  Descargar Reporte de PDF
+                <button className="btn btn-primary report-download" onClick={generarPDF}>
+                  Descargar reporte PDF
                 </button>
               </div>
             </section>
@@ -596,4 +638,5 @@ const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
     </main>
   );
 }
+
 export default Admin;

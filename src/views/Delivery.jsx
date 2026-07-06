@@ -1,6 +1,7 @@
 import React from 'react';
 import Perfil from './Perfil';
-import { cerrarSesion } from '../utils/auth';
+import { cerrarSesion } from '../models/authModel';
+import '../styles/views/delivery.css';
 
 function Delivery({ navigate, notify }) {
   const sesion = JSON.parse(localStorage.getItem("sesion"));

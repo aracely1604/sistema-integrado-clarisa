@@ -1,11 +1,13 @@
 import React from 'react';
+import '../styles/views/simple.css';
 
 function Seguimiento({ navigate }) {
   return (
-    <div style={{ padding: '20px' }}>
-      <h2>📦 Seguimiento de Pedido</h2>
+    <div className="simple-view">
+      <h2>Seguimiento de Pedido</h2>
       <button onClick={() => navigate('cliente')}>Volver</button>
     </div>
   );
 }
+
 export default Seguimiento;

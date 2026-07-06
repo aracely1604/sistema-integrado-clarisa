@@ -2,7 +2,8 @@ import React from 'react';
 import Perfil from './Perfil';
 import PuntoVenta from './PuntoVenta';
 import Reloj from './Reloj';
-import { cerrarSesion } from '../utils/auth';
+import { cerrarSesion } from '../models/authModel';
+import { obtenerProductosLocal } from '../models/productModel';
 
 function ComidaRapida({ navigate, notify }) {
   const sesion = JSON.parse(localStorage.getItem("sesion"));
@@ -12,16 +13,7 @@ function ComidaRapida({ navigate, notify }) {
   }
 
   const usuario = sesion.user || "cajero";
-  const productos = [
-    { nombre: 'Completo', precio: 2200 },
-    { nombre: 'Hamburguesa', precio: 3500 },
-    { nombre: 'Papas fritas', precio: 2000 },
-    { nombre: 'Bebida', precio: 1200 },
-    { nombre: 'Churrasco', precio: 4200 },
-    { nombre: 'Nuggets', precio: 2800 },
-    { nombre: 'Empanada', precio: 1600 },
-    { nombre: 'Helado', precio: 1500 },
-  ];
+  const productos = obtenerProductosLocal('comida_rapida');
 
   return (
     <main className="dashboard-page">
@@ -31,7 +23,10 @@ function ComidaRapida({ navigate, notify }) {
           <h1>Punto de Venta Comida Rápida</h1>
           <Reloj />
         </div>
-        <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesion</button>
+        <div className="admin-actions">
+          <button className="btn btn-secondary" onClick={() => navigate('admin')}>Volver al panel</button>
+          <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesion</button>
+        </div>
       </header>
 
       <Perfil notify={notify} />

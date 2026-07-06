@@ -1,45 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import Login from './components/Login';
-import Portal from './components/Portal';
-import Admin from './components/Admin';
-import Almacen from './components/Almacen';
-import Delivery from './components/Delivery';
-import Cafeteria from './components/Cafeteria';
-import ComidaRapida from './components/ComidaRapida';
-import './App.css';
+import Login from './views/Login';
+import Portal from './views/Portal';
+import Admin from './views/Admin';
+import Almacen from './views/Almacen';
+import Delivery from './views/Delivery';
+import Cafeteria from './views/Cafeteria';
+import ComidaRapida from './views/ComidaRapida';
+import { asegurarAdminInicial, crearToast, guardarVistaActual, obtenerVistaGuardada } from './controllers/appController';
+import './styles/App.css';
 
 function App() {
-  const [view, setView] = useState(() => {
-    return localStorage.getItem('currentView') || 'login';
-  });
+  const [view, setView] = useState(obtenerVistaGuardada);
   const [toast, setToast] = useState(null);
 
   const navigate = (newView) => {
     setView(newView);
-    localStorage.setItem('currentView', newView);
+    guardarVistaActual(newView);
   };
 
   const notify = (message, type = 'info') => {
-    setToast({ message, type });
+    setToast(crearToast(message, type));
     window.clearTimeout(window.__toastTimer);
     window.__toastTimer = window.setTimeout(() => setToast(null), 3200);
   };
 
-  // Creamos el admin por defecto
   useEffect(() => {
-    if (!localStorage.getItem("usuarios")) {
-      localStorage.setItem("usuarios", JSON.stringify([
-        {
-          user: "admin",
-          pass: "admin",
-          nombre: "Administrador",
-          apellido: "General",
-          rut: "admin",
-          rol: "admin",
-          local: "Administrador"
-        }
-      ]));
-    }
+    asegurarAdminInicial();
   }, []);
 
   const renderView = () => {
