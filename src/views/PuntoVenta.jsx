@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import '../styles/views/pointOfSale.css';
 
-const metodosBase = ['Debito', 'Efectivo', 'Transferencia'];
+const metodosBase = ['Débito', 'Efectivo', 'Transferencia'];
 
 const formatearFechaHora = (fecha) => {
   return fecha.toLocaleString('es-CL', {
@@ -30,10 +30,60 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
   }, []);
 
   useEffect(() => {
-    const cajas = JSON.parse(localStorage.getItem('cajas')) || [];
-    const cajaEncontrada = cajas.find((caja) => caja.local === localId && caja.usuario === usuario);
-    setCajaActual(cajaEncontrada || null);
-    setCajaAbierta(Boolean(cajaEncontrada));
+    const sincronizarCaja = async () => {
+      const cajas = JSON.parse(localStorage.getItem('cajas')) || [];
+      const cajaEncontrada = cajas.find((caja) => caja.local === localId && caja.usuario === usuario && caja.estado !== 'cerrada');
+
+      if (cajaEncontrada?.id) {
+        try {
+          const cajaRemota = await getDoc(doc(db, 'cajas', cajaEncontrada.id));
+          if (cajaRemota.exists() && cajaRemota.data().estado === 'cerrada') {
+            const cajasActualizadas = cajas.filter((caja) => caja.id !== cajaEncontrada.id);
+            guardarCajas(cajasActualizadas);
+            setCajaActual(null);
+            setCajaAbierta(false);
+            return;
+          }
+        } catch (error) {
+          console.error('No se pudo sincronizar caja con Firebase:', error);
+        }
+      }
+
+      if (!cajaEncontrada) {
+        try {
+          const consulta = query(
+            collection(db, 'cajas'),
+            where('local', '==', localId),
+            where('usuario', '==', usuario),
+            where('estado', '==', 'abierta'),
+            limit(1),
+          );
+          const resultado = await getDocs(consulta);
+
+          if (!resultado.empty) {
+            const cajaRemota = { id: resultado.docs[0].id, ...resultado.docs[0].data() };
+            guardarCajas([...cajas.filter((caja) => caja.id !== cajaRemota.id), cajaRemota]);
+            setCajaActual(cajaRemota);
+            setCajaAbierta(true);
+            return;
+          }
+        } catch (error) {
+          console.error('No se pudieron cargar cajas abiertas desde Firebase:', error);
+        }
+      }
+
+      setCajaActual(cajaEncontrada || null);
+      setCajaAbierta(Boolean(cajaEncontrada));
+    };
+
+    sincronizarCaja();
+    const intervalo = setInterval(sincronizarCaja, 2500);
+    window.addEventListener('cajas-actualizadas', sincronizarCaja);
+
+    return () => {
+      clearInterval(intervalo);
+      window.removeEventListener('cajas-actualizadas', sincronizarCaja);
+    };
   }, [localId, usuario]);
 
   const total = carrito.reduce((suma, producto) => suma + producto.precio, 0);
@@ -42,6 +92,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
 
   const guardarCajas = (cajas) => {
     localStorage.setItem('cajas', JSON.stringify(cajas));
+    window.dispatchEvent(new Event('cajas-actualizadas'));
   };
 
   const abrirCaja = async () => {
@@ -51,7 +102,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
     if (existeCaja) {
       setCajaActual(existeCaja);
       setCajaAbierta(true);
-      notify('La caja ya esta abierta.', 'info');
+      notify('La caja ya está abierta.', 'info');
       return;
     }
 
@@ -81,7 +132,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
 
   const cerrarCaja = async () => {
     if (carrito.length > 0) {
-      notify('Vacia el carrito antes de cerrar caja.', 'error');
+      notify('Vacía el carrito antes de cerrar caja.', 'error');
       return;
     }
 
@@ -134,7 +185,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
     }
 
     if (!metodoPago) {
-      notify('Selecciona un metodo de pago.', 'error');
+      notify('Selecciona un método de pago.', 'error');
       return;
     }
 
@@ -150,6 +201,9 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       local: localId,
       localNombre,
       usuario,
+      usuarioNombre: `${nombre} ${apellido}`.trim(),
+      nombreUsuario: nombre,
+      apellidoUsuario: apellido,
       productos: carrito,
       total,
       metodoPago,
@@ -211,7 +265,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
 
           <div className="cart-list">
             {carrito.length === 0 ? (
-              <p className="muted">Aun no hay productos agregados.</p>
+              <p className="muted">Aún no hay productos agregados.</p>
             ) : (
               carrito.map((item, index) => (
                 <div className="cart-row" key={`${item.nombre}-${index}`}>
@@ -231,7 +285,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
           </div>
 
           <div className="payment-panel">
-            <label htmlFor={`metodo-pago-${localId}`}>Metodo de pago</label>
+            <label htmlFor={`metodo-pago-${localId}`}>Método de pago</label>
             <select
               id={`metodo-pago-${localId}`}
               className="field"

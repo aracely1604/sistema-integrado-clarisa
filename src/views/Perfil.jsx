@@ -1,20 +1,31 @@
 import React, { useState } from 'react';
-import { EmailAuthProvider, reauthenticateWithCredential, signInWithEmailAndPassword, updatePassword } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, limit, query, updateDoc, where } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { db } from '../firebase';
+import { obtenerNombreRol, obtenerOpcionRol, obtenerValorRol, opcionesRol } from '../models/authModel';
 import '../styles/views/profile.css';
 
 function Perfil({ notify }) {
   const sesion = JSON.parse(localStorage.getItem('sesion'));
   const [abierto, setAbierto] = useState(false);
-  const [actual, setActual] = useState('');
-  const [nueva, setNueva] = useState('');
-  const [confirmar, setConfirmar] = useState('');
+  const [form, setForm] = useState(() => ({
+    nombre: sesion?.nombre || '',
+    apellido: sesion?.apellido || '',
+    rut: sesion?.rut || '',
+    user: sesion?.user || '',
+    telefono: sesion?.telefono || '',
+    rol: obtenerValorRol(sesion),
+    patente: sesion?.patente || '',
+    colorAuto: sesion?.colorAuto || '',
+    marcaAuto: sesion?.marcaAuto || '',
+  }));
 
   if (!sesion) return null;
 
+  const esAdmin = sesion.rol === 'admin';
+  const esDelivery = sesion.rol === 'delivery';
+
   const buscarDocumentoUsuario = async () => {
-    const posiblesIds = [sesion.rut, sesion.uid].filter(Boolean);
+    const posiblesIds = [sesion.uid, sesion.rut].filter(Boolean);
 
     for (const id of posiblesIds) {
       const referencia = doc(db, 'usuarios', id);
@@ -37,73 +48,56 @@ function Perfil({ notify }) {
     return null;
   };
 
-  const actualizarContrasenaAuth = async () => {
-    if (!sesion.user || !sesion.user.includes('@')) return;
-
-    let usuarioAuth = auth.currentUser;
-
-    if (!usuarioAuth || usuarioAuth.email !== sesion.user) {
-      const credenciales = await signInWithEmailAndPassword(auth, sesion.user, actual);
-      usuarioAuth = credenciales.user;
-    } else {
-      const credencial = EmailAuthProvider.credential(sesion.user, actual);
-      await reauthenticateWithCredential(usuarioAuth, credencial);
-    }
-
-    await updatePassword(usuarioAuth, nueva);
+  const actualizarCampo = (campo, valor) => {
+    setForm({ ...form, [campo]: valor });
   };
 
-  const cambiarContrasena = async (e) => {
+  const guardarPerfil = async (e) => {
     e.preventDefault();
+    const opcionRol = obtenerOpcionRol(form.rol);
+    const datosActualizados = {
+      ...sesion,
+      nombre: form.nombre.trim(),
+      apellido: form.apellido.trim(),
+      rut: form.rut.trim(),
+      user: form.user.trim().toLowerCase(),
+      telefono: form.telefono.trim(),
+      ...(esAdmin ? { rol: opcionRol.rol, local: opcionRol.local } : {}),
+      ...(esDelivery ? {
+        patente: form.patente.trim().toUpperCase(),
+        colorAuto: form.colorAuto.trim(),
+        marcaAuto: form.marcaAuto.trim(),
+      } : {}),
+    };
 
-    if (actual !== sesion.pass) {
-      notify('La contrasena actual no coincide.', 'error');
-      return;
-    }
-
-    if (nueva.length < 6) {
-      notify('La nueva contrasena debe tener al menos 6 caracteres.', 'error');
-      return;
-    }
-
-    if (nueva !== confirmar) {
-      notify('La confirmacion no coincide con la nueva contrasena.', 'error');
+    if (!datosActualizados.nombre || !datosActualizados.apellido || !datosActualizados.rut || !datosActualizados.user) {
+      notify('Completa nombres, apellidos, RUT y correo electrónico.', 'error');
       return;
     }
 
     try {
-      try {
-        await actualizarContrasenaAuth();
-      } catch (errorAuth) {
-        const puedeContinuarSoloFirestore = ['auth/operation-not-allowed', 'auth/user-not-found', 'auth/invalid-credential'].includes(errorAuth.code);
-        if (!puedeContinuarSoloFirestore) throw errorAuth;
-      }
-
       const referenciaUsuario = await buscarDocumentoUsuario();
       if (!referenciaUsuario) {
         notify('No se encontro el usuario en Firebase.', 'error');
         return;
       }
 
-      await updateDoc(referenciaUsuario, { pass: nueva });
+      await updateDoc(referenciaUsuario, datosActualizados);
 
       const usuarios = JSON.parse(localStorage.getItem('usuarios')) || [];
       const usuariosActualizados = usuarios.map((usuario) => {
         const mismoUsuario = usuario.user === sesion.user || usuario.rut === sesion.rut || usuario.uid === sesion.uid;
-        return mismoUsuario ? { ...usuario, pass: nueva } : usuario;
+        return mismoUsuario ? datosActualizados : usuario;
       });
-      const sesionActualizada = { ...sesion, pass: nueva };
 
       localStorage.setItem('usuarios', JSON.stringify(usuariosActualizados));
-      localStorage.setItem('sesion', JSON.stringify(sesionActualizada));
-      setActual('');
-      setNueva('');
-      setConfirmar('');
+      localStorage.setItem('sesion', JSON.stringify(datosActualizados));
+      window.dispatchEvent(new Event('sesion-actualizada'));
       setAbierto(false);
-      notify('Contraseña actualizada correctamente en Firebase.', 'success');
+      notify('Perfil actualizado en Firebase.', 'success');
     } catch (error) {
-      console.error('Error al cambiar contraseña:', error);
-      notify('No se pudo actualizar la contraseña en Firebase.', 'error');
+      console.error('Error al actualizar perfil:', error);
+      notify('No se pudo actualizar el perfil en Firebase.', 'error');
     }
   };
 
@@ -111,27 +105,65 @@ function Perfil({ notify }) {
     <section className="profile-panel">
       <button className="profile-summary" onClick={() => setAbierto(!abierto)}>
         <span>
-          <strong>{sesion.nombre || sesion.user}</strong>
-          <small>{sesion.rut || sesion.user} - {sesion.rol}</small>
+          <strong>{sesion.nombre || sesion.user} {sesion.apellido || ''}</strong>
+          <small>{sesion.rut || sesion.user} - {obtenerNombreRol(sesion)}</small>
         </span>
-        <b>{abierto ? 'Cerrar perfil' : 'Perfil'}</b>
+        <b>{abierto ? 'Cerrar perfil' : 'Editar perfil'}</b>
       </button>
 
       {abierto && (
-        <form className="profile-form" onSubmit={cambiarContrasena}>
+        <form className="profile-form profile-form-wide" onSubmit={guardarPerfil}>
           <label>
-            Contraseña actual
-            <input className="field" type="password" value={actual} onChange={(e) => setActual(e.target.value)} />
+            Nombres
+            <input className="field" value={form.nombre} onChange={(e) => actualizarCampo('nombre', e.target.value)} />
           </label>
           <label>
-            Nueva contraseña
-            <input className="field" type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} />
+            Apellidos
+            <input className="field" value={form.apellido} onChange={(e) => actualizarCampo('apellido', e.target.value)} />
           </label>
           <label>
-            Confirmar contraseña
-            <input className="field" type="password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} />
+            RUT
+            <input className="field" value={form.rut} onChange={(e) => actualizarCampo('rut', e.target.value)} />
           </label>
-          <button className="btn btn-primary" type="submit">Cambiar contraseña</button>
+          <label>
+            Correo electrónico
+            <input className="field" type="email" value={form.user} onChange={(e) => actualizarCampo('user', e.target.value)} />
+          </label>
+          <label>
+            Teléfono
+            <input className="field" value={form.telefono} onChange={(e) => actualizarCampo('telefono', e.target.value)} />
+          </label>
+          <label>
+            Rol
+            {esAdmin ? (
+              <select className="field" value={form.rol} onChange={(e) => actualizarCampo('rol', e.target.value)}>
+                {opcionesRol.map((opcion) => (
+                  <option value={opcion.value} key={opcion.value}>{opcion.label}</option>
+                ))}
+              </select>
+            ) : (
+              <input className="field" value={obtenerNombreRol(sesion)} disabled />
+            )}
+          </label>
+
+          {esDelivery && (
+            <>
+              <label>
+                Patente
+                <input className="field" value={form.patente} onChange={(e) => actualizarCampo('patente', e.target.value)} />
+              </label>
+              <label>
+                Color del auto
+                <input className="field" value={form.colorAuto} onChange={(e) => actualizarCampo('colorAuto', e.target.value)} />
+              </label>
+              <label>
+                Marca del auto
+                <input className="field" value={form.marcaAuto} onChange={(e) => actualizarCampo('marcaAuto', e.target.value)} />
+              </label>
+            </>
+          )}
+
+          <button className="btn btn-primary" type="submit">Guardar perfil</button>
         </form>
       )}
     </section>

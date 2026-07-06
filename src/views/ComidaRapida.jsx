@@ -19,13 +19,13 @@ function ComidaRapida({ navigate, notify }) {
     <main className="dashboard-page">
       <header className="dashboard-topbar">
         <div>
-          <p className="eyebrow">Cajero comida rapida: {usuario}</p>
+          <p className="eyebrow">Cajero comida rápida: {usuario}</p>
           <h1>Punto de Venta Comida Rápida</h1>
           <Reloj />
         </div>
         <div className="admin-actions">
           <button className="btn btn-secondary" onClick={() => navigate('admin')}>Volver al panel</button>
-          <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesion</button>
+          <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
       </header>
 

@@ -14,7 +14,7 @@ const opcionesLocales = [{ id: 'general', nombre: 'General' }, ...locales];
 const opcionesReporteLocales = [{ id: 'todos', nombre: 'Los 3 locales' }, ...locales];
 
 const metodosPago = [
-  { id: 'debito', nombre: 'Debito' },
+  { id: 'debito', nombre: 'Débito' },
   { id: 'efectivo', nombre: 'Efectivo' },
   { id: 'transferencia', nombre: 'Transferencia' },
   { id: 'junaeb', nombre: 'Junaeb' },
@@ -153,11 +153,20 @@ const limpiarTextoPDF = (valor, max = 26) => {
   return texto.length > max ? `${texto.slice(0, max - 3)}...` : texto;
 };
 
+const obtenerNombreUsuarioVenta = (venta, usuariosPorCorreo) => {
+  const nombreCompleto = [venta.nombreUsuario || venta.nombre, venta.apellidoUsuario || venta.apellido].filter(Boolean).join(' ');
+  const usuarioEncontrado = usuariosPorCorreo.get(String(venta.usuario || '').toLowerCase());
+  const nombreDesdeUsuario = usuarioEncontrado
+    ? [usuarioEncontrado.nombre, usuarioEncontrado.apellido].filter(Boolean).join(' ')
+    : '';
+  return venta.usuarioNombre || nombreCompleto || nombreDesdeUsuario || venta.usuario || '-';
+};
+
 function Barras({ datos, campos }) {
   const maximo = Math.max(1, ...datos.flatMap((dato) => campos.map((campo) => dato[campo.id] || 0)));
 
   if (datos.length === 0) {
-    return <p className="muted chart-empty">Aun no hay ventas registradas para mostrar.</p>;
+    return <p className="muted chart-empty">Aún no hay ventas registradas para mostrar.</p>;
   }
 
   return (
@@ -188,6 +197,7 @@ function Barras({ datos, campos }) {
 function Admin({ navigate }) {
   const [ventas, setVentas] = useState([]);
   const [cajas, setCajas] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
   const [metodoActivo, setMetodoActivo] = useState('todos');
   const [periodo, setPeriodo] = useState('diario');
   const [ahora, setAhora] = useState(new Date());
@@ -228,6 +238,18 @@ function Admin({ navigate }) {
       } catch (error) {
         console.error('No se pudieron cargar cajas de Firebase:', error);
       }
+
+      try {
+        const usuariosLocales = JSON.parse(localStorage.getItem('usuarios')) || [];
+        setUsuarios(usuariosLocales);
+        const usuariosFirebase = await getDocs(collection(db, 'usuarios'));
+        const usuariosRemotos = usuariosFirebase.docs.map((documento) => ({ id: documento.id, ...documento.data() }));
+        const usuariosUnidos = unirPorId(usuariosLocales, usuariosRemotos);
+        setUsuarios(usuariosUnidos);
+        localStorage.setItem('usuarios', JSON.stringify(usuariosUnidos));
+      } catch (error) {
+        console.error('No se pudieron cargar usuarios de Firebase:', error);
+      }
     };
 
     cargarDatos();
@@ -239,6 +261,7 @@ function Admin({ navigate }) {
 
     setCajas(cajasActualizadas);
     localStorage.setItem('cajas', JSON.stringify(cajasActualizadas));
+    window.dispatchEvent(new Event('cajas-actualizadas'));
 
     try {
       await updateDoc(doc(db, 'cajas', caja.id), {
@@ -290,7 +313,7 @@ function Admin({ navigate }) {
       : [
           {
             id: metodoActivo,
-            nombre: metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Metodo',
+            nombre: metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Método',
             className: `bar-pay-${metodoActivo}`,
           },
         ];
@@ -307,8 +330,8 @@ function Admin({ navigate }) {
   }));
   const nombreMetodoActivo =
     metodoActivo === 'todos'
-      ? 'Todos los metodos'
-      : metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Metodo';
+      ? 'Todos los métodos'
+      : metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Método';
 
   const filtrarVentasReporte = () => {
     return ventasNormalizadas
@@ -335,6 +358,7 @@ function Admin({ navigate }) {
   const generarPDF = () => {
     const ventasReporte = filtrarVentasReporte();
     const total = ventasReporte.reduce((suma, venta) => suma + venta.total, 0);
+    const usuariosPorCorreo = new Map(usuarios.map((usuario) => [String(usuario.user || '').toLowerCase(), usuario]));
     const doc = new jsPDF({ orientation: 'landscape' });
     const anchoPagina = doc.internal.pageSize.getWidth();
     const margen = 14;
@@ -363,9 +387,9 @@ function Admin({ navigate }) {
       doc.rect(margen, 48, anchoTabla, 9, 'F');
       doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
-      doc.text('Usuario', margen + 3, 54);
+      doc.text('Nombre', margen + 3, 54);
       doc.text('Local', margen + 70, 54);
-      doc.text('Metodo', margen + 122, 54);
+      doc.text('Método', margen + 122, 54);
       doc.text('Fecha', margen + 174, 54);
       doc.text('Total', margen + 238, 54);
     };
@@ -396,7 +420,7 @@ function Admin({ navigate }) {
       doc.setDrawColor(226, 232, 240);
       doc.line(margen, y + 3, anchoPagina - margen, y + 3);
       doc.setTextColor(15, 23, 42);
-      doc.text(limpiarTextoPDF(venta.usuario, 32), margen + 3, y);
+      doc.text(limpiarTextoPDF(obtenerNombreUsuarioVenta(venta, usuariosPorCorreo), 32), margen + 3, y);
       doc.text(limpiarTextoPDF(venta.localNombre || venta.local || venta.modulo, 22), margen + 70, y);
       doc.text(limpiarTextoPDF(venta.metodoPago, 18), margen + 122, y);
       doc.text(formatearFechaHora(obtenerFechaVenta(venta)), margen + 174, y);
@@ -411,7 +435,7 @@ function Admin({ navigate }) {
     <main className="dashboard-page">
       <header className="dashboard-topbar">
         <div>
-          <p className="eyebrow">Administrador</p>
+          <p className="eyebrow">administrador</p>
           <h1>Panel de control</h1>
           <p className="datetime-line">{formatearFechaHora(ahora)}</p>
         </div>
@@ -429,7 +453,7 @@ function Admin({ navigate }) {
         <section className="admin-local-panel portal-shell">
           <div className="portal-header">
             <div>
-              <p className="eyebrow">Modulos de caja</p>
+              <p className="eyebrow">Módulos de caja</p>
               <h2>Selecciona un local</h2>
               <p className="muted">Accede directamente al punto de venta de cualquier local.</p>
             </div>
@@ -485,7 +509,7 @@ function Admin({ navigate }) {
           <div>
             <p className="eyebrow">Control de cajas</p>
             <h2>Cajas abiertas</h2>
-            <p className="muted">Puedes cerrar una caja desde aqui si quedo abierta.</p>
+            <p className="muted">Puedes cerrar una caja desde aquí si quedó abierta.</p>
           </div>
         </div>
 

@@ -28,7 +28,7 @@ function Almacen({ navigate, notify }) {
             Volver al panel
           </button>
           <button onClick={() => cerrarSesion(navigate)} className="btn btn-danger">
-            Cerrar sesion
+            Cerrar sesión
           </button>
         </div>
       </header>

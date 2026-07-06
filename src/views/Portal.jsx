@@ -1,19 +1,13 @@
-import React, { useState } from 'react';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase';
-import { cerrarSesion, obtenerOpcionRol, obtenerVistaInicial, opcionesRol, rutConFormatoValido, rutValido } from '../models/authModel';
+import React, { useEffect, useState } from 'react';
+import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { cerrarSesion, obtenerOpcionRol, obtenerVistaInicial, opcionesRol } from '../models/authModel';
 import '../styles/views/portal.css';
 
 function Portal({ navigate, notify }) {
-  const [mostrarCrear, setMostrarCrear] = useState(false);
-  const [form, setForm] = useState({
-    nombre: '',
-    apellido: '',
-    rut: '',
-    correo: '',
-    rol: 'cajero_almacen',
-  });
+  const [mostrarSolicitudes, setMostrarSolicitudes] = useState(false);
+  const [solicitudes, setSolicitudes] = useState([]);
+  const [rolesSeleccionados, setRolesSeleccionados] = useState({});
   const sesion = JSON.parse(localStorage.getItem('sesion'));
 
   if (!sesion) {
@@ -26,102 +20,113 @@ function Portal({ navigate, notify }) {
     return null;
   }
 
-  const nombreRol = 'Administrador';
-
-  const irModuloVentas = () => {
-    navigate('admin');
+  const cargarSolicitudes = async () => {
+    try {
+      const resultado = await getDocs(collection(db, 'solicitudesUsuarios'));
+      const pendientes = resultado.docs.map((documento) => ({ id: documento.id, ...documento.data() }));
+      setSolicitudes(pendientes);
+      setRolesSeleccionados((actuales) => {
+        const siguientes = { ...actuales };
+        pendientes.forEach((solicitud) => {
+          if (!siguientes[solicitud.id]) siguientes[solicitud.id] = 'cajero_almacen';
+        });
+        return siguientes;
+      });
+    } catch (error) {
+      console.error('No se pudieron cargar solicitudes:', error);
+      notify('No se pudieron cargar las solicitudes de Firebase.', 'error');
+    }
   };
 
-  const actualizarCampo = (campo, valor) => {
-    setForm({ ...form, [campo]: valor });
-  };
+  useEffect(() => {
+    cargarSolicitudes();
+  }, []);
 
-  const obtenerMensajeFirebase = (error) => {
-    if (error.code === 'auth/email-already-in-use') return 'El correo ya esta registrado.';
-    if (error.code === 'auth/invalid-email') return 'El correo ingresado no es valido.';
-    if (error.code === 'auth/weak-password') return 'La contrasena inicial debe tener al menos 6 caracteres.';
-    if (error.code === 'permission-denied') return 'Firebase no permite guardar usuarios. Revisa las reglas de Firestore.';
-    if (error.code === 'auth/operation-not-allowed') return 'Activa Email/Password en Firebase Authentication.';
-    return error.message || 'Error al crear el usuario.';
-  };
-
-  const crearUsuario = async (e) => {
-    e.preventDefault();
-    const nombre = form.nombre.trim();
-    const apellido = form.apellido.trim();
-    const rut = form.rut.trim();
-    const correo = form.correo.trim().toLowerCase();
-
-    if (!nombre || !apellido || !rut || !correo) {
-      notify('Completa todos los campos para crear el usuario.', 'error');
-      return;
-    }
-
-    if (!rutConFormatoValido(rut)) {
-      notify('El RUT debe tener puntos y guion. Ejemplo: 12.345.678-9', 'error');
-      return;
-    }
-
-    if (!rutValido(rut)) {
-      notify('El RUT no es valido: revisa el digito verificador.', 'error');
-      return;
-    }
-
-    const usuarioRef = doc(db, 'usuarios', rut);
+  const enviarCorreoSolicitud = async (solicitud, estado, rolAsignado = '') => {
+    const asunto = estado === 'aceptada' ? 'Tu cuenta fue aceptada' : 'Tu cuenta fue rechazada';
+    const mensaje =
+      estado === 'aceptada'
+        ? `Hola ${solicitud.nombre}, tu cuenta fue aceptada. Ya puedes iniciar sesión con el rol ${rolAsignado}.`
+        : `Hola ${solicitud.nombre}, tu solicitud de creación de cuenta fue rechazada.`;
 
     try {
-      const usuarioExistente = await getDoc(usuarioRef);
-      if (usuarioExistente.exists()) {
-        notify('Ya existe un usuario con ese RUT.', 'error');
-        return;
-      }
+      await setDoc(doc(collection(db, 'mail')), {
+        to: [solicitud.user],
+        message: {
+          subject: asunto,
+          text: mensaje,
+          html: `<p>${mensaje}</p>`,
+        },
+        creadaEn: new Date().toISOString(),
+        tipo: `cuenta_${estado}`,
+      });
+      return true;
+    } catch (error) {
+      console.error('No se pudo preparar el correo:', error);
+      return false;
+    }
+  };
 
-      let uid = 'rut-' + rut.replaceAll('.', '').replace('-', '').toLowerCase();
-      let authDisponible = true;
+  const marcarNotificacionLeida = async (uid) => {
+    try {
+      await updateDoc(doc(db, 'notificacionesAdmin', `usuario-${uid}`), { leida: true });
+    } catch (error) {
+      console.error('No se pudo marcar la notificación como leída:', error);
+    }
+  };
 
-      try {
-        const credencialesUsuario = await createUserWithEmailAndPassword(auth, correo, rut);
-        uid = credencialesUsuario.user.uid;
-      } catch (errorAuth) {
-        authDisponible = false;
-        if (errorAuth.code === 'auth/email-already-in-use') {
-          notify('El correo ya esta registrado.', 'error');
-          return;
-        }
-        if (errorAuth.code !== 'auth/operation-not-allowed' && errorAuth.code !== 'auth/admin-restricted-operation') {
-          throw errorAuth;
-        }
-      }
+  const aceptarSolicitud = async (solicitud) => {
+    const opcionRol = obtenerOpcionRol(rolesSeleccionados[solicitud.id]);
+    const usuarioAprobado = {
+      uid: solicitud.uid,
+      user: solicitud.user,
+      nombre: solicitud.nombre,
+      apellido: solicitud.apellido,
+      rut: solicitud.rut,
+      telefono: solicitud.telefono || '',
+      rol: opcionRol.rol,
+      local: opcionRol.local,
+      estado: 'activo',
+      creadoEn: solicitud.creadaEn || new Date().toISOString(),
+      aprobadoEn: new Date().toISOString(),
+      aprobadoPor: sesion.user,
+    };
 
-      const opcionRol = obtenerOpcionRol(form.rol);
-      const nuevoUsuario = {
-        uid,
-        user: correo,
-        pass: rut,
-        nombre,
-        apellido,
-        rut,
-        rol: opcionRol.rol,
-        local: opcionRol.local,
-      };
-
-      await setDoc(usuarioRef, nuevoUsuario);
+    try {
+      await setDoc(doc(db, 'usuarios', solicitud.uid), usuarioAprobado);
+      const correoPreparado = await enviarCorreoSolicitud(solicitud, 'aceptada', opcionRol.label);
+      await deleteDoc(doc(db, 'solicitudesUsuarios', solicitud.id));
+      await marcarNotificacionLeida(solicitud.uid);
 
       const usuariosLocales = JSON.parse(localStorage.getItem('usuarios')) || [];
-      const usuariosSinDuplicado = usuariosLocales.filter((usuario) => usuario.rut !== rut && usuario.user !== correo);
-      localStorage.setItem('usuarios', JSON.stringify([...usuariosSinDuplicado, nuevoUsuario]));
+      const usuariosSinDuplicado = usuariosLocales.filter((usuario) => usuario.uid !== solicitud.uid && usuario.user !== solicitud.user);
+      localStorage.setItem('usuarios', JSON.stringify([...usuariosSinDuplicado, usuarioAprobado]));
 
-      setForm({ nombre: '', apellido: '', rut: '', correo: '', rol: 'cajero_almacen' });
-      setMostrarCrear(false);
-
-      if (authDisponible) {
-        notify('Usuario creado exitosamente. Puede ingresar con su correo.', 'success');
-      } else {
-        notify('Usuario guardado en Firebase. Para login con Auth activa Email/Password.', 'success');
-      }
+      setSolicitudes(solicitudes.filter((item) => item.id !== solicitud.id));
+      notify(correoPreparado ? 'Solicitud aceptada y correo preparado.' : 'Solicitud aceptada. No se pudo preparar el correo.', correoPreparado ? 'success' : 'info');
     } catch (error) {
-      console.error('Error al registrar en Firebase:', error);
-      notify(obtenerMensajeFirebase(error), 'error');
+      console.error('No se pudo aprobar solicitud:', error);
+      notify('No se pudo aprobar la solicitud en Firebase.', 'error');
+    }
+  };
+
+  const denegarSolicitud = async (solicitud) => {
+    try {
+      const correoPreparado = await enviarCorreoSolicitud(solicitud, 'rechazada');
+      await setDoc(doc(db, 'solicitudesRechazadas', solicitud.id), {
+        ...solicitud,
+        estado: 'rechazada',
+        rechazadaEn: new Date().toISOString(),
+        rechazadaPor: sesion.user,
+      });
+      await deleteDoc(doc(db, 'solicitudesUsuarios', solicitud.id));
+      await marcarNotificacionLeida(solicitud.uid);
+
+      setSolicitudes(solicitudes.filter((item) => item.id !== solicitud.id));
+      notify(correoPreparado ? 'Solicitud rechazada y correo preparado.' : 'Solicitud rechazada. No se pudo preparar el correo.', correoPreparado ? 'success' : 'info');
+    } catch (error) {
+      console.error('No se pudo rechazar solicitud:', error);
+      notify('No se pudo rechazar la solicitud en Firebase.', 'error');
     }
   };
 
@@ -133,7 +138,7 @@ function Portal({ navigate, notify }) {
             <p className="eyebrow">Panel principal</p>
             <h1>Sistema Integrado</h1>
             <p className="muted">
-              Bienvenido/a, <b>{sesion.nombre || sesion.user}</b> ({nombreRol})
+              Bienvenido/a, <b>{sesion.nombre || sesion.user}</b> (administrador)
             </p>
           </div>
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>
@@ -142,70 +147,88 @@ function Portal({ navigate, notify }) {
         </div>
 
         <div className="action-grid">
-          <button onClick={irModuloVentas} className="module-card module-green">
+          <button onClick={() => navigate('admin')} className="module-card module-green">
             <span className="module-icon">Caja</span>
             <strong>Panel admin</strong>
             <small>Ver resumen de ventas y control general.</small>
           </button>
 
-          <button onClick={() => notify('Derivando al Modulo de Inventario (Equipo N 4).', 'info')} className="module-card module-blue">
+          <button onClick={() => notify('Derivando al Módulo de Inventario (Equipo N 4).', 'info')} className="module-card module-blue">
             <span className="module-icon">Stock</span>
             <strong>Inventario</strong>
             <small>Consulta y control de productos.</small>
           </button>
 
-          <button onClick={() => setMostrarCrear(true)} className="module-card module-orange">
+          <button onClick={() => setMostrarSolicitudes(true)} className="module-card module-orange">
             <span className="module-icon">User</span>
-            <strong>Crear usuarios</strong>
-            <small>Alta rapida para admin, cajero o delivery.</small>
+            <strong>Solicitudes</strong>
+            <small>{solicitudes.length} cuenta(s) esperando aprobación.</small>
           </button>
         </div>
       </section>
 
-      {mostrarCrear && (
+      {mostrarSolicitudes && (
         <div className="modal-backdrop">
-          <form className="modal-card" onSubmit={crearUsuario}>
-            <div className="modal-head">
+          <section className="modal-card modal-card-large request-modal">
+            <div className="modal-head request-modal-head">
               <div>
-                <p className="eyebrow">Nuevo usuario</p>
-                <h2>Crear acceso</h2>
+                <p className="eyebrow">Nuevas cuentas</p>
+                <h2>Aprobar solicitudes</h2>
+                <p className="muted">Revisa los datos, asigna un rol y acepta o deniega cada cuenta.</p>
               </div>
-              <button type="button" className="icon-btn" onClick={() => setMostrarCrear(false)}>X</button>
+              <button type="button" className="icon-btn" onClick={() => setMostrarSolicitudes(false)}>X</button>
             </div>
 
-            <div className="form-grid">
-              <label>
-                Nombre
-                <input className="field" value={form.nombre} onChange={(e) => actualizarCampo('nombre', e.target.value)} />
-              </label>
-              <label>
-                Apellido
-                <input className="field" value={form.apellido} onChange={(e) => actualizarCampo('apellido', e.target.value)} />
-              </label>
-              <label>
-                Correo electronico
-                <input className="field" type="email" placeholder="ejemplo@gmail.com" value={form.correo} onChange={(e) => actualizarCampo('correo', e.target.value)} />
-              </label>
-              <label>
-                RUT
-                <input className="field" value={form.rut} onChange={(e) => actualizarCampo('rut', e.target.value)} />
-              </label>
-              <label>
-                Rol
-                <select className="field" value={form.rol} onChange={(e) => actualizarCampo('rol', e.target.value)}>
-                  {opcionesRol.map((opcion) => (
-                    <option value={opcion.value} key={opcion.value}>{opcion.label}</option>
-                  ))}
-                </select>
-              </label>
+            <div className="request-list">
+              {solicitudes.length === 0 ? (
+                <p className="muted request-empty">No hay solicitudes pendientes.</p>
+              ) : (
+                solicitudes.map((solicitud) => (
+                  <article className="request-row" key={solicitud.id}>
+                    <div className="request-person">
+                      <span className="request-avatar">
+                        {(solicitud.nombre || 'U').slice(0, 1)}{(solicitud.apellido || '').slice(0, 1)}
+                      </span>
+                      <div className="request-data">
+                        <strong>{solicitud.nombre} {solicitud.apellido}</strong>
+                        <span>{solicitud.rut}</span>
+                        <small>{solicitud.user}</small>
+                        <small>Teléfono: {solicitud.telefono || '-'}</small>
+                      </div>
+                    </div>
+
+                    <div className="request-controls">
+                      <label>
+                        Rol
+                        <select
+                          className="field"
+                          value={rolesSeleccionados[solicitud.id] || 'cajero_almacen'}
+                          onChange={(e) => setRolesSeleccionados({ ...rolesSeleccionados, [solicitud.id]: e.target.value })}
+                        >
+                          {opcionesRol.map((opcion) => (
+                            <option value={opcion.value} key={opcion.value}>{opcion.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="request-actions">
+                        <button className="btn btn-danger" onClick={() => denegarSolicitud(solicitud)}>
+                          Denegar
+                        </button>
+                        <button className="btn btn-primary" onClick={() => aceptarSolicitud(solicitud)}>
+                          Aceptar
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))
+              )}
             </div>
 
             <div className="modal-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setMostrarCrear(false)}>Cancelar</button>
-              <button type="submit" className="btn btn-primary">Crear usuario</button>
+              <button type="button" className="btn btn-secondary" onClick={cargarSolicitudes}>Actualizar</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setMostrarSolicitudes(false)}>Cerrar</button>
             </div>
-            <p className="hint">El RUT debe tener formato 12.345.678-9. La contrasena inicial queda igual al RUT.</p>
-          </form>
+          </section>
         </div>
       )}
     </main>

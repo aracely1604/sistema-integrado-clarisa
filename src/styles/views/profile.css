@@ -5,3 +5,23 @@
 .profile-summary {
   min-height: 72px;
 }
+
+.profile-form-wide {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.profile-form-wide .btn {
+  min-width: 160px;
+}
+
+.profile-form input:disabled {
+  color: #64748b;
+  background: #f8fafc;
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .profile-form-wide {
+    grid-template-columns: 1fr;
+  }
+}

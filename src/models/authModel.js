@@ -5,19 +5,31 @@ export const rutasPorLocal = {
 };
 
 export const opcionesRol = [
-  { value: 'admin', label: 'Admin', rol: 'admin', local: 'Administrador' },
-  { value: 'delivery', label: 'Delivery', rol: 'delivery', local: 'delivery' },
-  { value: 'cajero_almacen', label: 'Cajero (almacen)', rol: 'cajero', local: 'almacen' },
-  { value: 'cajero_cafeteria', label: 'Cajero (cafeteria)', rol: 'cajero', local: 'cafeteria' },
-  { value: 'cajero_comida_rapida', label: 'Cajero (comida rapida)', rol: 'cajero', local: 'comida_rapida' },
+  { value: 'admin', label: 'administrador', rol: 'admin', local: 'Administrador' },
+  { value: 'cajero_almacen', label: 'cajero(almacén)', rol: 'cajero', local: 'almacen' },
+  { value: 'cajero_comida_rapida', label: 'cajero(comida rápida)', rol: 'cajero', local: 'comida_rapida' },
+  { value: 'cajero_cafeteria', label: 'cajero(cafetería)', rol: 'cajero', local: 'cafeteria' },
+  { value: 'delivery', label: 'delivery', rol: 'delivery', local: 'delivery' },
 ];
 
 export const obtenerOpcionRol = (value) => {
   return opcionesRol.find((opcion) => opcion.value === value) || opcionesRol[2];
 };
 
+export const obtenerValorRol = (usuario) => {
+  if (!usuario) return 'cajero_almacen';
+  if (usuario.rol === 'admin') return 'admin';
+  if (usuario.rol === 'delivery') return 'delivery';
+  return opcionesRol.find((opcion) => opcion.rol === usuario.rol && opcion.local === usuario.local)?.value || 'cajero_almacen';
+};
+
+export const obtenerNombreRol = (usuario) => {
+  return opcionesRol.find((opcion) => opcion.value === obtenerValorRol(usuario))?.label || usuario?.rol || 'Sin rol';
+};
+
 export const obtenerVistaInicial = (usuario) => {
   if (!usuario) return 'login';
+  if (usuario.estado === 'pendiente') return 'login';
   if (usuario.rol === 'admin') return 'portal';
   if (usuario.rol === 'delivery') return 'delivery';
   return rutasPorLocal[usuario.local] || 'almacen';
@@ -45,6 +57,12 @@ export const rutValido = (rut) => {
 
   return digitoCalculado === digitoIngresado.toUpperCase();
 };
+
+export const contrasenaSegura = (valor) => {
+  return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(valor);
+};
+
+export const mensajeContrasenaSegura = 'La contraseña debe tener 8 caracteres, una mayúscula, una minúscula, un número y un símbolo.';
 
 export const cerrarSesion = (navigate) => {
   localStorage.removeItem('sesion');

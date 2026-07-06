@@ -5,3 +5,22 @@
 .auth-panel .btn-full {
   margin-top: 18px;
 }
+
+.auth-register-form {
+  display: grid;
+}
+
+.link-button {
+  border: 0;
+  background: transparent;
+  color: #0f766e;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.auth-reset {
+  width: 100%;
+  margin-top: 12px;
+  text-align: center;
+}

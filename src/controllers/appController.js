@@ -19,9 +19,7 @@ export const guardarVistaActual = (view) => {
 };
 
 export const asegurarAdminInicial = () => {
-  if (!localStorage.getItem('usuarios')) {
-    localStorage.setItem('usuarios', JSON.stringify([DEFAULT_ADMIN]));
-  }
+  if (!localStorage.getItem('usuarios')) localStorage.setItem('usuarios', JSON.stringify([]));
 };
 
 export const crearToast = (message, type = 'info') => {

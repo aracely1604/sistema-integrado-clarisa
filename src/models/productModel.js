@@ -4,15 +4,15 @@ export const productosPorLocal = {
     { nombre: 'Bebida lata', precio: 1200 },
     { nombre: 'Pan', precio: 800 },
     { nombre: 'Leche', precio: 1400 },
-    { nombre: 'Azucar 1 kg', precio: 1600 },
+    { nombre: 'Azúcar 1 kg', precio: 1600 },
     { nombre: 'Fideos', precio: 1100 },
     { nombre: 'Aceite 900 ml', precio: 2800 },
     { nombre: 'Huevos docena', precio: 3200 },
   ],
   cafeteria: [
-    { nombre: 'Cafe', precio: 1500 },
-    { nombre: 'Te', precio: 1200 },
-    { nombre: 'Sandwich', precio: 2500 },
+    { nombre: 'Café', precio: 1500 },
+    { nombre: 'Té', precio: 1200 },
+    { nombre: 'Sándwich', precio: 2500 },
     { nombre: 'Queque', precio: 1800 },
     { nombre: 'Capuccino', precio: 2200 },
     { nombre: 'Jugo natural', precio: 2000 },
@@ -32,8 +32,8 @@ export const productosPorLocal = {
 };
 
 export const metodosPagoPorLocal = {
-  default: ['Debito', 'Efectivo', 'Transferencia'],
-  cafeteria: ['Debito', 'Efectivo', 'Transferencia', 'Junaeb', 'Pluxe'],
+  default: ['Débito', 'Efectivo', 'Transferencia'],
+  cafeteria: ['Débito', 'Efectivo', 'Transferencia', 'Junaeb', 'Pluxe'],
 };
 
 export const obtenerProductosLocal = (localId) => {
