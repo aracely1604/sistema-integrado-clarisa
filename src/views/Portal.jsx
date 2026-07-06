@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { cerrarSesion, obtenerOpcionRol, obtenerVistaInicial, opcionesRol } from '../models/authModel';
 import '../styles/views/portal.css';
@@ -20,52 +20,29 @@ function Portal({ navigate, notify }) {
     return null;
   }
 
-  const cargarSolicitudes = async () => {
-    try {
-      const resultado = await getDocs(collection(db, 'solicitudesUsuarios'));
-      const pendientes = resultado.docs.map((documento) => ({ id: documento.id, ...documento.data() }));
-      setSolicitudes(pendientes);
-      setRolesSeleccionados((actuales) => {
-        const siguientes = { ...actuales };
-        pendientes.forEach((solicitud) => {
-          if (!siguientes[solicitud.id]) siguientes[solicitud.id] = 'cajero_almacen';
-        });
-        return siguientes;
-      });
-    } catch (error) {
-      console.error('No se pudieron cargar solicitudes:', error);
-      notify('No se pudieron cargar las solicitudes de Firebase.', 'error');
-    }
-  };
-
   useEffect(() => {
-    cargarSolicitudes();
+    const consulta = query(collection(db, 'solicitudesUsuarios'), where('estado', '==', 'pendiente'));
+    const cancelarEscucha = onSnapshot(
+      consulta,
+      (resultado) => {
+        const pendientes = resultado.docs.map((documento) => ({ id: documento.id, ...documento.data() }));
+        setSolicitudes(pendientes);
+        setRolesSeleccionados((actuales) => {
+          const siguientes = { ...actuales };
+          pendientes.forEach((solicitud) => {
+            if (!siguientes[solicitud.id]) siguientes[solicitud.id] = 'cajero_almacen';
+          });
+          return siguientes;
+        });
+      },
+      (error) => {
+        console.error('No se pudieron escuchar solicitudes:', error);
+        notify('No se pudieron escuchar las solicitudes de Firebase.', 'error');
+      },
+    );
+
+    return () => cancelarEscucha();
   }, []);
-
-  const enviarCorreoSolicitud = async (solicitud, estado, rolAsignado = '') => {
-    const asunto = estado === 'aceptada' ? 'Tu cuenta fue aceptada' : 'Tu cuenta fue rechazada';
-    const mensaje =
-      estado === 'aceptada'
-        ? `Hola ${solicitud.nombre}, tu cuenta fue aceptada. Ya puedes iniciar sesión con el rol ${rolAsignado}.`
-        : `Hola ${solicitud.nombre}, tu solicitud de creación de cuenta fue rechazada.`;
-
-    try {
-      await setDoc(doc(collection(db, 'mail')), {
-        to: [solicitud.user],
-        message: {
-          subject: asunto,
-          text: mensaje,
-          html: `<p>${mensaje}</p>`,
-        },
-        creadaEn: new Date().toISOString(),
-        tipo: `cuenta_${estado}`,
-      });
-      return true;
-    } catch (error) {
-      console.error('No se pudo preparar el correo:', error);
-      return false;
-    }
-  };
 
   const marcarNotificacionLeida = async (uid) => {
     try {
@@ -77,6 +54,7 @@ function Portal({ navigate, notify }) {
 
   const aceptarSolicitud = async (solicitud) => {
     const opcionRol = obtenerOpcionRol(rolesSeleccionados[solicitud.id]);
+    const aprobadoEn = new Date().toISOString();
     const usuarioAprobado = {
       uid: solicitud.uid,
       user: solicitud.user,
@@ -87,23 +65,26 @@ function Portal({ navigate, notify }) {
       rol: opcionRol.rol,
       local: opcionRol.local,
       estado: 'activo',
-      creadoEn: solicitud.creadaEn || new Date().toISOString(),
-      aprobadoEn: new Date().toISOString(),
+      creadoEn: solicitud.creadaEn || aprobadoEn,
+      aprobadoEn,
       aprobadoPor: sesion.user,
     };
 
     try {
       await setDoc(doc(db, 'usuarios', solicitud.uid), usuarioAprobado);
-      const correoPreparado = await enviarCorreoSolicitud(solicitud, 'aceptada', opcionRol.label);
-      await deleteDoc(doc(db, 'solicitudesUsuarios', solicitud.id));
+      await updateDoc(doc(db, 'solicitudesUsuarios', solicitud.id), {
+        estado: 'aceptada',
+        rolAsignado: opcionRol.label,
+        aprobadaEn: aprobadoEn,
+        aprobadaPor: sesion.user,
+      });
       await marcarNotificacionLeida(solicitud.uid);
 
       const usuariosLocales = JSON.parse(localStorage.getItem('usuarios')) || [];
       const usuariosSinDuplicado = usuariosLocales.filter((usuario) => usuario.uid !== solicitud.uid && usuario.user !== solicitud.user);
       localStorage.setItem('usuarios', JSON.stringify([...usuariosSinDuplicado, usuarioAprobado]));
 
-      setSolicitudes(solicitudes.filter((item) => item.id !== solicitud.id));
-      notify(correoPreparado ? 'Solicitud aceptada y correo preparado.' : 'Solicitud aceptada. No se pudo preparar el correo.', correoPreparado ? 'success' : 'info');
+      notify('Solicitud aceptada. El otro equipo verá el cambio al instante.', 'success');
     } catch (error) {
       console.error('No se pudo aprobar solicitud:', error);
       notify('No se pudo aprobar la solicitud en Firebase.', 'error');
@@ -112,18 +93,13 @@ function Portal({ navigate, notify }) {
 
   const denegarSolicitud = async (solicitud) => {
     try {
-      const correoPreparado = await enviarCorreoSolicitud(solicitud, 'rechazada');
-      await setDoc(doc(db, 'solicitudesRechazadas', solicitud.id), {
-        ...solicitud,
+      await updateDoc(doc(db, 'solicitudesUsuarios', solicitud.id), {
         estado: 'rechazada',
         rechazadaEn: new Date().toISOString(),
         rechazadaPor: sesion.user,
       });
-      await deleteDoc(doc(db, 'solicitudesUsuarios', solicitud.id));
       await marcarNotificacionLeida(solicitud.uid);
-
-      setSolicitudes(solicitudes.filter((item) => item.id !== solicitud.id));
-      notify(correoPreparado ? 'Solicitud rechazada y correo preparado.' : 'Solicitud rechazada. No se pudo preparar el correo.', correoPreparado ? 'success' : 'info');
+      notify('Solicitud rechazada. El otro equipo verá el cambio al instante.', 'success');
     } catch (error) {
       console.error('No se pudo rechazar solicitud:', error);
       notify('No se pudo rechazar la solicitud en Firebase.', 'error');
@@ -174,7 +150,7 @@ function Portal({ navigate, notify }) {
               <div>
                 <p className="eyebrow">Nuevas cuentas</p>
                 <h2>Aprobar solicitudes</h2>
-                <p className="muted">Revisa los datos, asigna un rol y acepta o deniega cada cuenta.</p>
+                <p className="muted">Revisa los datos, asigna un rol y acepta o rechaza cada cuenta.</p>
               </div>
               <button type="button" className="icon-btn" onClick={() => setMostrarSolicitudes(false)}>X</button>
             </div>
@@ -185,39 +161,38 @@ function Portal({ navigate, notify }) {
               ) : (
                 solicitudes.map((solicitud) => (
                   <article className="request-row" key={solicitud.id}>
-                    <div className="request-person">
+                    <div className="request-top">
                       <span className="request-avatar">
                         {(solicitud.nombre || 'U').slice(0, 1)}{(solicitud.apellido || '').slice(0, 1)}
                       </span>
                       <div className="request-data">
                         <strong>{solicitud.nombre} {solicitud.apellido}</strong>
-                        <span>{solicitud.rut}</span>
-                        <small>{solicitud.user}</small>
-                        <small>Teléfono: {solicitud.telefono || '-'}</small>
+                        <span>RUT: {solicitud.rut}</span>
+                        <span>Correo: {solicitud.user}</span>
+                        <span>Teléfono: {solicitud.telefono || '-'}</span>
                       </div>
                     </div>
 
-                    <div className="request-controls">
-                      <label>
-                        Rol
-                        <select
-                          className="field"
-                          value={rolesSeleccionados[solicitud.id] || 'cajero_almacen'}
-                          onChange={(e) => setRolesSeleccionados({ ...rolesSeleccionados, [solicitud.id]: e.target.value })}
-                        >
-                          {opcionesRol.map((opcion) => (
-                            <option value={opcion.value} key={opcion.value}>{opcion.label}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="request-actions">
-                        <button className="btn btn-danger" onClick={() => denegarSolicitud(solicitud)}>
-                          Denegar
-                        </button>
-                        <button className="btn btn-primary" onClick={() => aceptarSolicitud(solicitud)}>
-                          Aceptar
-                        </button>
-                      </div>
+                    <label className="request-role">
+                      Rol
+                      <select
+                        className="field"
+                        value={rolesSeleccionados[solicitud.id] || 'cajero_almacen'}
+                        onChange={(e) => setRolesSeleccionados({ ...rolesSeleccionados, [solicitud.id]: e.target.value })}
+                      >
+                        {opcionesRol.map((opcion) => (
+                          <option value={opcion.value} key={opcion.value}>{opcion.label}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="request-actions">
+                      <button className="btn btn-danger" onClick={() => denegarSolicitud(solicitud)}>
+                        Rechazar
+                      </button>
+                      <button className="btn btn-primary" onClick={() => aceptarSolicitud(solicitud)}>
+                        Aceptar
+                      </button>
                     </div>
                   </article>
                 ))
@@ -225,7 +200,7 @@ function Portal({ navigate, notify }) {
             </div>
 
             <div className="modal-actions">
-              <button type="button" className="btn btn-secondary" onClick={cargarSolicitudes}>Actualizar</button>
+              <button type="button" className="btn btn-secondary" onClick={() => notify('Las solicitudes se actualizan en tiempo real.', 'info')}>Actualizar</button>
               <button type="button" className="btn btn-secondary" onClick={() => setMostrarSolicitudes(false)}>Cerrar</button>
             </div>
           </section>

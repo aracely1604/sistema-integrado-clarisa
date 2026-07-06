@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, limit, query, setDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { contrasenaSegura, mensajeContrasenaSegura, obtenerVistaInicial, rutConFormatoValido, rutValido } from '../models/authModel';
 import { auth, db } from '../firebase';
 import '../styles/views/login.css';
@@ -9,6 +9,7 @@ function Login({ navigate, notify }) {
   const [user, setUser] = useState('');
   const [pass, setPass] = useState('');
   const [modoRegistro, setModoRegistro] = useState(false);
+  const [solicitudPendienteUid, setSolicitudPendienteUid] = useState(() => localStorage.getItem('solicitudPendienteUid') || '');
   const [registro, setRegistro] = useState({
     nombre: '',
     apellido: '',
@@ -17,6 +18,35 @@ function Login({ navigate, notify }) {
     contrasena: '',
     telefono: '',
   });
+
+  useEffect(() => {
+    if (!solicitudPendienteUid) return undefined;
+
+    const cancelarEscucha = onSnapshot(
+      doc(db, 'solicitudesUsuarios', solicitudPendienteUid),
+      (resultado) => {
+        if (!resultado.exists()) return;
+
+        const solicitud = resultado.data();
+        if (solicitud.estado === 'rechazada') {
+          notify('Tu solicitud de creación de cuenta fue rechazada.', 'error');
+          localStorage.removeItem('solicitudPendienteUid');
+          setSolicitudPendienteUid('');
+        }
+
+        if (solicitud.estado === 'aceptada') {
+          notify('Tu cuenta fue aceptada. Ya puedes iniciar sesión.', 'success');
+          localStorage.removeItem('solicitudPendienteUid');
+          setSolicitudPendienteUid('');
+        }
+      },
+      (error) => {
+        console.error('No se pudo escuchar la solicitud:', error);
+      },
+    );
+
+    return () => cancelarEscucha();
+  }, [solicitudPendienteUid, notify]);
 
   const iniciarSesion = (usuario) => {
     if (usuario.estado === 'pendiente') {
@@ -34,6 +64,11 @@ function Login({ navigate, notify }) {
     const consulta = query(usuariosRef, where('user', '==', email), limit(1));
     const resultado = await getDocs(consulta);
     return resultado.empty ? null : resultado.docs[0].data();
+  };
+
+  const activarEscuchaSolicitud = (uid) => {
+    localStorage.setItem('solicitudPendienteUid', uid);
+    setSolicitudPendienteUid(uid);
   };
 
   const handleLogin = async () => {
@@ -61,6 +96,7 @@ function Login({ navigate, notify }) {
         return;
       }
 
+      activarEscuchaSolicitud(uid);
       notify('Tu cuenta existe en Auth, pero aún no fue aprobada por el administrador.', 'info');
     } catch (error) {
       console.error(error);
@@ -141,6 +177,7 @@ function Login({ navigate, notify }) {
 
       setRegistro({ nombre: '', apellido: '', rut: '', correo: '', contrasena: '', telefono: '' });
       setModoRegistro(false);
+      activarEscuchaSolicitud(uid);
       notify('Cuenta solicitada. El administrador debe aprobarla y asignar el rol.', 'success');
     } catch (error) {
       console.error('Error al crear solicitud:', error);
@@ -188,11 +225,11 @@ function Login({ navigate, notify }) {
               className="field"
               onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
             />
+            <button type="button" onClick={restablecerContrasena} className="link-button auth-reset">
+              ¿Olvidaste tu contraseña?
+            </button>
             <button onClick={handleLogin} className="btn btn-primary btn-full">
               Entrar
-            </button>
-            <button type="button" onClick={restablecerContrasena} className="link-button auth-reset">
-              Restablecer contraseña
             </button>
           </>
         )}
