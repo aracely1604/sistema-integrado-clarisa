@@ -10,6 +10,73 @@
   margin: 30px auto 50px;
 }
 
+.admin-users-panel {
+  max-width: 1120px;
+  margin: 30px auto 50px;
+}
+
+.admin-users-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.admin-user-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.admin-user-avatar {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 8px;
+  color: #fff;
+  background: #0f766e;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-user-data,
+.admin-user-meta {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-user-data strong,
+.admin-user-data span,
+.admin-user-data small,
+.admin-user-meta span,
+.admin-user-meta small {
+  overflow-wrap: anywhere;
+}
+
+.admin-user-data strong,
+.admin-user-meta span {
+  color: #0f172a;
+}
+
+.admin-user-data span,
+.admin-user-data small,
+.admin-user-meta small,
+.admin-users-empty {
+  color: #64748b;
+}
+
+.admin-user-meta {
+  justify-items: end;
+  text-align: right;
+  font-weight: 800;
+}
+
 .admin-stats-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -48,5 +115,15 @@
 
   .admin-stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .admin-user-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .admin-user-meta {
+    grid-column: 1 / -1;
+    justify-items: start;
+    text-align: left;
   }
 }

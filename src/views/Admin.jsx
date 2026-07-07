@@ -202,6 +202,7 @@ function Admin({ navigate }) {
   const [periodo, setPeriodo] = useState('diario');
   const [ahora, setAhora] = useState(new Date());
   const [mostrarLocales, setMostrarLocales] = useState(false);
+  const [mostrarUsuariosActivos, setMostrarUsuariosActivos] = useState(false);
   const [reportePeriodo, setReportePeriodo] = useState('diario');
   const [reporteLocal, setReporteLocal] = useState('todos');
   const [localActivo, setLocalActivo] = useState('general');
@@ -332,6 +333,7 @@ function Admin({ navigate }) {
     metodoActivo === 'todos'
       ? 'Todos los métodos'
       : metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Método';
+  const usuariosActivos = usuarios.filter((usuario) => usuario.estado === 'activo');
 
   const filtrarVentasReporte = () => {
     return ventasNormalizadas
@@ -440,8 +442,23 @@ function Admin({ navigate }) {
           <p className="datetime-line">{formatearFechaHora(ahora)}</p>
         </div>
         <div className="admin-actions">
-          <button className="btn btn-primary" onClick={() => setMostrarLocales(!mostrarLocales)}>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setMostrarLocales(!mostrarLocales);
+              setMostrarUsuariosActivos(false);
+            }}
+          >
             Locales
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              setMostrarUsuariosActivos(!mostrarUsuariosActivos);
+              setMostrarLocales(false);
+            }}
+          >
+            Usuarios activos
           </button>
           <button className="btn btn-secondary" onClick={() => navigate('portal')}>
             Volver al portal
@@ -480,6 +497,49 @@ function Admin({ navigate }) {
               <strong>Punto de venta</strong>
               <small>Ingresar al punto de venta de comida rápida.</small>
             </button>
+          </div>
+        </section>
+      )}
+
+      {mostrarUsuariosActivos && (
+        <section className="admin-users-panel portal-shell">
+          <div className="portal-header">
+            <div>
+              <p className="eyebrow">Usuarios</p>
+              <h2>Usuarios activos</h2>
+              <p className="muted">Revisa las cuentas aprobadas que pueden ingresar al sistema.</p>
+            </div>
+            <button className="btn btn-secondary" onClick={() => setMostrarUsuariosActivos(false)}>
+              Volver al panel
+            </button>
+          </div>
+
+          <div className="admin-users-list">
+            {usuariosActivos.length === 0 ? (
+              <p className="muted admin-users-empty">No hay usuarios activos registrados.</p>
+            ) : (
+              usuariosActivos.map((usuario) => {
+                const nombreCompleto = [usuario.nombre, usuario.apellido].filter(Boolean).join(' ');
+
+                return (
+                  <article className="admin-user-row" key={usuario.uid || usuario.id || usuario.user || usuario.rut}>
+                    <span className="admin-user-avatar">
+                      {(usuario.nombre || usuario.user || 'U').slice(0, 1)}
+                      {(usuario.apellido || '').slice(0, 1)}
+                    </span>
+                    <div className="admin-user-data">
+                      <strong>{nombreCompleto || usuario.user || 'Usuario sin nombre'}</strong>
+                      <span>{usuario.user || 'Sin correo'}</span>
+                      <small>RUT: {usuario.rut || '-'}</small>
+                    </div>
+                    <div className="admin-user-meta">
+                      <span>{usuario.rol || 'Sin rol'}</span>
+                      <small>{usuario.local || 'Sin local'}</small>
+                    </div>
+                  </article>
+                );
+              })
+            )}
           </div>
         </section>
       )}
