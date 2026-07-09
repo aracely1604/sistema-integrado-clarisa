@@ -4,6 +4,9 @@ import jsPDF from 'jspdf';
 import { db } from '../firebase';
 import '../styles/views/admin.css';
 
+import { useAuth } from '../controllers/AuthContext';
+import { useNavigate } from 'react-router-dom';
+
 const locales = [
   { id: 'almacen', nombre: 'Almacén' },
   { id: 'cafeteria', nombre: 'Cafetería' },
@@ -194,7 +197,8 @@ function Barras({ datos, campos }) {
   );
 }
 
-function Admin({ navigate }) {
+function Admin({ }) {
+  const navigate = useNavigate();
   const [ventas, setVentas] = useState([]);
   const [cajas, setCajas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
@@ -460,7 +464,7 @@ function Admin({ navigate }) {
           >
             Usuarios activos
           </button>
-          <button className="btn btn-secondary" onClick={() => navigate('portal')}>
+          <button className="btn btn-secondary" onClick={() => navigate('/portal')}>
             Volver al portal
           </button>
         </div>
@@ -480,19 +484,19 @@ function Admin({ navigate }) {
           </div>
 
           <div className="action-grid">
-            <button className="module-card module-green" onClick={() => navigate('almacen')}>
+            <button className="module-card module-green" onClick={() => navigate('/almacen')}>
               <span className="module-icon">Almacén</span>
               <strong>Punto de venta</strong>
               <small>Ingresar al punto de venta del almacén.</small>
             </button>
 
-            <button className="module-card module-blue" onClick={() => navigate('cafeteria')}>
+            <button className="module-card module-blue" onClick={() => navigate('/cafeteria')}>
               <span className="module-icon">Cafetería</span>
               <strong>Punto de venta</strong>
               <small>Ingresar al punto de venta de cafetería.</small>
             </button>
 
-            <button className="module-card module-orange" onClick={() => navigate('comida_rapida')}>
+            <button className="module-card module-orange" onClick={() => navigate('/comidaRapida')}>
               <span className="module-icon">Comida</span>
               <strong>Punto de venta</strong>
               <small>Ingresar al punto de venta de comida rápida.</small>

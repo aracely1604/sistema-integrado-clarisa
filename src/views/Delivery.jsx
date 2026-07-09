@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { collection, doc, onSnapshot, orderBy, query, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { useNavigate } from 'react-router-dom';
 import Perfil from './Perfil';
 import { db } from '../firebase';
 import { cerrarSesion } from '../models/authModel';
+import { useAuth } from '../controllers/AuthContext';
 import '../styles/views/delivery.css';
 
 const estadosPedido = [
@@ -19,18 +21,12 @@ const formatearFechaHora = (valor) => {
   return Number.isNaN(fecha.getTime()) ? '-' : fecha.toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
 };
 
-function Delivery({ navigate, notify }) {
-  const [sesionActual, setSesionActual] = useState(() => JSON.parse(localStorage.getItem('sesion')));
+function Delivery({ notify }) {
+  const navigate = useNavigate();
+  const { usuario: sesion } = useAuth();
   const [pedidos, setPedidos] = useState([]);
   const [actualizandoId, setActualizandoId] = useState('');
   const [codigosFinales, setCodigosFinales] = useState({});
-  const sesion = sesionActual;
-
-  useEffect(() => {
-    const actualizarSesion = () => setSesionActual(JSON.parse(localStorage.getItem('sesion')));
-    window.addEventListener('sesion-actualizada', actualizarSesion);
-    return () => window.removeEventListener('sesion-actualizada', actualizarSesion);
-  }, []);
 
   useEffect(() => {
     const consulta = query(collection(db, 'pedidos'), orderBy('creadoEn', 'desc'));
@@ -52,7 +48,7 @@ function Delivery({ navigate, notify }) {
   }, [notify]);
 
   if (!sesion) {
-    setTimeout(() => navigate('login'), 0);
+    setTimeout(() => navigate('/login'), 0);
     return null;
   }
 

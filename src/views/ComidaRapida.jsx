@@ -5,14 +5,19 @@ import Reloj from './Reloj';
 import { cerrarSesion } from '../models/authModel';
 import { obtenerProductosLocal } from '../models/productModel';
 
-function ComidaRapida({ navigate, notify }) {
-  const sesion = JSON.parse(localStorage.getItem("sesion"));
+import { useAuth } from '../controllers/AuthContext';
+import { useNavigate } from 'react-router-dom';
+
+function ComidaRapida({ notify }) {
+  const navigate = useNavigate();
+    const { usuario: sesion } = useAuth();
+
   if (!sesion) {
     setTimeout(() => navigate('login'), 0);
     return null;
   }
 
-  const usuario = sesion.user || "cajero";
+  const usuario = sesion.nombre || "cajero";
   const productos = obtenerProductosLocal('comida_rapida');
 
   return (
@@ -24,7 +29,7 @@ function ComidaRapida({ navigate, notify }) {
           <Reloj />
         </div>
         <div className="admin-actions">
-          <button className="btn btn-secondary" onClick={() => navigate('admin')}>Volver al panel</button>
+          <button className="btn btn-secondary" onClick={() => navigate('/portal')}>Volver al panel</button>
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
       </header>

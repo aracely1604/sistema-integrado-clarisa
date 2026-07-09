@@ -1,22 +1,67 @@
 import React, { useState, useEffect } from 'react';
-import Login from './views/Login';
-import Portal from './views/Portal';
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+} from 'react-router-dom';
+import { ThemeProvider } from './context/ThemeContext';
+
+import Login from './screens/LoginScreen';
+import Portal from './screens/Portal';
 import Admin from './views/Admin';
 import Almacen from './views/Almacen';
 import Delivery from './views/Delivery';
 import Cafeteria from './views/Cafeteria';
 import ComidaRapida from './views/ComidaRapida';
-import { asegurarAdminInicial, crearToast, guardarVistaActual, obtenerVistaGuardada } from './controllers/appController';
+import Perfil from './views/Perfil'
+
+import AlertasScreen from './screens/AlertasScreen'
+
+import { AuthProvider, useAuth } from './controllers/AuthContext';
+import { asegurarAdminInicial, crearToast } from './controllers/appController';
+
 import './styles/App.css';
 
-function App() {
-  const [view, setView] = useState(obtenerVistaGuardada);
-  const [toast, setToast] = useState(null);
+function AppRoutes({ notify }) {
+  const { usuario, cargando } = useAuth();
 
-  const navigate = (newView) => {
-    setView(newView);
-    guardarVistaActual(newView);
-  };
+  if (cargando) {
+    return (
+      <div className="app-loading">
+        <span className="app-spinner" aria-label="Cargando" />
+      </div>
+    );
+  }
+
+  return (
+    <Routes>
+      {!usuario ? (
+        <>
+          <Route path="/login" element={<Login notify={notify} />} />
+          <Route path="/portal" element={<Portal notify={notify} />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </>
+      ) : (
+        <>
+          <Route path="/alertas" element={<AlertasScreen notify={notify} />} />
+
+          <Route path="/portal" element={<Portal notify={notify} />} />
+          <Route path="/admin" element={<Admin notify={notify} />} />
+          <Route path="/almacen" element={<Almacen notify={notify} />} />
+          <Route path="/delivery" element={<Delivery notify={notify} />} />
+          <Route path="/cafeteria" element={<Cafeteria notify={notify} />} />
+          <Route path="/comidaRapida" element={<ComidaRapida notify={notify} />} />
+          <Route path="/perfil" element={<Perfil notify={notify} />} />
+          <Route path="*" element={<Navigate to="/portal" replace />} />
+        </>
+      )}
+    </Routes>
+  );
+}
+
+function App() {
+  const [toast, setToast] = useState(null);
 
   const notify = (message, type = 'info') => {
     setToast(crearToast(message, type));
@@ -28,29 +73,24 @@ function App() {
     asegurarAdminInicial();
   }, []);
 
-  const renderView = () => {
-    switch (view) {
-      case 'login': return <Login navigate={navigate} notify={notify} />;
-      case 'portal': return <Portal navigate={navigate} notify={notify} />;
-      case 'admin': return <Admin navigate={navigate} />;
-      case 'almacen': return <Almacen navigate={navigate} notify={notify} />;
-      case 'delivery': return <Delivery navigate={navigate} notify={notify} />;
-      case 'cafeteria': return <Cafeteria navigate={navigate} notify={notify} />;
-      case 'comida_rapida': return <ComidaRapida navigate={navigate} notify={notify} />;
-      default: return <Login navigate={navigate} notify={notify} />;
-    }
-  };
-
   return (
-    <div className="app-container">
-      {renderView()}
-      {toast && (
-        <div className={`toast toast-${toast.type}`} role="status">
-          <span className="toast-icon">{toast.type === 'success' ? 'OK' : toast.type === 'error' ? '!' : 'i'}</span>
-          <span>{toast.message}</span>
-        </div>
-      )}
-    </div>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <div className="app-container">
+            <AppRoutes notify={notify} />
+            {toast && (
+              <div className={`toast toast-${toast.type}`} role="status">
+                <span className="toast-icon">
+                  {toast.type === 'success' ? 'OK' : toast.type === 'error' ? '!' : 'i'}
+                </span>
+                <span>{toast.message}</span>
+              </div>
+            )}
+          </div>
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

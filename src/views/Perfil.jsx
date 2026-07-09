@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
-import { collection, doc, getDoc, getDocs, limit, query, updateDoc, where } from 'firebase/firestore';
-import { db } from '../firebase';
 import { obtenerNombreRol, obtenerOpcionRol, obtenerValorRol, opcionesRol } from '../models/authModel';
 import '../styles/views/profile.css';
 
+import { actualizarMiPerfil } from '../controllers/EmpleadoControl';
+import { useAuth } from '../controllers/AuthContext';
+import { useNavigate } from 'react-router-dom';
+
 function Perfil({ notify }) {
-  const sesion = JSON.parse(localStorage.getItem('sesion'));
+  const navigate = useNavigate();
+  const { usuario: sesion } = useAuth();
   const [abierto, setAbierto] = useState(false);
   const [form, setForm] = useState(() => ({
     nombre: sesion?.nombre || '',
     apellido: sesion?.apellido || '',
     rut: sesion?.rut || '',
-    user: sesion?.user || '',
+    user: sesion?.email || '',
     telefono: sesion?.telefono || '',
     rol: obtenerValorRol(sesion),
     patente: sesion?.patente || '',
@@ -24,30 +27,6 @@ function Perfil({ notify }) {
   const esAdmin = sesion.rol === 'admin';
   const esDelivery = sesion.rol === 'delivery';
 
-  const buscarDocumentoUsuario = async () => {
-    const posiblesIds = [sesion.uid, sesion.rut].filter(Boolean);
-
-    for (const id of posiblesIds) {
-      const referencia = doc(db, 'usuarios', id);
-      const resultado = await getDoc(referencia);
-      if (resultado.exists()) return referencia;
-    }
-
-    const filtros = [
-      ['rut', sesion.rut],
-      ['uid', sesion.uid],
-      ['user', sesion.user],
-    ].filter(([, valor]) => Boolean(valor));
-
-    for (const [campo, valor] of filtros) {
-      const consulta = query(collection(db, 'usuarios'), where(campo, '==', valor), limit(1));
-      const resultado = await getDocs(consulta);
-      if (!resultado.empty) return resultado.docs[0].ref;
-    }
-
-    return null;
-  };
-
   const actualizarCampo = (campo, valor) => {
     setForm({ ...form, [campo]: valor });
   };
@@ -55,12 +34,18 @@ function Perfil({ notify }) {
   const guardarPerfil = async (e) => {
     e.preventDefault();
     const opcionRol = obtenerOpcionRol(form.rol);
-    const datosActualizados = {
-      ...sesion,
+
+    // A diferencia de la versión anterior, acá NO se hace `...sesion`: solo
+    // se envían los campos editables del formulario. Así se evita arrastrar
+    // campos ajenos que pueda tener el objeto de sesión en memoria (como
+    // `horarioLocal`, que es una instancia de LocalModel y Firestore rechaza
+    // por no ser un tipo de dato plano). EmpleadoModel, dentro de
+    // actualizarMiPerfil, se encarga de normalizar y completar el resto.
+    const datosFormulario = {
       nombre: form.nombre.trim(),
       apellido: form.apellido.trim(),
       rut: form.rut.trim(),
-      user: form.user.trim().toLowerCase(),
+      email: form.user.trim().toLowerCase(),
       telefono: form.telefono.trim(),
       ...(esAdmin ? { rol: opcionRol.rol, local: opcionRol.local } : {}),
       ...(esDelivery ? {
@@ -70,19 +55,13 @@ function Perfil({ notify }) {
       } : {}),
     };
 
-    if (!datosActualizados.nombre || !datosActualizados.apellido || !datosActualizados.rut || !datosActualizados.user) {
+    if (!datosFormulario.nombre || !datosFormulario.apellido || !datosFormulario.rut || !datosFormulario.email) {
       notify('Completa nombres, apellidos, RUT y correo electrónico.', 'error');
       return;
     }
 
     try {
-      const referenciaUsuario = await buscarDocumentoUsuario();
-      if (!referenciaUsuario) {
-        notify('No se encontro el usuario en Firebase.', 'error');
-        return;
-      }
-
-      await updateDoc(referenciaUsuario, datosActualizados);
+      const datosActualizados = await actualizarMiPerfil(sesion, datosFormulario);
 
       const usuarios = JSON.parse(localStorage.getItem('usuarios')) || [];
       const usuariosActualizados = usuarios.map((usuario) => {
@@ -97,7 +76,11 @@ function Perfil({ notify }) {
       notify('Perfil actualizado en Firebase.', 'success');
     } catch (error) {
       console.error('Error al actualizar perfil:', error);
-      notify('No se pudo actualizar el perfil en Firebase.', 'error');
+      if (error.message === 'USUARIO_NO_ENCONTRADO') {
+        notify('No se encontro el usuario en Firebase.', 'error');
+      } else {
+        notify('No se pudo actualizar el perfil en Firebase.', 'error');
+      }
     }
   };
 
