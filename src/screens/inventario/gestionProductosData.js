@@ -14,7 +14,7 @@ export const PRODUCTOS_INICIALES = [
     unidad: 'g',
     activo: true,
     ultima: '28 abr 2025',
-    imagen: 'https://picsum.photos/seed/arroz-premium/300/300',
+    imagen: 'https://placehold.co/300x300?text=Producto',
   },
   {
     id: '2',
@@ -25,10 +25,10 @@ export const PRODUCTOS_INICIALES = [
     precio: 2450,
     stock: 18,
     minimo: 20,
-    unidad: 'uds',
+    unidad: 'unidad',
     activo: true,
     ultima: '25 abr 2025',
-    imagen: 'https://picsum.photos/seed/aceite-vegetal/300/300',
+    imagen: 'https://placehold.co/300x300?text=Producto',
   },
   {
     id: '3',
@@ -39,10 +39,10 @@ export const PRODUCTOS_INICIALES = [
     precio: 990,
     stock: 0,
     minimo: 40,
-    unidad: 'uds',
+    unidad: 'unidad',
     activo: true,
     ultima: '29 abr 2025',
-    imagen: 'https://picsum.photos/seed/leche-entera/300/300',
+    imagen: 'https://placehold.co/300x300?text=Producto',
   },
   {
     id: '4',
@@ -53,10 +53,10 @@ export const PRODUCTOS_INICIALES = [
     precio: 3800,
     stock: 55,
     minimo: 15,
-    unidad: 'uds',
+    unidad: 'unidad',
     activo: false,
     ultima: '20 abr 2025',
-    imagen: 'https://picsum.photos/seed/detergente/300/300',
+    imagen: 'https://placehold.co/300x300?text=Producto',
   },
   {
     id: '5',
@@ -70,7 +70,7 @@ export const PRODUCTOS_INICIALES = [
     unidad: 'g',
     activo: true,
     ultima: '27 abr 2025',
-    imagen: 'https://picsum.photos/seed/queso-gauda/300/300',
+    imagen: 'https://placehold.co/300x300?text=Producto',
   },
 ];
 
@@ -94,10 +94,31 @@ export const HISTORIALES = {
   ],
 };
 
-export const CATEGORIAS = ['Abarrotes', 'Lácteos', 'Bebidas', 'congelados', 'Limpieza', 'Otros'];
+// Pensadas para cubrir los 3 tipos de locales (comida rápida, cafetería y almacén)
+export const CATEGORIAS = [
+  'Abarrotes',
+  'Lácteos',
+  'Bebidas',
+  'Congelados',
+  'Panadería y pastelería',
+  'Carnes y embutidos',
+  'Snacks y confites',
+  'Café e infusiones',
+  'Condimentos y salsas',
+  'Desechables y envases',
+  'Limpieza',
+  'Otros',
+];
 export const TIPOS_MOVIMIENTO = ['Ingreso de mercadería', 'Devolución de cliente'];
 // Categorías que NO requieren fecha de vencimiento
-export const CATEGORIAS_SIN_VENC = ['Limpieza', 'Otros'];
+export const CATEGORIAS_SIN_VENC = ['Limpieza', 'Desechables y envases', 'Otros'];
+
+// Unidad de medida por la que se puede llegar a vender el producto
+export const UNIDADES_MEDIDA = [
+  { value: 'unidad', label: 'Unidad' },
+  { value: 'g',      label: 'g/kgs' },
+  { value: 'ml',     label: 'ml/lts' },
+];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

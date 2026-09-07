@@ -182,7 +182,7 @@ export function DetalleModal({ isDesktop, visible, producto, onClose, onEditar, 
 
 export function EditarModal({
   isDesktop, visible, onClose, onGuardar,
-  nombre, setNombre, precio, setPrecio, minimo, setMinimo, proveedor, setProveedor,
+  nombre, setNombre, precio, setPrecio, minimo, setMinimo,
   unidad,
 }) {
   if (!visible) return null;
@@ -198,7 +198,6 @@ export function EditarModal({
           type="number"
         />
         <FormField label="Stock mínimo" value={minimo} onChangeText={setMinimo} placeholder="Ej: 20" type="number" />
-        <FormField label="Proveedor" value={proveedor} onChangeText={setProveedor} placeholder="Nombre del proveedor" />
         <button className="gp-btn-primary" onClick={onGuardar}>Guardar cambios</button>
         <div style={{ height: 20 }} />
       </div>
@@ -271,13 +270,19 @@ export function ActualizarStockModal({
   );
 }
 
-// ─── Modal: Registrar producto ────────────────────────────────────────────────
+// ─── Modal: Registrar producto (en este local) ──────────────────────────────
+// Ya NO crea un producto nuevo "desde cero": el nombre, categoría, código de
+// barras y unidad de medida viven en el nodo GLOBAL de productos (ver
+// DetalleModals > ModalRegistrarProductoGlobal). Acá solo se busca/selecciona
+// ese producto global y se completa la info que es propia de ESTE local:
+// stock mínimo y precio de venta. El stock actual siempre parte en 0.
 
 export function RegistrarModal({
   isDesktop, visible, onClose, onGuardar, onEscanear,
-  codigo, setCodigo, nombre, setNombre, categoria, setCategoria, categorias,
-  proveedor, setProveedor, unidad, setUnidad, lote, setLote, fechaVenc, setFechaVenc,
-  precio, setPrecio, stock, setStock, minimo, setMinimo, requiereFechaVenc,
+  codigo, setCodigo, onBuscarCodigo, buscando, errorBusqueda,
+  productoGlobal, productosGlobales, onSeleccionarGlobal,
+  stockMinimo, setStockMinimo, precioVenta, setPrecioVenta,
+  guardando, errors = {},
 }) {
   if (!visible) return null;
   return (
@@ -291,68 +296,101 @@ export function RegistrarModal({
 
         <div className="gp-or-divider">— o ingresa manualmente —</div>
 
-        <FormField label="Código de barras *" value={codigo} onChangeText={setCodigo} placeholder="Ej: 4005808224067" />
-        <FormField label="Nombre del producto *" value={nombre} onChangeText={setNombre} placeholder="Ej: Aceite oliva 500ml" />
-
         <div className="gp-form-group">
-          <span className="gp-form-label">CATEGORÍA</span>
-          <div className="gp-select-wrap">
-            {categorias.map((cat) => (
-              <button
-                key={cat}
-                className={`gp-select-option${categoria === cat ? ' active' : ''}`}
-                onClick={() => setCategoria(cat)}
-              >
-                {cat}
-              </button>
-            ))}
+          <label className="gp-form-label">Código de barras</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              className="gp-form-input"
+              style={{ flex: 1 }}
+              type="text"
+              value={codigo}
+              onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))}
+              placeholder="Ej: 7891234560012"
+            />
+            <button
+              className="gp-btn-primary"
+              style={{ width: 'auto', padding: '0 18px', flexShrink: 0 }}
+              onClick={onBuscarCodigo}
+              disabled={buscando}
+            >
+              {buscando ? 'Buscando...' : 'Buscar'}
+            </button>
           </div>
+          {errorBusqueda && (
+            <p style={{ color: '#E24B4A', fontSize: 12, marginTop: 4 }}>{errorBusqueda}</p>
+          )}
         </div>
 
-        <FormField label="Proveedor" value={proveedor} onChangeText={setProveedor} placeholder="Ej: Distribuidora Norte" />
+        <div className="gp-or-divider">— o selecciona del catálogo —</div>
 
         <div className="gp-form-group">
-          <span className="gp-form-label">TIPO DE STOCK</span>
-          <div className="gp-select-wrap">
-            {[{ label: 'Por unidades', val: 'uds' }, { label: 'Por peso (gramos)', val: 'g' }].map((op) => (
-              <button
-                key={op.val}
-                className={`gp-select-option${unidad === op.val ? ' active' : ''}`}
-                onClick={() => setUnidad(op.val)}
-              >
-                {op.label}
-              </button>
+          <label className="gp-form-label">Producto del catálogo global</label>
+          <select
+            className="gp-form-input"
+            value={productoGlobal?.id ?? ''}
+            onChange={(e) => {
+              const seleccionado = productosGlobales.find((p) => p.id === e.target.value);
+              if (seleccionado) onSeleccionarGlobal(seleccionado);
+            }}
+          >
+            <option value="">Selecciona un producto...</option>
+            {productosGlobales.map((p) => (
+              <option key={p.id} value={p.id}>{p.nombre}</option>
             ))}
-          </div>
+          </select>
         </div>
 
-        <FormField label="Número de lote *" value={lote} onChangeText={setLote} placeholder="Ej: LOTE-001" />
-        {requiereFechaVenc && (
-          <FormField label="Fecha de vencimiento *" value={fechaVenc} onChangeText={setFechaVenc} placeholder="DD/MM/AAAA" />
+        {productoGlobal && (
+          <div className="gp-found-box">
+            <div className="gp-found-title">PRODUCTO VERIFICADO</div>
+            <div className="gp-found-name">{productoGlobal.nombre}</div>
+            <div className="gp-found-sub">
+              {productoGlobal.categoria} · {productoGlobal.unidadMedida} · {productoGlobal.codigoBarra}
+            </div>
+          </div>
         )}
-        <FormField
-          label={unidad === 'g' ? 'Precio por kg ($)' : 'Precio unitario ($)'}
-          value={precio}
-          onChangeText={setPrecio}
-          placeholder="Ej: 1290"
-          type="number"
-        />
-        <FormField
-          label={unidad === 'g' ? 'Stock inicial (gramos)' : 'Stock inicial (unidades)'}
-          value={stock}
-          onChangeText={setStock}
-          placeholder={unidad === 'g' ? 'Ej: 5000' : 'Ej: 100'}
-          type="number"
-        />
-        <FormField
-          label={unidad === 'g' ? 'Stock mínimo (gramos)' : 'Stock mínimo (unidades)'}
-          value={minimo}
-          onChangeText={setMinimo}
-          placeholder={unidad === 'g' ? 'Ej: 1000' : 'Ej: 20'}
-          type="number"
-        />
 
-        <button className="gp-btn-primary" onClick={onGuardar}>Guardar producto</button>
+        {productoGlobal && (
+          <>
+            <FormField
+              label="Stock mínimo"
+              value={stockMinimo}
+              onChangeText={(v) => setStockMinimo(v.replace(/\D/g, ''))}
+              placeholder="Ej: 20"
+              type="number"
+            />
+            {errors.stockMinimo && (
+              <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.stockMinimo}</p>
+            )}
+
+            <FormField
+              label="Precio de venta ($)"
+              value={precioVenta}
+              onChangeText={(v) => setPrecioVenta(v.replace(/\D/g, ''))}
+              placeholder="Ej: 1290"
+              type="number"
+            />
+            {errors.precioVenta && (
+              <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.precioVenta}</p>
+            )}
+
+            <p className="gp-scan-sub" style={{ marginTop: -6, marginBottom: 10 }}>
+              El stock actual de este producto en el local parte en 0.
+            </p>
+          </>
+        )}
+
+        {errors.general && (
+          <p style={{ color: '#E24B4A', fontSize: 13, marginBottom: 10 }}>{errors.general}</p>
+        )}
+
+        <button
+          className="gp-btn-primary"
+          onClick={onGuardar}
+          disabled={!productoGlobal || guardando}
+        >
+          {guardando ? 'Guardando...' : 'Guardar producto'}
+        </button>
         <div style={{ height: 20 }} />
       </div>
     </ModalShell>
@@ -364,6 +402,7 @@ export function RegistrarModal({
 export function TransferirModal({
   isDesktop, visible, onClose, onConfirmar,
   producto, cantidad, setCantidad, local, setLocal,
+  localesDestino = [], localLabels = {},
 }) {
   if (!visible) return null;
   return (
@@ -378,7 +417,19 @@ export function TransferirModal({
             </div>
           </div>
         )}
-        <FormField label="Local de destino *" value={local} onChangeText={setLocal} placeholder="Ej: Sucursal Centro" />
+        <div className="gp-form-group">
+          <label className="gp-form-label">Local de destino *</label>
+          <select
+            className="gp-form-input"
+            value={local}
+            onChange={(e) => setLocal(e.target.value)}
+          >
+            <option value="">Selecciona un local...</option>
+            {localesDestino.map((loc) => (
+              <option key={loc} value={loc}>{localLabels[loc] ?? loc}</option>
+            ))}
+          </select>
+        </div>
         <FormField
           label={`Cantidad a transferir (${producto?.unidad === 'g' ? 'gramos' : 'unidades'}) *`}
           value={cantidad}

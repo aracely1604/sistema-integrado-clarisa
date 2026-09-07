@@ -1,13 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import {
-  PRODUCTOS_INICIALES, CATEGORIAS, TIPOS_MOVIMIENTO,
+  CATEGORIAS, TIPOS_MOVIMIENTO,
   getStockStatus, formatStock, requiereFechaVenc,
 } from './gestionProductosData';
 import {
   FiltroPickerModal, DetalleContenido, DetalleModal,
   EditarModal, ActualizarStockModal, RegistrarModal, TransferirModal,
 } from './GestionProductosForms';
+import {
+  obtenerProductoPorCodigoBarra, suscribirProductosGlobales, actualizarProductoGlobal,
+} from '../../controllers/ProductoControl';
+import {
+  crearProductoEnLocal, obtenerProductoLocal, suscribirProductosLocal,
+  actualizarProductoLocal, ajustarStockLocal, cambiarEstadoProductoLocal,
+  transferirProductoEntreLocales,
+} from '../../controllers/LocalproductoControl';
+import { LOCAL_LABELS, LOCALES_LIST } from './inventarioData';
 import '../../css/GestionProductos.css';
 
 const DESKTOP_BREAKPOINT = 768;
@@ -76,7 +85,11 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   const width = useWindowWidth();
   const isDesktop = width >= DESKTOP_BREAKPOINT;
 
-  const [productos, setProductos] = useState(PRODUCTOS_INICIALES);
+  // ── Productos EN TIEMPO REAL ─────────────────────────────────────────────
+  // locales/{local}/productos vive el stock/precio/activo de este local;
+  // productos (global) vive nombre/categoría/código/unidad. Se combinan acá.
+  const [productosLocalRaw, setProductosLocalRaw] = useState([]);
+  const [cargandoProductos, setCargandoProductos] = useState(true);
   const [busqueda, setBusqueda] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState(null);
   const [filtroProveedor, setFiltroProveedor] = useState(null);
@@ -97,7 +110,6 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   const [editNombre, setEditNombre] = useState('');
   const [editPrecio, setEditPrecio] = useState('');
   const [editMinimo, setEditMinimo] = useState('');
-  const [editProveedor, setEditProveedor] = useState('');
 
   // Formulario actualizar stock
   const [updCodigo, setUpdCodigo] = useState('');
@@ -110,17 +122,66 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   const [transCantidad, setTransCantidad] = useState('');
   const [transLocal, setTransLocal] = useState('');
 
-  // Formulario registrar
+  // Formulario registrar (busca/selecciona un producto del catálogo GLOBAL
+  // y solo pide los datos propios de este local: stock mínimo y precio de venta)
   const [regCodigo, setRegCodigo] = useState('');
-  const [regNombre, setRegNombre] = useState('');
-  const [regCategoria, setRegCategoria] = useState(CATEGORIAS[0]);
-  const [regProveedor, setRegProveedor] = useState('');
-  const [regPrecio, setRegPrecio] = useState('');
-  const [regStock, setRegStock] = useState('');
-  const [regMinimo, setRegMinimo] = useState('');
-  const [regUnidad, setRegUnidad] = useState('uds');
-  const [regLote, setRegLote] = useState('');
-  const [regFechaVenc, setRegFechaVenc] = useState('');
+  const [regBuscando, setRegBuscando] = useState(false);
+  const [regErrorBusqueda, setRegErrorBusqueda] = useState('');
+  const [regProductoGlobal, setRegProductoGlobal] = useState(null);
+  const [productosGlobales, setProductosGlobales] = useState([]);
+  const [regStockMinimo, setRegStockMinimo] = useState('');
+  const [regPrecioVenta, setRegPrecioVenta] = useState('');
+  const [regGuardando, setRegGuardando] = useState(false);
+  const [regErrors, setRegErrors] = useState({});
+
+  // Catálogo global de productos (para el desplegable de selección y el merge)
+  useEffect(() => {
+    const unsubscribe = suscribirProductosGlobales(setProductosGlobales);
+    return () => unsubscribe?.();
+  }, []);
+
+  // Productos de ESTE local, en tiempo real
+  useEffect(() => {
+    setCargandoProductos(true);
+    const unsubscribe = suscribirProductosLocal(local, (lista) => {
+      setProductosLocalRaw(lista);
+      setCargandoProductos(false);
+    });
+    return () => unsubscribe?.();
+  }, [local]);
+
+  // Merge: producto "completo" = datos base globales + stock/precio/activo local
+  const globalesPorId = useMemo(
+    () => new Map(productosGlobales.map((p) => [p.id, p])),
+    [productosGlobales]
+  );
+
+  const productos = useMemo(() => productosLocalRaw.map((lp) => {
+    const global = globalesPorId.get(lp.idProducto);
+    return {
+      id: lp.idProducto,
+      nombre: global?.nombre ?? 'Producto sin datos en catálogo global',
+      codigo: global?.codigoBarra ?? '',
+      categoria: global?.categoria ?? '',
+      unidadMedida: global?.unidadMedida ?? 'unidad',
+      proveedor: 'Sin proveedor',
+      precio: lp.precioVenta,
+      stock: lp.stockActual,
+      minimo: lp.stockMinimo,
+      unidad: global?.unidadMedida === 'kilogramos' ? 'g' : 'uds',
+      activo: lp.activo,
+      ultima: lp.actualizadoEn ? new Date(lp.actualizadoEn).toLocaleDateString('es-CL') : '—',
+      imagen: null,
+    };
+  }), [productosLocalRaw, globalesPorId]);
+
+  // Mantiene el panel de detalle sincronizado si el producto cambia en vivo
+  useEffect(() => {
+    if (!productoActual) return;
+    const actualizado = productos.find((p) => p.id === productoActual.id);
+    if (actualizado) setProductoActual(actualizado);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productos]);
 
   // Cerrar con tecla Escape
   useEffect(() => {
@@ -161,26 +222,40 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     setEditNombre(productoActual.nombre);
     setEditPrecio(String(productoActual.precio));
     setEditMinimo(String(productoActual.minimo));
-    setEditProveedor(productoActual.proveedor);
     setModalEditar(true);
   }
 
-  function guardarEdicion() {
+  async function guardarEdicion() {
     if (!editNombre.trim()) {
       window.alert('El nombre no puede estar vacío');
       return;
     }
-    const actualizado = {
-      ...productoActual,
-      nombre: editNombre.trim(),
-      precio: parseInt(editPrecio) || productoActual.precio,
-      minimo: parseInt(editMinimo) || productoActual.minimo,
-      proveedor: editProveedor.trim() || productoActual.proveedor,
-    };
-    setProductos((prev) => prev.map((p) => (p.id === actualizado.id ? actualizado : p)));
-    setProductoActual(actualizado);
-    setModalEditar(false);
-    window.alert('Producto actualizado correctamente');
+    const minimoNum = parseInt(editMinimo);
+    const precioNum = parseInt(editPrecio);
+    if (isNaN(minimoNum) || minimoNum < 0 || isNaN(precioNum) || precioNum <= 0) {
+      window.alert('Revisa el stock mínimo y el precio de venta');
+      return;
+    }
+    try {
+      // Nombre vive en el catálogo GLOBAL (se reenvían categoría/código/unidad
+      // tal cual estaban, porque validarProducto exige los 4 campos juntos)
+      await actualizarProductoGlobal(productoActual.id, {
+        nombre: editNombre.trim(),
+        categoria: productoActual.categoria,
+        codigoBarra: productoActual.codigo,
+        unidadMedida: productoActual.unidadMedida,
+      });
+      // Stock mínimo y precio de venta viven en ESTE local
+      await actualizarProductoLocal(local, productoActual.id, {
+        stockMinimo: minimoNum,
+        precioVenta: precioNum,
+      });
+      setModalEditar(false);
+      window.alert('Producto actualizado correctamente');
+    } catch (err) {
+      const primerError = err?.errores ? Object.values(err.errores)[0] : null;
+      window.alert(primerError ?? 'No se pudo actualizar el producto. Intenta nuevamente.');
+    }
   }
 
   // Simula escaneo de pistola (en producción: usar la API real del lector/cámara)
@@ -189,12 +264,96 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       setUpdCodigo('7891234560012');
       window.alert('Escaneado — Código: 7891234560012 — Arroz Premium 1kg');
     } else {
-      setRegCodigo('4005808224067');
-      window.alert('Escaneado — Código: 4005808224067 detectado');
+      const codigoSimulado = '7891234560012';
+      setRegCodigo(codigoSimulado);
+      buscarProductoGlobalPorCodigo(codigoSimulado);
     }
   }
 
-  function confirmarActualizacion() {
+  function resetRegistrar() {
+    setRegCodigo('');
+    setRegErrorBusqueda('');
+    setRegProductoGlobal(null);
+    setRegStockMinimo('');
+    setRegPrecioVenta('');
+    setRegErrors({});
+  }
+
+  // Busca el código en el catálogo GLOBAL y verifica que no esté ya
+  // registrado en este local antes de dejar completar el formulario.
+  async function buscarProductoGlobalPorCodigo(codigoParam) {
+    const codigo = (codigoParam ?? regCodigo).trim();
+    if (!codigo) {
+      setRegErrorBusqueda('Ingresa o escanea un código de barras');
+      return;
+    }
+    setRegErrorBusqueda('');
+    setRegProductoGlobal(null);
+    setRegBuscando(true);
+    try {
+      const encontrado = await obtenerProductoPorCodigoBarra(codigo);
+      if (!encontrado) {
+        setRegErrorBusqueda('No existe un producto con ese código en el catálogo global. Regístralo primero en "Productos".');
+        return;
+      }
+      const yaEnLocal = await obtenerProductoLocal(local, encontrado.id);
+      if (yaEnLocal) {
+        setRegErrorBusqueda(`"${encontrado.nombre}" ya está registrado en este local`);
+        return;
+      }
+      setRegCodigo(encontrado.codigoBarra);
+      setRegProductoGlobal(encontrado);
+    } catch (err) {
+      setRegErrorBusqueda('No se pudo verificar el código. Intenta nuevamente.');
+    } finally {
+      setRegBuscando(false);
+    }
+  }
+
+  // Selección directa desde el desplegable del catálogo global
+  async function seleccionarProductoGlobal(producto) {
+    setRegErrorBusqueda('');
+    setRegBuscando(true);
+    try {
+      const yaEnLocal = await obtenerProductoLocal(local, producto.id);
+      if (yaEnLocal) {
+        setRegErrorBusqueda(`"${producto.nombre}" ya está registrado en este local`);
+        setRegProductoGlobal(null);
+        return;
+      }
+      setRegCodigo(producto.codigoBarra);
+      setRegProductoGlobal(producto);
+    } catch (err) {
+      setRegErrorBusqueda('No se pudo verificar el producto. Intenta nuevamente.');
+    } finally {
+      setRegBuscando(false);
+    }
+  }
+
+  // Guarda el producto DENTRO de este local: stockActual parte en 0,
+  // stockMinimo y precioVenta vienen del formulario. No hace falta tocar el
+  // estado local a mano: la suscripción en tiempo real lo refleja solita.
+  async function guardarProducto() {
+    if (!regProductoGlobal) return;
+    setRegErrors({});
+    setRegGuardando(true);
+    try {
+      await crearProductoEnLocal(local, regProductoGlobal.id, {
+        stockMinimo: regStockMinimo,
+        precioVenta: regPrecioVenta,
+      });
+      const nombreCreado = regProductoGlobal.nombre;
+      resetRegistrar();
+      setModalRegistrar(false);
+      window.alert(`"${nombreCreado}" registrado en ${localLabel || 'este local'}`);
+    } catch (err) {
+      setRegErrors(err?.errores ?? { general: 'No se pudo guardar el producto. Intenta nuevamente.' });
+    } finally {
+      setRegGuardando(false);
+    }
+  }
+
+  async function confirmarActualizacion() {
     if (!updCodigo.trim() || !updCantidad.trim()) {
       window.alert('Ingresa código y cantidad');
       return;
@@ -212,65 +371,35 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       window.alert('La cantidad debe ser mayor a 0');
       return;
     }
-    setProductos((prev) =>
-      prev.map((p) =>
-        p.codigo === updCodigo.trim() ? { ...p, stock: p.stock + cantidad } : p
-      )
-    );
-    setUpdCodigo('');
-    setUpdCantidad('');
-    setUpdLote('');
-    setUpdFechaVenc('');
-    setModalActualizar(false);
-    window.alert(`+${cantidad} agregados al stock`);
+    if (!productoUpdCodigo) {
+      window.alert('No se encontró un producto con ese código en este local');
+      return;
+    }
+    try {
+      await ajustarStockLocal(local, productoUpdCodigo.id, productoUpdCodigo.stock + cantidad);
+      setUpdCodigo('');
+      setUpdCantidad('');
+      setUpdLote('');
+      setUpdFechaVenc('');
+      setModalActualizar(false);
+      window.alert(`+${cantidad} agregados al stock`);
+    } catch (err) {
+      window.alert('No se pudo actualizar el stock. Intenta nuevamente.');
+    }
   }
 
-  function guardarProducto() {
-    if (!regCodigo.trim() || !regNombre.trim()) {
-      window.alert('Código y nombre son obligatorios');
-      return;
+  async function toggleActivo() {
+    if (!productoActual) return;
+    const nuevoActivo = !productoActual.activo;
+    try {
+      await cambiarEstadoProductoLocal(local, productoActual.id, nuevoActivo);
+      setProductoActual((prev) => (prev ? { ...prev, activo: nuevoActivo } : prev));
+    } catch (err) {
+      window.alert('No se pudo actualizar el estado. Intenta nuevamente.');
     }
-    if (!regLote.trim()) {
-      window.alert('El número de lote es obligatorio');
-      return;
-    }
-    if (requiereFechaVenc(regCategoria) && !regFechaVenc.trim()) {
-      window.alert('La fecha de vencimiento es obligatoria para esta categoría');
-      return;
-    }
-    const existe = productos.find((p) => p.codigo === regCodigo.trim());
-    if (existe) {
-      window.alert('Ya existe un producto con ese código');
-      return;
-    }
-    const nuevo = {
-      id: String(Date.now()),
-      nombre: regNombre.trim(),
-      codigo: regCodigo.trim(),
-      categoria: regCategoria,
-      proveedor: regProveedor.trim() || 'Sin proveedor',
-      precio: parseInt(regPrecio) || 0,
-      stock: parseInt(regStock) || 0,
-      minimo: parseInt(regMinimo) || 10,
-      unidad: regUnidad,
-      activo: true,
-      ultima: new Date().toLocaleDateString('es-CL'),
-    };
-    setProductos((prev) => [nuevo, ...prev]);
-    setRegCodigo(''); setRegNombre(''); setRegProveedor('');
-    setRegPrecio(''); setRegStock(''); setRegMinimo('');
-    setRegLote(''); setRegFechaVenc(''); setRegUnidad('uds');
-    setModalRegistrar(false);
-    window.alert(`"${nuevo.nombre}" registrado correctamente`);
   }
 
-  function toggleActivo() {
-    const actualizado = { ...productoActual, activo: !productoActual.activo };
-    setProductos((prev) => prev.map((p) => (p.id === actualizado.id ? actualizado : p)));
-    setProductoActual(actualizado);
-  }
-
-  function confirmarTransferencia() {
+  async function confirmarTransferencia() {
     if (!transCantidad.trim() || !transLocal.trim()) {
       window.alert('Ingresa cantidad y local de destino');
       return;
@@ -280,16 +409,16 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       window.alert('La cantidad debe ser mayor a 0');
       return;
     }
-    if (cant > productoActual.stock) {
-      window.alert('Stock insuficiente para la transferencia');
-      return;
+    try {
+      await transferirProductoEntreLocales(productoActual.id, local, transLocal, cant);
+      const destinoLabel = LOCAL_LABELS?.[transLocal] ?? transLocal;
+      setTransCantidad(''); setTransLocal('');
+      setModalTransferir(false);
+      window.alert(`Transferencia realizada — ${cant} ${productoActual.unidad === 'g' ? 'g' : 'uds.'} enviados a "${destinoLabel}"`);
+    } catch (err) {
+      const primerError = err?.errores ? Object.values(err.errores)[0] : null;
+      window.alert(primerError ?? 'No se pudo realizar la transferencia. Intenta nuevamente.');
     }
-    const actualizado = { ...productoActual, stock: productoActual.stock - cant };
-    setProductos((prev) => prev.map((p) => (p.id === actualizado.id ? actualizado : p)));
-    setProductoActual(actualizado);
-    setTransCantidad(''); setTransLocal('');
-    setModalTransferir(false);
-    window.alert(`Transferencia realizada — ${cant} ${productoActual.unidad === 'g' ? 'g' : 'uds.'} enviados a "${transLocal}"`);
   }
 
   // ── Variables CSS de tema ────────────────────────────────────────────────────
@@ -315,7 +444,9 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
           <div>
             <p className="gp-topbar-title">Gestión de productos</p>
             <p className="gp-topbar-sub">
-              {productosFiltrados.length} productos{localLabel ? ` · ${localLabel}` : ''}
+              {cargandoProductos
+                ? 'Cargando productos...'
+                : `${productosFiltrados.length} productos${localLabel ? ` · ${localLabel}` : ''}`}
             </p>
           </div>
           <div className="gp-topbar-actions">
@@ -492,7 +623,6 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         nombre={editNombre} setNombre={setEditNombre}
         precio={editPrecio} setPrecio={setEditPrecio}
         minimo={editMinimo} setMinimo={setEditMinimo}
-        proveedor={editProveedor} setProveedor={setEditProveedor}
         unidad={productoActual?.unidad}
       />
 
@@ -517,21 +647,20 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       <RegistrarModal
         isDesktop={isDesktop}
         visible={modalRegistrar}
-        onClose={() => setModalRegistrar(false)}
+        onClose={() => { setModalRegistrar(false); resetRegistrar(); }}
         onGuardar={guardarProducto}
         onEscanear={() => simularEscaneo('registrar')}
         codigo={regCodigo} setCodigo={setRegCodigo}
-        nombre={regNombre} setNombre={setRegNombre}
-        categoria={regCategoria} setCategoria={setRegCategoria}
-        categorias={CATEGORIAS}
-        proveedor={regProveedor} setProveedor={setRegProveedor}
-        unidad={regUnidad} setUnidad={setRegUnidad}
-        lote={regLote} setLote={setRegLote}
-        fechaVenc={regFechaVenc} setFechaVenc={setRegFechaVenc}
-        precio={regPrecio} setPrecio={setRegPrecio}
-        stock={regStock} setStock={setRegStock}
-        minimo={regMinimo} setMinimo={setRegMinimo}
-        requiereFechaVenc={requiereFechaVenc(regCategoria)}
+        onBuscarCodigo={() => buscarProductoGlobalPorCodigo()}
+        buscando={regBuscando}
+        errorBusqueda={regErrorBusqueda}
+        productoGlobal={regProductoGlobal}
+        productosGlobales={productosGlobales}
+        onSeleccionarGlobal={seleccionarProductoGlobal}
+        stockMinimo={regStockMinimo} setStockMinimo={setRegStockMinimo}
+        precioVenta={regPrecioVenta} setPrecioVenta={setRegPrecioVenta}
+        guardando={regGuardando}
+        errors={regErrors}
       />
 
       {/* ── Modal: Transferir a otro local ──────────────────────────────────── */}
@@ -543,6 +672,8 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         producto={productoActual}
         cantidad={transCantidad} setCantidad={setTransCantidad}
         local={transLocal} setLocal={setTransLocal}
+        localesDestino={(LOCALES_LIST ?? []).filter((l) => l !== local)}
+        localLabels={LOCAL_LABELS ?? {}}
       />
 
     </div>
