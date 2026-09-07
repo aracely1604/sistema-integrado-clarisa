@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { RECETAS_INICIALES, CATEGORIAS_RECETAS } from './gestionRecetasData';
-import { FormReceta, DetalleContenido, DetalleModal } from './GestionRecetasForms';
+import { FormAsignacionReceta, SelectorRecetaGlobal, DetalleContenido, DetalleModal } from './GestionRecetasForms';
+import {
+  obtenerRecetasConEstadoLocal, obtenerProductosLocal,
+  guardarAsignacionReceta, toggleActivoRecetaLocal,
+} from '../../controllers/RecetaLocalControl';
+import { crearAsignacionVacia, clonarAsignacionParaEditar } from '../../models/RecetaLocalModel';
 import '../../css/GestionRecetas.css';
 
 const DESKTOP_BREAKPOINT = 768;
@@ -17,23 +21,21 @@ function useWindowWidth() {
 }
 
 // ─── Tarjeta de receta (vista lista) ──────────────────────────────────────────
-
+// item: { receta (global), asignacion (local, siempre presente en esta lista) }
 function TarjetaReceta({ item, isSelected, onClick }) {
+  const { receta, asignacion } = item;
   return (
     <button className={`rec-card${isSelected ? ' selected' : ''}`} onClick={onClick}>
-      <div className="rec-card-icon">
-        {item.imagen ? <img src={item.imagen} alt={item.nombre} loading="lazy" /> : '🍽️'}
-      </div>
+      <div className="rec-card-icon">🍽️</div>
       <div className="rec-card-info">
-        <div className="rec-card-nombre">{item.nombre}</div>
-        <div className="rec-categoria-badge">{item.categoria}</div>
-        <div className="rec-card-sub">{item.ingredientes.length} ingredientes</div>
-        <div className={`rec-badge ${item.activa ? 'rec-badge-ok' : 'rec-badge-out'}`}>
-          {item.activa ? 'Activa' : 'Desactivada'}
+        <div className="rec-card-nombre">{receta.nombre}</div>
+        <div className="rec-card-sub">{receta.ingredientes.length} ingredientes</div>
+        <div className={`rec-badge ${asignacion.activo ? 'rec-badge-ok' : 'rec-badge-out'}`}>
+          {asignacion.activo ? 'Activa' : 'Desactivada'}
         </div>
       </div>
       <div className="rec-card-right">
-        <div className="rec-precio-num">${item.precio.toLocaleString('es-CL')}</div>
+        <div className="rec-precio-num">${Number(asignacion.precioVenta).toLocaleString('es-CL')}</div>
         <div className="rec-precio-lbl">CLP</div>
       </div>
     </button>
@@ -41,18 +43,14 @@ function TarjetaReceta({ item, isSelected, onClick }) {
 }
 
 // ─── Tarjeta de receta (vista cuadrícula) ─────────────────────────────────────
-
 function TarjetaRecetaGrid({ item, onClick }) {
+  const { receta, asignacion } = item;
   return (
-    <button className={`rec-grid-card${!item.activa ? ' inactiva' : ''}`} onClick={onClick}>
+    <button className={`rec-grid-card${!asignacion.activo ? ' inactiva' : ''}`} onClick={onClick}>
       <div className="rec-grid-img-wrap">
-        {item.imagen ? (
-          <img src={item.imagen} alt={item.nombre} loading="lazy" />
-        ) : (
-          <span className="rec-grid-img-fallback">🍽️</span>
-        )}
+        <span className="rec-grid-img-fallback">🍽️</span>
       </div>
-      <span className="rec-grid-name">{item.nombre}</span>
+      <span className="rec-grid-name">{receta.nombre}</span>
     </button>
   );
 }
@@ -64,19 +62,27 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
   const width = useWindowWidth();
   const isDesktop = width >= DESKTOP_BREAKPOINT;
 
-  const [recetas, setRecetas] = useState(RECETAS_INICIALES);
-  const [recetaActual, setRecetaActual] = useState(null);
+  const [recetasConEstado, setRecetasConEstado] = useState([]);
+  const [productosLocal, setProductosLocal] = useState([]);
+  const [cargando, setCargando] = useState(true);
+
+  const [recetaActual, setRecetaActual] = useState(null); // { receta, asignacion }
   const [busqueda, setBusqueda] = useState('');
-  const [modalCrear, setModalCrear] = useState(false);
-  const [modalEditar, setModalEditar] = useState(false);
   const [modalDetalle, setModalDetalle] = useState(false);
-  const [categoriaFiltro, setCategoriaFiltro] = useState(null);
   const [vista, setVista] = useState('list'); // 'list' | 'grid'
 
-  const [nombre, setNombre] = useState('');
-  const [precio, setPrecio] = useState('');
-  const [ingredientes, setIngredientes] = useState([]);
-  const [categoria, setCategoria] = useState('');
+  // ── Flujo "+ Nueva receta": paso 1 elegir del recetario global, paso 2 asignar ──
+  const [modalNueva, setModalNueva] = useState(false);
+  const [pasoNueva, setPasoNueva] = useState('seleccion'); // 'seleccion' | 'formulario'
+  const [busquedaNueva, setBusquedaNueva] = useState('');
+  const [recetaNuevaSeleccionada, setRecetaNuevaSeleccionada] = useState(null);
+
+  // ── Flujo "Editar asignación" desde el detalle de una receta ya asignada ──
+  const [modalEditar, setModalEditar] = useState(false);
+
+  const [asignacionForm, setAsignacionForm] = useState(null);
+  const [erroresForm, setErroresForm] = useState({});
+  const [guardandoForm, setGuardandoForm] = useState(false);
 
   // Cerrar con tecla Escape
   useEffect(() => {
@@ -85,101 +91,111 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  // ── Helpers ────────────────────────────
+  // Cargar recetas globales + su estado en este local, y los productos del local
+  useEffect(() => {
+    let cancelado = false;
+    setCargando(true);
+    Promise.all([obtenerRecetasConEstadoLocal(local), obtenerProductosLocal(local)])
+      .then(([conEstado, productos]) => {
+        if (cancelado) return;
+        setRecetasConEstado(conEstado);
+        setProductosLocal(productos);
+      })
+      .catch(() => {
+        if (!cancelado) {
+          setRecetasConEstado([]);
+          setProductosLocal([]);
+        }
+      })
+      .finally(() => { if (!cancelado) setCargando(false); });
+    return () => { cancelado = true; };
+  }, [local]);
 
-  function resetForm() {
-    setNombre('');
-    setCategoria('');
-    setPrecio('');
-    setIngredientes([]);
-  }
+  // ── Lo primero que se ve: solo recetas que este local ya asignó ──────────
+  const recetasAsignadas = recetasConEstado.filter((item) => item.asignacion);
+  const recetasSinAsignar = recetasConEstado.filter((item) => !item.asignacion).map((item) => item.receta);
 
-  function abrirDetalle(r) {
-    setRecetaActual(r);
+  // ── Navegación: detalle de una receta ya asignada ─────────────────────────
+
+  function abrirDetalle(item) {
+    setRecetaActual(item);
     if (!isDesktop) setModalDetalle(true);
   }
 
-  function abrirCrear() {
-    resetForm();
-    setModalCrear(true);
-  }
-
   function abrirEditar() {
-    setNombre(recetaActual.nombre);
-    setCategoria(recetaActual.categoria);
-    setPrecio(String(recetaActual.precio));
-    setIngredientes(recetaActual.ingredientes.map((i) => ({ ...i })));
+    if (!recetaActual) return;
+    const { receta, asignacion } = recetaActual;
+    setAsignacionForm(clonarAsignacionParaEditar(asignacion, receta));
+    setErroresForm({});
     setModalEditar(true);
   }
 
-  // ── Validación de ingredientes ──────────
+  // ── Navegación: flujo "+ Nueva receta" ────────────────────────────────────
 
-  function ingredientesValidos() {
-    return ingredientes.every((ing) => ing.nombre && String(ing.cantidad).trim() !== '' && Number(ing.cantidad) > 0);
+  function abrirNueva() {
+    setBusquedaNueva('');
+    setRecetaNuevaSeleccionada(null);
+    setPasoNueva('seleccion');
+    setModalNueva(true);
   }
 
-  // ── CRUD ─────────────────────────────
-
-  function crearReceta() {
-    if (!nombre.trim()) {
-      window.alert('El nombre no puede estar vacío');
-      return;
-    }
-    if (!ingredientesValidos()) {
-      window.alert('Completa el nombre y la cantidad de todos los ingredientes');
-      return;
-    }
-    const nueva = {
-      id: Date.now().toString(),
-      nombre: nombre.trim(),
-      categoria,
-      precio: parseInt(precio) || 0,
-      ingredientes: ingredientes.map((i) => ({ ...i, cantidad: Number(i.cantidad) })),
-      activa: true,
-    };
-    setRecetas((prev) => [nueva, ...prev]);
-    resetForm();
-    setModalCrear(false);
-    window.alert(`"${nueva.nombre}" creada correctamente`);
+  function handleSeleccionarRecetaNueva(receta) {
+    setRecetaNuevaSeleccionada(receta);
+    setAsignacionForm(crearAsignacionVacia(receta));
+    setErroresForm({});
+    setPasoNueva('formulario');
   }
 
-  function guardarEdicion() {
-    if (!nombre.trim()) {
-      window.alert('El nombre no puede estar vacío');
-      return;
-    }
-    if (!ingredientesValidos()) {
-      window.alert('Completa el nombre y la cantidad de todos los ingredientes');
-      return;
-    }
-    const actualizada = {
-      ...recetaActual,
-      nombre: nombre.trim(),
-      categoria,
-      precio: parseInt(precio) || recetaActual.precio,
-      ingredientes: ingredientes.map((i) => ({ ...i, cantidad: Number(i.cantidad) })),
-    };
-    setRecetas((prev) => prev.map((r) => (r.id === actualizada.id ? actualizada : r)));
-    setRecetaActual(actualizada);
-    setModalEditar(false);
-    window.alert('Receta actualizada correctamente');
+  function cerrarModalNueva() {
+    setModalNueva(false);
+    setPasoNueva('seleccion');
+    setRecetaNuevaSeleccionada(null);
   }
 
-  function toggleActiva(id) {
-    setRecetas((prev) => prev.map((r) => (r.id === id ? { ...r, activa: !r.activa } : r)));
-    setRecetaActual((prev) => (prev?.id === id ? { ...prev, activa: !prev.activa } : prev));
+  // ── Guardar asignación (sirve tanto para crear como para editar) ─────────
+
+  async function guardarAsignacion({ esNueva }) {
+    setErroresForm({});
+    setGuardandoForm(true);
+    try {
+      const guardada = await guardarAsignacionReceta(local, asignacionForm);
+      setRecetasConEstado(prev => prev.map(item =>
+        item.receta.id === guardada.id ? { ...item, asignacion: guardada } : item
+      ));
+      if (esNueva) {
+        const receta = recetaNuevaSeleccionada;
+        setRecetaActual({ receta, asignacion: guardada });
+        cerrarModalNueva();
+      } else {
+        setRecetaActual(prev => (prev?.receta.id === guardada.id ? { ...prev, asignacion: guardada } : prev));
+        setModalEditar(false);
+      }
+    } catch (err) {
+      setErroresForm(err?.errores ?? { general: 'No se pudo guardar la asignación. Intenta nuevamente.' });
+    } finally {
+      setGuardandoForm(false);
+    }
   }
 
-  // ── Filtrado ─────────────────────────
+  async function manejarToggleActiva() {
+    if (!recetaActual?.asignacion) return;
+    const idReceta = recetaActual.receta.id;
+    const nuevoActivo = !recetaActual.asignacion.activo;
+    try {
+      await toggleActivoRecetaLocal(local, idReceta, nuevoActivo);
+      setRecetasConEstado(prev => prev.map(item =>
+        item.receta.id === idReceta ? { ...item, asignacion: { ...item.asignacion, activo: nuevoActivo } } : item
+      ));
+      setRecetaActual(prev => ({ ...prev, asignacion: { ...prev.asignacion, activo: nuevoActivo } }));
+    } catch (err) {
+      window.alert('No se pudo actualizar el estado. Intenta nuevamente.');
+    }
+  }
 
-  const recetasFiltradas = recetas.filter((r) => {
-    const coincideBusqueda = r.nombre.toLowerCase().includes(busqueda.toLowerCase());
-    const coincideCategoria = categoriaFiltro === null || r.categoria === categoriaFiltro;
-    return coincideBusqueda && coincideCategoria;
-  });
+  // ── Filtrado (solo sobre las ya asignadas) ────────────────────────────────
 
-  const categoriasConRecetas = CATEGORIAS_RECETAS.filter((c) =>
-    recetas.some((r) => r.categoria === c.nombre)
+  const recetasFiltradas = recetasAsignadas.filter((item) =>
+    item.receta.nombre.toLowerCase().includes(busqueda.toLowerCase())
   );
 
   // ── Variables CSS de tema ────────────────────────────────────────────────────
@@ -228,25 +244,9 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
         </div>
       </div>
 
-      {/* Filtros de categoría + toggle de vista */}
+      {/* Toggle de vista */}
       <div className="rec-categorias-wrap">
         <div className="rec-categorias-row">
-          <button
-            className={`rec-cat-chip${categoriaFiltro === null ? ' active' : ''}`}
-            onClick={() => setCategoriaFiltro(null)}
-          >
-            Todas
-          </button>
-          {categoriasConRecetas.map((cat) => (
-            <button
-              key={cat.nombre}
-              className={`rec-cat-chip${categoriaFiltro === cat.nombre ? ' active' : ''}`}
-              onClick={() => setCategoriaFiltro((prev) => (prev === cat.nombre ? null : cat.nombre))}
-            >
-              {cat.nombre}
-            </button>
-          ))}
-
           <div className="rec-view-toggle">
             <button
               className={`rec-view-toggle-btn${vista === 'list' ? ' active' : ''}`}
@@ -269,29 +269,31 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
       </div>
 
       {/* Layout desktop / móvil */}
-      {isDesktop ? (
+      {cargando ? (
+        <p style={{ padding: 16, fontSize: 13, color: 'var(--rec-text-secondary, #7F8C8D)' }}>Cargando recetas...</p>
+      ) : isDesktop ? (
         <div className="rec-master-detail">
           <div className="rec-master-panel">
             {vista === 'grid' ? (
               <div className="rec-grid">
                 {recetasFiltradas.map((item) => (
-                  <TarjetaRecetaGrid key={item.id} item={item} onClick={() => abrirDetalle(item)} />
+                  <TarjetaRecetaGrid key={item.receta.id} item={item} onClick={() => abrirDetalle(item)} />
                 ))}
               </div>
             ) : (
               <div className="rec-list">
                 {recetasFiltradas.map((item) => (
                   <TarjetaReceta
-                    key={item.id}
+                    key={item.receta.id}
                     item={item}
-                    isSelected={recetaActual?.id === item.id}
+                    isSelected={recetaActual?.receta.id === item.receta.id}
                     onClick={() => abrirDetalle(item)}
                   />
                 ))}
               </div>
             )}
             <div className="rec-fab-row">
-              <button className="rec-fab" onClick={abrirCrear}>+ Nueva receta</button>
+              <button className="rec-fab" onClick={abrirNueva}>+ Nueva receta</button>
             </div>
           </div>
 
@@ -299,12 +301,14 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
             {recetaActual ? (
               <>
                 <div className="rec-sheet-header">
-                  <span className="rec-sheet-title">{recetaActual.nombre}</span>
+                  <span className="rec-sheet-title">{recetaActual.receta.nombre}</span>
                 </div>
                 <DetalleContenido
-                  receta={recetaActual}
+                  receta={recetaActual.receta}
+                  asignacion={recetaActual.asignacion}
+                  productosLocal={productosLocal}
                   onEditar={abrirEditar}
-                  onToggleActiva={() => toggleActiva(recetaActual.id)}
+                  onToggleActiva={manejarToggleActiva}
                 />
               </>
             ) : (
@@ -319,18 +323,18 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
           {vista === 'grid' ? (
             <div className="rec-grid">
               {recetasFiltradas.map((item) => (
-                <TarjetaRecetaGrid key={item.id} item={item} onClick={() => abrirDetalle(item)} />
+                <TarjetaRecetaGrid key={item.receta.id} item={item} onClick={() => abrirDetalle(item)} />
               ))}
             </div>
           ) : (
             <div className="rec-list">
               {recetasFiltradas.map((item) => (
-                <TarjetaReceta key={item.id} item={item} isSelected={false} onClick={() => abrirDetalle(item)} />
+                <TarjetaReceta key={item.receta.id} item={item} isSelected={false} onClick={() => abrirDetalle(item)} />
               ))}
             </div>
           )}
           <div className="rec-fab-row">
-            <button className="rec-fab" onClick={abrirCrear}>+ Nueva receta</button>
+            <button className="rec-fab" onClick={abrirNueva}>+ Nueva receta</button>
           </div>
         </div>
       )}
@@ -339,37 +343,56 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
       <DetalleModal
         isDesktop={isDesktop}
         visible={modalDetalle}
-        receta={recetaActual}
+        receta={recetaActual?.receta}
+        asignacion={recetaActual?.asignacion}
+        productosLocal={productosLocal}
         onClose={() => setModalDetalle(false)}
         onEditar={abrirEditar}
-        onToggleActiva={() => toggleActiva(recetaActual?.id)}
+        onToggleActiva={manejarToggleActiva}
       />
 
-      {/* Modal crear */}
-      <FormReceta
-        visible={modalCrear}
-        titulo="Nueva receta"
+      {/* Flujo "+ Nueva receta": paso 1, elegir receta global sin asignar */}
+      <SelectorRecetaGlobal
+        visible={modalNueva && pasoNueva === 'seleccion'}
         isDesktop={isDesktop}
-        nombre={nombre} setNombre={setNombre}
-        categoria={categoria} setCategoria={setCategoria}
-        precio={precio} setPrecio={setPrecio}
-        ingredientes={ingredientes} setIngredientes={setIngredientes}
-        onGuardar={crearReceta}
-        onCerrar={() => setModalCrear(false)}
+        recetas={recetasSinAsignar}
+        busqueda={busquedaNueva}
+        setBusqueda={setBusquedaNueva}
+        onSeleccionar={handleSeleccionarRecetaNueva}
+        onCerrar={cerrarModalNueva}
       />
 
-      {/* Modal editar */}
-      <FormReceta
-        visible={modalEditar}
-        titulo="Editar receta"
-        isDesktop={isDesktop}
-        nombre={nombre} setNombre={setNombre}
-        categoria={categoria} setCategoria={setCategoria}
-        precio={precio} setPrecio={setPrecio}
-        ingredientes={ingredientes} setIngredientes={setIngredientes}
-        onGuardar={guardarEdicion}
-        onCerrar={() => setModalEditar(false)}
-      />
+      {/* Flujo "+ Nueva receta": paso 2, asignar productos y precio */}
+      {asignacionForm && (
+        <FormAsignacionReceta
+          visible={modalNueva && pasoNueva === 'formulario'}
+          isDesktop={isDesktop}
+          recetaGlobal={recetaNuevaSeleccionada}
+          productosLocal={productosLocal}
+          asignacion={asignacionForm}
+          setAsignacion={setAsignacionForm}
+          errores={erroresForm}
+          onGuardar={() => guardarAsignacion({ esNueva: true })}
+          onCerrar={cerrarModalNueva}
+          guardando={guardandoForm}
+        />
+      )}
+
+      {/* Modal editar asignación (desde el detalle de una receta ya asignada) */}
+      {asignacionForm && recetaActual && (
+        <FormAsignacionReceta
+          visible={modalEditar}
+          isDesktop={isDesktop}
+          recetaGlobal={recetaActual.receta}
+          productosLocal={productosLocal}
+          asignacion={asignacionForm}
+          setAsignacion={setAsignacionForm}
+          errores={erroresForm}
+          onGuardar={() => guardarAsignacion({ esNueva: false })}
+          onCerrar={() => setModalEditar(false)}
+          guardando={guardandoForm}
+        />
+      )}
 
     </div>
   );

@@ -1,8 +1,5 @@
 import { useState } from 'react';
-import {
-  INGREDIENTES_DB, CATEGORIAS_RECETAS, UNIDADES_POR_TIPO, UNIDAD_DEFAULT_POR_TIPO,
-  getIngredienteMeta, formatCantidadIngrediente, calcularUnidadesAprox,
-} from './gestionRecetasData';
+import { productosDisponiblesParaIngrediente } from '../../models/RecetaLocalModel';
 
 // ─── Campo de formulario reutilizable ────────────────────────────────────────
 
@@ -62,162 +59,156 @@ export function DropdownPicker({ label, valor, opciones, onSeleccionar, placehol
               <button className="rec-sheet-close" onClick={() => setVisible(false)} aria-label="Cerrar">✕</button>
             </div>
             <div className="rec-picker-list">
-              {opciones.map((op) => (
-                <button
-                  key={op}
-                  className={`rec-picker-option${valor === op ? ' active' : ''}`}
-                  onClick={() => { onSeleccionar(op); setVisible(false); }}
-                >
-                  <span className={`rec-picker-option-text${valor === op ? ' active' : ''}`}>{op}</span>
-                  {valor === op && <span className="rec-picker-check">✓</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Fila de ingrediente: nombre + cantidad libre + unidad ──────────────────
-
-export function IngredienteRow({ ing, index, onActualizar, onEliminar }) {
-  const meta = getIngredienteMeta(ing.nombre);
-  const tipo = ing.nombre ? meta.tipo : null;
-  const unidadesDisponibles = tipo ? UNIDADES_POR_TIPO[tipo] : [];
-
-  function handleSeleccionarNombre(val) {
-    const nuevaMeta = getIngredienteMeta(val);
-    onActualizar(index, 'nombre', val);
-    onActualizar(index, 'cantidad', '');
-    onActualizar(index, 'unidad', UNIDAD_DEFAULT_POR_TIPO[nuevaMeta.tipo]);
-  }
-
-  const labelCantidad = tipo === 'unidad'
-    ? `Cantidad (${ing.cantidad === 1 ? (meta.labelSingular || 'unidad') : (meta.labelPlural || 'unidades')})`
-    : 'Cantidad';
-
-  return (
-    <div className="rec-ing-card">
-      <DropdownPicker
-        label="Ingrediente"
-        valor={ing.nombre}
-        opciones={INGREDIENTES_DB.map((i) => i.nombre)}
-        onSeleccionar={handleSeleccionarNombre}
-        placeholder="Seleccionar ingrediente..."
-      />
-
-      {ing.nombre !== '' && (
-        <div className="rec-cantidad-row">
-          <div className="rec-form-group" style={{ flex: 1 }}>
-            <span className="rec-form-label">{labelCantidad}</span>
-            <input
-              className="rec-form-input"
-              type="number"
-              min="0"
-              step={tipo === 'unidad' ? 1 : 'any'}
-              placeholder={tipo === 'unidad' ? 'Ej: 2' : 'Ej: 250'}
-              value={ing.cantidad}
-              onChange={(e) => onActualizar(index, 'cantidad', e.target.value)}
-            />
-          </div>
-
-          {tipo !== 'unidad' && (
-            <div className="rec-form-group">
-              <span className="rec-form-label">Unidad</span>
-              <div className="rec-unidad-toggle">
-                {unidadesDisponibles.map((u) => (
+              {opciones.map((op) => {
+                const esObjeto = op !== null && typeof op === 'object';
+                const opLabel = esObjeto ? String(op.label ?? op.value ?? '') : String(op);
+                const opValue = esObjeto ? (op.value ?? op.label) : op;
+                const esActivo = valor === opLabel;
+                return (
                   <button
-                    key={u}
-                    type="button"
-                    className={`rec-unidad-btn${ing.unidad === u ? ' active' : ''}`}
-                    onClick={() => onActualizar(index, 'unidad', u)}
+                    key={String(opValue)}
+                    className={`rec-picker-option${esActivo ? ' active' : ''}`}
+                    onClick={() => { onSeleccionar(opValue); setVisible(false); }}
                   >
-                    {u}
+                    <span className={`rec-picker-option-text${esActivo ? ' active' : ''}`}>
+                      {opLabel}
+                    </span>
+                    {esActivo && <span className="rec-picker-check">✓</span>}
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-          )}
+          </div>
         </div>
       )}
-
-      <button className="rec-ing-eliminar" onClick={() => onEliminar(index)}>Eliminar ingrediente</button>
     </div>
   );
 }
 
-// ─── Formulario crear/editar receta ──────────────────────────────────────────
-
-export function FormReceta({
-  visible, titulo, isDesktop,
-  nombre, setNombre, categoria, setCategoria, precio, setPrecio,
-  ingredientes, setIngredientes, onGuardar, onCerrar,
-}) {
+// ─── Selector de receta global (paso 1 del flujo "Nueva receta") ───────────
+// No crea nada todavía: solo deja elegir, de las recetas del recetario
+// global que este local aún no ha asignado, cuál se va a asignar.
+export function SelectorRecetaGlobal({ visible, isDesktop, recetas, busqueda, setBusqueda, onSeleccionar, onCerrar }) {
   if (!visible) return null;
 
-  function agregarIngrediente() {
-    setIngredientes((prev) => [...prev, { nombre: '', cantidad: '', unidad: '' }]);
-  }
-
-  function actualizarIngrediente(i, campo, valor) {
-    setIngredientes((prev) => prev.map((ing, idx) => (idx === i ? { ...ing, [campo]: valor } : ing)));
-  }
-
-  function eliminarIngrediente(i) {
-    setIngredientes((prev) => prev.filter((_, idx) => idx !== i));
-  }
+  const filtradas = recetas.filter(r => r.nombre.toLowerCase().includes(busqueda.toLowerCase()));
 
   return (
-    <ModalShell isDesktop={isDesktop} onClose={onCerrar} title={titulo}>
+    <ModalShell isDesktop={isDesktop} onClose={onCerrar} title="Nueva receta">
       <div className="rec-form-wrap">
-        <div className="rec-form-group">
-          <span className="rec-form-label">Nombre de la receta *</span>
-          <input
-            className="rec-form-input"
-            placeholder="Ej: Papas fritas"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-          />
-        </div>
+        <p style={{ fontSize: 12.5, color: 'var(--rec-text-secondary, #7F8C8D)', marginBottom: 10 }}>
+          Selecciona una receta del recetario global para asignarle productos de este local.
+        </p>
+
+        <input
+          className="rec-search-input"
+          placeholder="Buscar receta..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          style={{ marginBottom: 12 }}
+        />
+
+        {filtradas.length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--rec-text-secondary, #7F8C8D)' }}>
+            No hay recetas globales disponibles para asignar.
+          </p>
+        ) : (
+          <div className="rec-list">
+            {filtradas.map((receta) => (
+              <button key={receta.id} className="rec-card" onClick={() => onSeleccionar(receta)}>
+                <div className="rec-card-icon">🍽️</div>
+                <div className="rec-card-info">
+                  <div className="rec-card-nombre">{receta.nombre}</div>
+                  <div className="rec-card-sub">{receta.ingredientes.length} ingredientes</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        <div style={{ height: 20 }} />
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Formulario de asignación: producto local por ingrediente + precio ──────
+// A diferencia del formulario anterior, esto NO crea una receta nueva: la
+// receta (nombre, ingredientes, cantidades, unidades) ya existe en el
+// recetario global. Acá solo se decide, ingrediente por ingrediente, qué
+// producto del inventario de este local lo representa, y el precio de venta.
+export function FormAsignacionReceta({
+  visible, isDesktop, recetaGlobal, productosLocal,
+  asignacion, setAsignacion, errores, onGuardar, onCerrar, guardando,
+}) {
+  if (!visible || !recetaGlobal) return null;
+
+  function handleProductoChange(idIngredienteGlobal, idProductoLocal) {
+    setAsignacion(prev => ({
+      ...prev,
+      ingredientes: prev.ingredientes.map(ing =>
+        ing.idIngredienteGlobal === idIngredienteGlobal ? { ...ing, idProductoLocal } : ing
+      ),
+    }));
+  }
+
+  const erroresIngredientes = errores.ingredientesDetalle ?? [];
+
+  return (
+    <ModalShell isDesktop={isDesktop} onClose={onCerrar} title={recetaGlobal.nombre}>
+      <div className="rec-form-wrap">
+        {errores.general && (
+          <p style={{ color: '#E24B4A', fontSize: 12.5, marginBottom: 10 }}>{errores.general}</p>
+        )}
+
+        <p style={{ fontSize: 12.5, color: 'var(--rec-text-secondary, #7F8C8D)', marginBottom: 14 }}>
+          Asigna el producto de tu inventario que corresponde a cada ingrediente. La cantidad y
+          unidad de medida vienen fijas desde la receta global y no se pueden modificar acá.
+        </p>
+
+        {recetaGlobal.ingredientes.map((ing, index) => {
+          const seleccion = asignacion.ingredientes.find(a => a.idIngredienteGlobal === ing.id);
+          const error = erroresIngredientes[index];
+          const productosDisponibles = productosDisponiblesParaIngrediente(productosLocal, ing, asignacion);
+          const opciones = productosDisponibles.map(p => ({ value: p.id, label: p.nombre }));
+          const nombreSeleccionado = productosLocal.find(p => p.id === seleccion?.idProductoLocal)?.nombre ?? '';
+
+          return (
+            <div className="rec-form-group" key={ing.id}>
+              <DropdownPicker
+                label={`${ing.nombre} · ${ing.cantidad} ${ing.unidadMedida}`}
+                valor={nombreSeleccionado}
+                opciones={opciones}
+                onSeleccionar={(idProductoLocal) => handleProductoChange(ing.id, idProductoLocal)}
+                placeholder="Seleccionar producto del inventario..."
+              />
+              {opciones.length === 0 && (
+                <p style={{ color: 'var(--rec-text-secondary, #7F8C8D)', fontSize: 12, marginTop: -4 }}>
+                  No quedan productos disponibles en este local para este ingrediente.
+                </p>
+              )}
+              {error && <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -4 }}>{error}</p>}
+            </div>
+          );
+        })}
 
         <div className="rec-form-group">
-          <span className="rec-form-label">Categoria</span>
-          <DropdownPicker
-            valor={categoria}
-            opciones={CATEGORIAS_RECETAS.map((c) => c.nombre)}
-            onSeleccionar={setCategoria}
-            placeholder="Seleccionar categoria..."
-          />
-        </div>
-
-        <div className="rec-form-group">
-          <span className="rec-form-label">Precio de venta ($)</span>
+          <span className="rec-form-label">Precio de venta ($) *</span>
           <input
             className="rec-form-input"
             type="number"
+            min="0"
             placeholder="Ej: 2500"
-            value={precio}
-            onChange={(e) => setPrecio(e.target.value)}
+            value={asignacion.precioVenta}
+            onChange={(e) => setAsignacion(prev => ({ ...prev, precioVenta: e.target.value }))}
           />
+          {errores.precioVenta && (
+            <p style={{ color: '#E24B4A', fontSize: 12 }}>{errores.precioVenta}</p>
+          )}
         </div>
 
-        <div className="rec-form-group">
-          <span className="rec-form-label">Ingredientes</span>
-          {ingredientes.map((ing, i) => (
-            <IngredienteRow
-              key={i}
-              ing={ing}
-              index={i}
-              onActualizar={actualizarIngrediente}
-              onEliminar={eliminarIngrediente}
-            />
-          ))}
-          <button className="rec-add-ing-btn" onClick={agregarIngrediente}>+ Agregar ingrediente</button>
-        </div>
-
-        <button className="rec-btn-primary" onClick={onGuardar}>Guardar receta</button>
+        <button className="rec-btn-primary" onClick={onGuardar} disabled={guardando}>
+          {guardando ? 'Guardando...' : 'Guardar asignación'}
+        </button>
         <div style={{ height: 20 }} />
       </div>
     </ModalShell>
@@ -226,13 +217,21 @@ export function FormReceta({
 
 // ─── Contenido de detalle (compartido entre panel desktop y modal móvil) ────
 
-export function DetalleContenido({ receta, onEditar, onToggleActiva }) {
+export function DetalleContenido({ receta, asignacion, productosLocal, onEditar, onToggleActiva }) {
   if (!receta) return null;
 
+  function nombreProducto(idProductoLocal) {
+    return productosLocal.find(p => p.id === idProductoLocal)?.nombre ?? 'Sin asignar';
+  }
+
   const stats = [
-    { label: 'Precio de venta', value: '$' + receta.precio.toLocaleString('es-CL'), sub: 'CLP' },
+    {
+      label: 'Precio de venta',
+      value: asignacion ? '$' + Number(asignacion.precioVenta).toLocaleString('es-CL') : 'Sin asignar',
+      sub: asignacion ? 'CLP' : null,
+    },
     { label: 'Ingredientes', value: String(receta.ingredientes.length), sub: 'items' },
-    { label: 'Estado', value: receta.activa ? 'Activa' : 'Desactivada' },
+    { label: 'Estado', value: asignacion?.activo ? 'Activa' : 'Desactivada' },
   ];
 
   return (
@@ -249,32 +248,36 @@ export function DetalleContenido({ receta, onEditar, onToggleActiva }) {
 
       <div className="rec-info-block">
         <div className="rec-block-title">Ingredientes</div>
-        {receta.ingredientes.length === 0 ? (
-          <div className="rec-info-row"><span className="rec-info-key">Sin ingredientes registrados</span></div>
-        ) : (
-          receta.ingredientes.map((ing, idx) => {
-            const aprox = calcularUnidadesAprox(ing);
-            return (
-              <div key={idx} className="rec-info-row">
-                <span className="rec-info-key">{ing.nombre}</span>
-                <span className="rec-info-val">
-                  {formatCantidadIngrediente(ing)}{aprox ? ` (${aprox})` : ''}
-                </span>
-              </div>
-            );
-          })
-        )}
+        {receta.ingredientes.map((ing) => {
+          const asignado = asignacion?.ingredientes?.find(a => a.idIngredienteGlobal === ing.id);
+          return (
+            <div key={ing.id} className="rec-info-row">
+              <span className="rec-info-key">{ing.nombre} · {ing.cantidad} {ing.unidadMedida}</span>
+              <span className="rec-info-val">
+                {asignado ? nombreProducto(asignado.idProductoLocal) : 'Sin asignar'}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
-      <button className="rec-edit-btn" onClick={onEditar}>Editar receta</button>
-
-      <button
-        className="rec-edit-btn"
-        style={{ marginTop: 8, borderColor: receta.activa ? '#F5C6C6' : '#B5D4F4', color: receta.activa ? '#791F1F' : '#0C447C' }}
-        onClick={onToggleActiva}
-      >
-        {receta.activa ? 'Desactivar receta' : 'Activar receta'}
+      <button className="rec-edit-btn" onClick={onEditar}>
+        {asignacion ? 'Editar asignación' : 'Asignar productos'}
       </button>
+
+      {asignacion && (
+        <button
+          className="rec-edit-btn"
+          style={{
+            marginTop: 8,
+            borderColor: asignacion.activo ? '#F5C6C6' : '#B5D4F4',
+            color: asignacion.activo ? '#791F1F' : '#0C447C',
+          }}
+          onClick={onToggleActiva}
+        >
+          {asignacion.activo ? 'Desactivar receta' : 'Activar receta'}
+        </button>
+      )}
 
       <div style={{ height: 20 }} />
     </>
@@ -283,11 +286,17 @@ export function DetalleContenido({ receta, onEditar, onToggleActiva }) {
 
 // ─── Modal: Detalle (solo se usa en layout móvil) ───────────────────────────
 
-export function DetalleModal({ isDesktop, visible, receta, onClose, onEditar, onToggleActiva }) {
+export function DetalleModal({ isDesktop, visible, receta, asignacion, productosLocal, onClose, onEditar, onToggleActiva }) {
   if (isDesktop || !visible) return null;
   return (
     <ModalShell isDesktop={false} onClose={onClose} title={receta?.nombre || ''}>
-      <DetalleContenido receta={receta} onEditar={onEditar} onToggleActiva={onToggleActiva} />
+      <DetalleContenido
+        receta={receta}
+        asignacion={asignacion}
+        productosLocal={productosLocal}
+        onEditar={onEditar}
+        onToggleActiva={onToggleActiva}
+      />
     </ModalShell>
   );
 }
