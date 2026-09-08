@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../controllers/AuthContext';
 import {
-  CATEGORIAS, TIPOS_MOVIMIENTO,
-  getStockStatus, formatStock, requiereFechaVenc,
+  CATEGORIAS,
+  getStockStatus, formatStock,
 } from './gestionProductosData';
 import {
   FiltroPickerModal, DetalleContenido, DetalleModal,
@@ -13,9 +14,11 @@ import {
 } from '../../controllers/ProductoControl';
 import {
   crearProductoEnLocal, obtenerProductoLocal, suscribirProductosLocal,
-  actualizarProductoLocal, ajustarStockLocal, cambiarEstadoProductoLocal,
-  transferirProductoEntreLocales,
-} from '../../controllers/LocalproductoControl';
+  actualizarProductoLocal, cambiarEstadoProductoLocal,
+  transferirProductoEntreLocales, registrarMovimientoStock,
+} from '../../controllers/LocalProductoControl';
+import { suscribirProveedoresPorLocal } from '../../controllers/ProveedorControl';
+import { suscribirHistorialProductoLocal } from '../../controllers/HistorialStockControl';
 import { LOCAL_LABELS, LOCALES_LIST } from './inventarioData';
 import '../../css/GestionProductos.css';
 
@@ -82,6 +85,7 @@ function TarjetaProductoGrid({ item, onClick }) {
 
 export default function GestionProductosModal({ onClose, local, localLabel, autoAbrirRegistro = false }) {
   const { colors, isDark, toggle } = useTheme();
+  const { usuario } = useAuth();
   const width = useWindowWidth();
   const isDesktop = width >= DESKTOP_BREAKPOINT;
 
@@ -111,16 +115,26 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   const [editPrecio, setEditPrecio] = useState('');
   const [editMinimo, setEditMinimo] = useState('');
 
-  // Formulario actualizar stock
+  // Formulario actualizar stock (movimientos: reposición / transferencia / devolución)
   const [updCodigo, setUpdCodigo] = useState('');
   const [updCantidad, setUpdCantidad] = useState('');
-  const [updTipo, setUpdTipo] = useState(TIPOS_MOVIMIENTO[0]);
-  const [updLote, setUpdLote] = useState('');
-  const [updFechaVenc, setUpdFechaVenc] = useState('');
+  const [updTipoMovimiento, setUpdTipoMovimiento] = useState('');
+  const [updProveedorId, setUpdProveedorId] = useState('');
+  const [updFechaVencimiento, setUpdFechaVencimiento] = useState('');
+  const [updValorUnitario, setUpdValorUnitario] = useState('');
+  const [updLocalDestino, setUpdLocalDestino] = useState('');
+  const [updGuardando, setUpdGuardando] = useState(false);
+  const [updErrors, setUpdErrors] = useState({});
 
-  // Formulario transferencia
+  // Proveedores asignados a ESTE local (para el select de Reposición)
+  const [proveedoresLocal, setProveedoresLocal] = useState([]);
+
+  // Formulario transferencia (desde el panel de detalle)
   const [transCantidad, setTransCantidad] = useState('');
   const [transLocal, setTransLocal] = useState('');
+  const [transValorUnitario, setTransValorUnitario] = useState('');
+  const [transGuardando, setTransGuardando] = useState(false);
+  const [transErrors, setTransErrors] = useState({});
 
   // Formulario registrar (busca/selecciona un producto del catálogo GLOBAL
   // y solo pide los datos propios de este local: stock mínimo y precio de venta)
@@ -139,6 +153,12 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     const unsubscribe = suscribirProductosGlobales(setProductosGlobales);
     return () => unsubscribe?.();
   }, []);
+
+  // Proveedores asignados a este local (para el select de Reposición)
+  useEffect(() => {
+    const unsubscribe = suscribirProveedoresPorLocal(local, setProveedoresLocal);
+    return () => unsubscribe?.();
+  }, [local]);
 
   // Productos de ESTE local, en tiempo real
   useEffect(() => {
@@ -183,6 +203,23 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productos]);
 
+  // Historial de movimientos del producto seleccionado, en tiempo real
+  const [historialProducto, setHistorialProducto] = useState([]);
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
+
+  useEffect(() => {
+    if (!productoActual?.id) {
+      setHistorialProducto([]);
+      return;
+    }
+    setCargandoHistorial(true);
+    const unsubscribe = suscribirHistorialProductoLocal(local, productoActual.id, (movimientos) => {
+      setHistorialProducto(movimientos);
+      setCargandoHistorial(false);
+    });
+    return () => unsubscribe?.();
+  }, [local, productoActual?.id]);
+
   // Cerrar con tecla Escape
   useEffect(() => {
     const onKeyDown = (e) => { if (e.key === 'Escape') onClose?.(); };
@@ -201,7 +238,6 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
 
   // Producto encontrado en modal actualizar (para condicionar campos)
   const productoUpdCodigo = productos.find((p) => p.codigo === updCodigo.trim()) || null;
-  const updRequiereFechaVenc = productoUpdCodigo ? requiereFechaVenc(productoUpdCodigo.categoria) : true;
 
   const productosFiltrados = productos.filter((p) => {
     const matchBusqueda =
@@ -279,6 +315,24 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     setRegErrors({});
   }
 
+  function resetActualizar() {
+    setUpdCodigo('');
+    setUpdCantidad('');
+    setUpdTipoMovimiento('');
+    setUpdProveedorId('');
+    setUpdFechaVencimiento('');
+    setUpdValorUnitario('');
+    setUpdLocalDestino('');
+    setUpdErrors({});
+  }
+
+  function resetTransferencia() {
+    setTransCantidad('');
+    setTransLocal('');
+    setTransValorUnitario('');
+    setTransErrors({});
+  }
+
   // Busca el código en el catálogo GLOBAL y verifica que no esté ya
   // registrado en este local antes de dejar completar el formulario.
   async function buscarProductoGlobalPorCodigo(codigoParam) {
@@ -353,38 +407,41 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     }
   }
 
+  // La validación "real" (obligatoriedad de proveedor/fecha/local destino,
+  // cálculo de stockNuevo, stock suficiente para transferir, etc.) vive en
+  // registrarMovimientoStock (controller). Acá solo se resuelven los dos
+  // datos que la vista es la única que puede resolver: el código de barras
+  // escaneado/ingresado → idProducto, y el disparo de la llamada.
   async function confirmarActualizacion() {
-    if (!updCodigo.trim() || !updCantidad.trim()) {
-      window.alert('Ingresa código y cantidad');
-      return;
-    }
-    if (!updLote.trim()) {
-      window.alert('El número de lote es obligatorio');
-      return;
-    }
-    if (updRequiereFechaVenc && !updFechaVenc.trim()) {
-      window.alert('La fecha de vencimiento es obligatoria para esta categoría');
-      return;
-    }
-    const cantidad = parseInt(updCantidad);
-    if (isNaN(cantidad) || cantidad <= 0) {
-      window.alert('La cantidad debe ser mayor a 0');
+    if (!updCodigo.trim()) {
+      window.alert('Ingresa o escanea un código de barras');
       return;
     }
     if (!productoUpdCodigo) {
       window.alert('No se encontró un producto con ese código en este local');
       return;
     }
+    setUpdErrors({});
+    setUpdGuardando(true);
     try {
-      await ajustarStockLocal(local, productoUpdCodigo.id, productoUpdCodigo.stock + cantidad);
-      setUpdCodigo('');
-      setUpdCantidad('');
-      setUpdLote('');
-      setUpdFechaVenc('');
+      await registrarMovimientoStock({
+        local,
+        idProducto: productoUpdCodigo.id,
+        tipoMovimiento: updTipoMovimiento,
+        cantidad: updCantidad,
+        proveedorId: updTipoMovimiento === 'reposicion' ? updProveedorId : undefined,
+        fechaVencimiento: updTipoMovimiento === 'reposicion' ? updFechaVencimiento : undefined,
+        localDestino: updTipoMovimiento === 'transferencia' ? updLocalDestino : undefined,
+        valorUnitario: (updTipoMovimiento === 'reposicion' || updTipoMovimiento === 'transferencia') ? updValorUnitario : undefined,
+        usuario,
+      });
+      resetActualizar();
       setModalActualizar(false);
-      window.alert(`+${cantidad} agregados al stock`);
+      window.alert('Movimiento de stock registrado correctamente');
     } catch (err) {
-      window.alert('No se pudo actualizar el stock. Intenta nuevamente.');
+      setUpdErrors(err?.errores ?? { general: 'No se pudo registrar el movimiento. Intenta nuevamente.' });
+    } finally {
+      setUpdGuardando(false);
     }
   }
 
@@ -399,25 +456,42 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     }
   }
 
+  // Este botón (desde el panel de detalle) usa la MISMA transferirProductoEntreLocales
+  // que "Actualizar Stock → Transferencia", así que también queda registrado
+  // en historialStock — por eso ahora también pide costo unitario.
   async function confirmarTransferencia() {
-    if (!transCantidad.trim() || !transLocal.trim()) {
-      window.alert('Ingresa cantidad y local de destino');
-      return;
-    }
+    const errores = {};
     const cant = parseInt(transCantidad);
-    if (isNaN(cant) || cant <= 0) {
-      window.alert('La cantidad debe ser mayor a 0');
+    if (!transCantidad.trim() || isNaN(cant) || cant <= 0) {
+      errores.cantidad = 'Ingresa una cantidad válida (mayor que 0)';
+    }
+    if (!transLocal.trim()) {
+      errores.localDestino = 'Selecciona un local de destino';
+    }
+    const valor = Number(transValorUnitario);
+    if (!transValorUnitario.trim() || isNaN(valor) || valor <= 0) {
+      errores.valorUnitario = 'Ingresa el costo unitario';
+    }
+    if (Object.keys(errores).length > 0) {
+      setTransErrors(errores);
       return;
     }
+
+    setTransErrors({});
+    setTransGuardando(true);
     try {
-      await transferirProductoEntreLocales(productoActual.id, local, transLocal, cant);
+      await transferirProductoEntreLocales(productoActual.id, local, transLocal, cant, {
+        usuario,
+        valorUnitario: transValorUnitario,
+      });
       const destinoLabel = LOCAL_LABELS?.[transLocal] ?? transLocal;
-      setTransCantidad(''); setTransLocal('');
+      resetTransferencia();
       setModalTransferir(false);
       window.alert(`Transferencia realizada — ${cant} ${productoActual.unidad === 'g' ? 'g' : 'uds.'} enviados a "${destinoLabel}"`);
     } catch (err) {
-      const primerError = err?.errores ? Object.values(err.errores)[0] : null;
-      window.alert(primerError ?? 'No se pudo realizar la transferencia. Intenta nuevamente.');
+      setTransErrors(err?.errores ?? { general: 'No se pudo realizar la transferencia. Intenta nuevamente.' });
+    } finally {
+      setTransGuardando(false);
     }
   }
 
@@ -570,6 +644,8 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
                   onEditar={abrirEditar}
                   onTransferir={() => setModalTransferir(true)}
                   onToggleActivo={toggleActivo}
+                  historial={historialProducto}
+                  cargandoHistorial={cargandoHistorial}
                 />
               </>
             ) : (
@@ -612,6 +688,8 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         onEditar={abrirEditar}
         onTransferir={() => setModalTransferir(true)}
         onToggleActivo={toggleActivo}
+        historial={historialProducto}
+        cargandoHistorial={cargandoHistorial}
       />
 
       {/* ── Modal: Editar ──────────────────────────────────────────────────── */}
@@ -630,17 +708,22 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       <ActualizarStockModal
         isDesktop={isDesktop}
         visible={modalActualizar}
-        onClose={() => setModalActualizar(false)}
+        onClose={() => { setModalActualizar(false); resetActualizar(); }}
         onConfirmar={confirmarActualizacion}
         onEscanear={() => simularEscaneo('actualizar')}
         codigo={updCodigo} setCodigo={setUpdCodigo}
         cantidad={updCantidad} setCantidad={setUpdCantidad}
-        lote={updLote} setLote={setUpdLote}
-        fechaVenc={updFechaVenc} setFechaVenc={setUpdFechaVenc}
-        tipo={updTipo} setTipo={setUpdTipo}
-        tiposMovimiento={TIPOS_MOVIMIENTO}
+        tipoMovimiento={updTipoMovimiento} setTipoMovimiento={setUpdTipoMovimiento}
         productoEncontrado={productoUpdCodigo}
-        requiereFechaVenc={updRequiereFechaVenc}
+        proveedores={proveedoresLocal}
+        proveedorId={updProveedorId} setProveedorId={setUpdProveedorId}
+        fechaVencimiento={updFechaVencimiento} setFechaVencimiento={setUpdFechaVencimiento}
+        valorUnitario={updValorUnitario} setValorUnitario={setUpdValorUnitario}
+        localesDestino={(LOCALES_LIST ?? []).filter((l) => l !== local)}
+        localLabels={LOCAL_LABELS ?? {}}
+        localDestino={updLocalDestino} setLocalDestino={setUpdLocalDestino}
+        guardando={updGuardando}
+        errors={updErrors}
       />
 
       {/* ── Modal: Registrar producto ──────────────────────────────────────── */}
@@ -667,13 +750,16 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       <TransferirModal
         isDesktop={isDesktop}
         visible={modalTransferir}
-        onClose={() => setModalTransferir(false)}
+        onClose={() => { setModalTransferir(false); resetTransferencia(); }}
         onConfirmar={confirmarTransferencia}
         producto={productoActual}
         cantidad={transCantidad} setCantidad={setTransCantidad}
         local={transLocal} setLocal={setTransLocal}
+        valorUnitario={transValorUnitario} setValorUnitario={setTransValorUnitario}
         localesDestino={(LOCALES_LIST ?? []).filter((l) => l !== local)}
         localLabels={LOCAL_LABELS ?? {}}
+        guardando={transGuardando}
+        errors={transErrors}
       />
 
     </div>

@@ -1,4 +1,5 @@
-import { formatStock, formatPrecio, formatQtyHistorial, HISTORIALES } from './gestionProductosData';
+import { useState } from 'react';
+import { formatStock, formatPrecio } from './gestionProductosData';
 
 // ─── Campo de formulario reutilizable ────────────────────────────────────────
 
@@ -74,16 +75,24 @@ export function FiltroPickerModal({
 
 // ─── Contenido de detalle (compartido entre panel desktop y modal móvil) ────
 
-export function DetalleContenido({ producto, onEditar, onTransferir, onToggleActivo }) {
+export function DetalleContenido({ producto, onEditar, onTransferir, onToggleActivo, historial = [], cargandoHistorial = false }) {
   if (!producto) return null;
   const stockLabel = formatStock(producto.stock, producto.unidad || 'uds');
   const minimoLabel = formatStock(producto.minimo, producto.unidad || 'uds');
+
+  // El historial ya viene ordenado del más reciente al más antiguo, así que
+  // el primero que tenga proveedor (solo las reposiciones lo traen) es el
+  // último proveedor real con el que se repuso este producto en este local.
+  const ultimoMovConProveedor = historial.find((m) => m.proveedorNombre);
+  const ultimoProveedorLabel = ultimoMovConProveedor
+    ? `${ultimoMovConProveedor.proveedorNombre}${ultimoMovConProveedor.proveedorEmpresa ? ' — ' + ultimoMovConProveedor.proveedorEmpresa : ''}`
+    : 'Sin proveedor';
 
   const stats = [
     { label: 'Stock actual', value: stockLabel, sub: producto.unidad === 'g' ? 'peso' : 'unidades' },
     { label: producto.unidad === 'g' ? 'Precio por kg' : 'Precio unitario', value: formatPrecio(producto.precio, producto.unidad || 'uds'), sub: 'CLP' },
     { label: 'Categoría', value: producto.categoria },
-    { label: 'Proveedor', value: producto.proveedor },
+    { label: 'Último proveedor', value: ultimoProveedorLabel },
   ];
 
   const datos = [
@@ -136,22 +145,8 @@ export function DetalleContenido({ producto, onEditar, onTransferir, onToggleAct
         </div>
       </div>
 
-      {/* Historial */}
-      <div className="gp-info-block">
-        <div className="gp-block-title">Historial de movimientos</div>
-        {(HISTORIALES[producto.id] || []).map((h, i) => (
-          <div key={i} className="gp-hist-row">
-            <span className={`gp-hist-dot ${h.pos ? 'gp-hist-dot-in' : 'gp-hist-dot-adj'}`} />
-            <div className="gp-hist-info">
-              <div className="gp-hist-tipo">{h.tipo}</div>
-              <div className="gp-hist-fecha">{h.fecha}</div>
-            </div>
-            <span className={h.pos ? 'gp-hist-pos' : 'gp-hist-neg'}>
-              {formatQtyHistorial(h.qty, producto.unidad || 'uds')}
-            </span>
-          </div>
-        ))}
-      </div>
+      {/* Historial — datos reales de historialStock, filtrados a este producto en este local */}
+      <HistorialMovimientos producto={producto} historial={historial} cargando={cargandoHistorial} />
 
       {/* Botones de acción */}
       <button className="gp-edit-btn" onClick={onEditar}>✎  Editar datos del producto</button>
@@ -162,9 +157,98 @@ export function DetalleContenido({ producto, onEditar, onTransferir, onToggleAct
   );
 }
 
+// ─── Historial de movimientos: fila simple, click para ver todo el detalle ──
+const ETIQUETAS_TIPO_MOVIMIENTO = {
+  reposicion: 'Reposición',
+  transferencia: 'Transferencia',
+  devolucion: 'Devolución',
+};
+
+function formatFechaHistorial(fecha) {
+  // fecha llega como Firestore Timestamp (o null mientras el serverTimestamp
+  // todavía no se resuelve, justo después de crear el movimiento).
+  if (!fecha || typeof fecha.toDate !== 'function') return 'Justo ahora';
+  return fecha.toDate().toLocaleString('es-CL', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function formatMonto(valor) {
+  if (valor === null || valor === undefined) return null;
+  return '$' + Number(valor).toLocaleString('es-CL');
+}
+
+function HistorialMovimientos({ producto, historial, cargando }) {
+  const [expandidoId, setExpandidoId] = useState(null);
+
+  return (
+    <div className="gp-info-block">
+      <div className="gp-block-title">Historial de movimientos</div>
+
+      {cargando && <p className="gp-stat-sub">Cargando historial...</p>}
+
+      {!cargando && historial.length === 0 && (
+        <p className="gp-stat-sub">Todavía no hay movimientos registrados para este producto en este local.</p>
+      )}
+
+      {!cargando && historial.map((mov) => {
+        const delta = Number(mov.stockNuevo) - Number(mov.stockAnterior);
+        const esPositivo = delta >= 0;
+        const expandido = expandidoId === mov.id;
+
+        return (
+          <div key={mov.id}>
+            <button
+              type="button"
+              className="gp-hist-row"
+              style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer' }}
+              onClick={() => setExpandidoId(expandido ? null : mov.id)}
+            >
+              <span className={`gp-hist-dot ${esPositivo ? 'gp-hist-dot-in' : 'gp-hist-dot-adj'}`} />
+              <div className="gp-hist-info">
+                <div className="gp-hist-tipo">{ETIQUETAS_TIPO_MOVIMIENTO[mov.tipoMovimiento] ?? mov.tipoMovimiento}</div>
+                <div className="gp-hist-fecha">{formatFechaHistorial(mov.fecha)}</div>
+              </div>
+              <span className={esPositivo ? 'gp-hist-pos' : 'gp-hist-neg'}>
+                {(esPositivo ? '+' : '-') + formatStock(Math.abs(delta), producto.unidad || 'uds')}
+              </span>
+            </button>
+
+            {expandido && (
+              <div style={{ padding: '4px 12px 12px 30px', fontSize: 12.5 }}>
+                <DetalleRow k="Código del producto" v={producto.codigo} />
+                <DetalleRow k="Stock anterior" v={formatStock(mov.stockAnterior, producto.unidad || 'uds')} />
+                <DetalleRow k="Stock nuevo" v={formatStock(mov.stockNuevo, producto.unidad || 'uds')} />
+                <DetalleRow k="Cantidad del movimiento" v={formatStock(mov.cantidad, producto.unidad || 'uds')} />
+                {mov.proveedorNombre && (
+                  <DetalleRow k="Proveedor" v={`${mov.proveedorNombre} — ${mov.proveedorEmpresa || 'sin empresa'}`} />
+                )}
+                {mov.fechaVencimiento && <DetalleRow k="Fecha de vencimiento" v={mov.fechaVencimiento} />}
+                {mov.localRelacionado && <DetalleRow k="Local relacionado" v={mov.localRelacionado} />}
+                {formatMonto(mov.valorUnitario) && <DetalleRow k="Costo unitario" v={formatMonto(mov.valorUnitario)} />}
+                {formatMonto(mov.valorTotal) && <DetalleRow k="Costo total" v={formatMonto(mov.valorTotal)} />}
+                <DetalleRow k="Usuario" v={mov.usuarioNombre || 'Desconocido'} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DetalleRow({ k, v }) {
+  return (
+    <div className="gp-info-row">
+      <span className="gp-info-key">{k}</span>
+      <span className="gp-info-val">{v}</span>
+    </div>
+  );
+}
+
 // ─── Modal: Detalle (solo se usa en layout móvil, en desktop va en el panel) ─
 
-export function DetalleModal({ isDesktop, visible, producto, onClose, onEditar, onTransferir, onToggleActivo }) {
+export function DetalleModal({ isDesktop, visible, producto, onClose, onEditar, onTransferir, onToggleActivo, historial, cargandoHistorial }) {
   if (isDesktop || !visible) return null;
   return (
     <ModalShell isDesktop={false} onClose={onClose} title={producto?.nombre || ''}>
@@ -173,6 +257,8 @@ export function DetalleModal({ isDesktop, visible, producto, onClose, onEditar, 
         onEditar={onEditar}
         onTransferir={onTransferir}
         onToggleActivo={onToggleActivo}
+        historial={historial}
+        cargandoHistorial={cargandoHistorial}
       />
     </ModalShell>
   );
@@ -207,12 +293,29 @@ export function EditarModal({
 
 // ─── Modal: Actualizar stock ──────────────────────────────────────────────────
 
+// ─── Modal: Actualizar stock (movimientos: reposición / transferencia / devolución) ──
+// El scanner y el input manual de código de barras se mantienen igual que
+// siempre. Lo que cambia es que, según el tipo de movimiento elegido, se
+// muestran solo los campos que corresponden. Ya NO existe número de lote.
 export function ActualizarStockModal({
   isDesktop, visible, onClose, onConfirmar, onEscanear,
-  codigo, setCodigo, cantidad, setCantidad, lote, setLote, fechaVenc, setFechaVenc,
-  tipo, setTipo, tiposMovimiento, productoEncontrado, requiereFechaVenc,
+  codigo, setCodigo, cantidad, setCantidad,
+  tipoMovimiento, setTipoMovimiento,
+  productoEncontrado,
+  proveedores = [], proveedorId, setProveedorId,
+  fechaVencimiento, setFechaVencimiento,
+  valorUnitario, setValorUnitario,
+  localesDestino = [], localLabels = {}, localDestino, setLocalDestino,
+  guardando, errors = {},
 }) {
   if (!visible) return null;
+
+  const TIPOS_MOVIMIENTO_STOCK = [
+    { value: 'reposicion', label: 'Reposición' },
+    { value: 'transferencia', label: 'Transferencia' },
+    { value: 'devolucion', label: 'Devolución' },
+  ];
+
   return (
     <ModalShell isDesktop={isDesktop} onClose={onClose} title="Actualizar stock">
       <div className="gp-form-wrap">
@@ -235,35 +338,110 @@ export function ActualizarStockModal({
             </div>
           </div>
         )}
-
-        <FormField
-          label={productoEncontrado?.unidad === 'g' ? 'Cantidad a ingresar (gramos)' : 'Cantidad a ingresar (unidades)'}
-          value={cantidad}
-          onChangeText={setCantidad}
-          placeholder={productoEncontrado?.unidad === 'g' ? 'Ej: 5000' : 'Ej: 50'}
-          type="number"
-        />
-        <FormField label="Número de lote *" value={lote} onChangeText={setLote} placeholder="Ej: LOTE-001" />
-        {requiereFechaVenc && (
-          <FormField label="Fecha de vencimiento *" value={fechaVenc} onChangeText={setFechaVenc} placeholder="DD/MM/AAAA" />
+        {!productoEncontrado && codigo.trim() && (
+          <p style={{ color: '#E24B4A', fontSize: 12.5, marginTop: -6, marginBottom: 10 }}>
+            No se encontró un producto con ese código en este local.
+          </p>
         )}
 
         <div className="gp-form-group">
           <span className="gp-form-label">TIPO DE MOVIMIENTO</span>
           <div className="gp-select-wrap">
-            {tiposMovimiento.map((t) => (
+            {TIPOS_MOVIMIENTO_STOCK.map((t) => (
               <button
-                key={t}
-                className={`gp-select-option${tipo === t ? ' active' : ''}`}
-                onClick={() => setTipo(t)}
+                key={t.value}
+                className={`gp-select-option${tipoMovimiento === t.value ? ' active' : ''}`}
+                onClick={() => setTipoMovimiento(t.value)}
               >
-                {t}
+                {t.label}
               </button>
             ))}
           </div>
+          {errors.tipoMovimiento && <p style={{ color: '#E24B4A', fontSize: 12 }}>{errors.tipoMovimiento}</p>}
         </div>
 
-        <button className="gp-btn-primary" onClick={onConfirmar}>Confirmar actualización</button>
+        <FormField
+          label="Cantidad"
+          value={cantidad}
+          onChangeText={(v) => setCantidad(v.replace(/\D/g, ''))}
+          placeholder={productoEncontrado?.unidad === 'g' ? 'Ej: 5000' : 'Ej: 50'}
+          type="number"
+        />
+        {errors.cantidad && (
+          <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.cantidad}</p>
+        )}
+
+        {/* ── Reposición: proveedor + fecha de vencimiento ── */}
+        {tipoMovimiento === 'reposicion' && (
+          <>
+            <div className="gp-form-group">
+              <label className="gp-form-label">Proveedor *</label>
+              <select className="gp-form-input" value={proveedorId} onChange={(e) => setProveedorId(e.target.value)}>
+                <option value="">Selecciona un proveedor...</option>
+                {proveedores.map((p) => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                ))}
+              </select>
+              {errors.proveedorId && <p style={{ color: '#E24B4A', fontSize: 12 }}>{errors.proveedorId}</p>}
+            </div>
+
+            <FormField
+              label="Fecha de vencimiento *"
+              value={fechaVencimiento}
+              onChangeText={setFechaVencimiento}
+              placeholder="DD/MM/AAAA"
+            />
+            {errors.fechaVencimiento && (
+              <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.fechaVencimiento}</p>
+            )}
+
+            <FormField
+              label="Costo unitario ($) *"
+              value={valorUnitario}
+              onChangeText={(v) => setValorUnitario(v.replace(/\D/g, ''))}
+              placeholder="Ej: 500"
+              type="number"
+            />
+            {errors.valorUnitario && (
+              <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.valorUnitario}</p>
+            )}
+          </>
+        )}
+
+        {/* ── Transferencia: local destino ── */}
+        {tipoMovimiento === 'transferencia' && (
+          <div className="gp-form-group">
+            <label className="gp-form-label">Local destino *</label>
+            <select className="gp-form-input" value={localDestino} onChange={(e) => setLocalDestino(e.target.value)}>
+              <option value="">Selecciona un local...</option>
+              {localesDestino.map((loc) => (
+                <option key={loc} value={loc}>{localLabels[loc] ?? loc}</option>
+              ))}
+            </select>
+            {errors.localDestino && <p style={{ color: '#E24B4A', fontSize: 12 }}>{errors.localDestino}</p>}
+          </div>
+        )}
+
+        {tipoMovimiento === 'transferencia' && (
+          <>
+            <FormField
+              label="Costo unitario ($) *"
+              value={valorUnitario}
+              onChangeText={(v) => setValorUnitario(v.replace(/\D/g, ''))}
+              placeholder="Ej: 500"
+              type="number"
+            />
+            {errors.valorUnitario && (
+              <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.valorUnitario}</p>
+            )}
+          </>
+        )}
+
+        {errors.general && <p style={{ color: '#E24B4A', fontSize: 13, marginBottom: 10 }}>{errors.general}</p>}
+
+        <button className="gp-btn-primary" onClick={onConfirmar} disabled={guardando}>
+          {guardando ? 'Guardando...' : 'Confirmar actualización'}
+        </button>
         <div style={{ height: 20 }} />
       </div>
     </ModalShell>
@@ -402,7 +580,9 @@ export function RegistrarModal({
 export function TransferirModal({
   isDesktop, visible, onClose, onConfirmar,
   producto, cantidad, setCantidad, local, setLocal,
+  valorUnitario, setValorUnitario,
   localesDestino = [], localLabels = {},
+  guardando, errors = {},
 }) {
   if (!visible) return null;
   return (
@@ -429,6 +609,7 @@ export function TransferirModal({
               <option key={loc} value={loc}>{localLabels[loc] ?? loc}</option>
             ))}
           </select>
+          {errors.localDestino && <p style={{ color: '#E24B4A', fontSize: 12 }}>{errors.localDestino}</p>}
         </div>
         <FormField
           label={`Cantidad a transferir (${producto?.unidad === 'g' ? 'gramos' : 'unidades'}) *`}
@@ -437,8 +618,21 @@ export function TransferirModal({
           placeholder={producto?.unidad === 'g' ? 'Ej: 2000' : 'Ej: 10'}
           type="number"
         />
-        <button className="gp-btn-primary" style={{ background: '#1A6FA8' }} onClick={onConfirmar}>
-          Confirmar transferencia
+        {errors.cantidad && <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.cantidad}</p>}
+
+        <FormField
+          label="Costo unitario ($) *"
+          value={valorUnitario}
+          onChangeText={(v) => setValorUnitario(v.replace(/\D/g, ''))}
+          placeholder="Ej: 500"
+          type="number"
+        />
+        {errors.valorUnitario && <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.valorUnitario}</p>}
+
+        {errors.general && <p style={{ color: '#E24B4A', fontSize: 13, marginBottom: 10 }}>{errors.general}</p>}
+
+        <button className="gp-btn-primary" style={{ background: '#1A6FA8' }} onClick={onConfirmar} disabled={guardando}>
+          {guardando ? 'Transfiriendo...' : 'Confirmar transferencia'}
         </button>
         <div style={{ height: 20 }} />
       </div>
