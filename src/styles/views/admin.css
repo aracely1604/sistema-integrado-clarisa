@@ -104,6 +104,84 @@
   width: 100%;
 }
 
+.daily-local-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.daily-summary-title {
+  margin: 18px 0 -6px;
+  color: #334155;
+  font-weight: 800;
+}
+
+.daily-local-row {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.daily-local-row span,
+.daily-local-row small {
+  color: #64748b;
+}
+
+.daily-local-row span {
+  font-weight: 800;
+}
+
+.daily-local-row strong,
+.cash-day-summary strong {
+  color: #0f172a;
+}
+
+.cash-day-summary {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+}
+
+.cash-day-summary strong {
+  color: #0f766e;
+}
+
+.autoconsumo-dashboard { margin-top: 18px; }
+.autoconsumo-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.autoconsumo-kpis > div { display: grid; gap: 5px; padding: 14px; border: 1px solid #ddd6fe; border-radius: 8px; background: #f5f3ff; }
+.autoconsumo-kpis span, .autoconsumo-row span, .autoconsumo-row small { color: #64748b; }
+.autoconsumo-kpis strong { color: #5b21b6; font-size: 22px; }
+.autoconsumo-list { display: grid; gap: 10px; margin-top: 18px; }
+.autoconsumo-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
+.autoconsumo-row div { display: grid; gap: 4px; min-width: 0; }
+.autoconsumo-row > div:last-child { text-align: right; flex: 0 0 auto; }
+.signature-ok { color: #15803d !important; font-weight: 800; }
+.signature-pending { color: #b45309 !important; font-weight: 800; }
+.autoconsumo-chart { margin-top: 18px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+.bar-autoconsumo { background: #7c3aed; }
+
+.report-date-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.report-date-control .field {
+  width: min(100%, 260px);
+  margin-top: 0;
+}
+
+.report-selected-period {
+  margin: 10px 0 0;
+  color: #334155;
+  font-weight: 700;
+}
+
 @media (max-width: 760px) {
   .admin-actions {
     justify-content: stretch;
@@ -116,6 +194,14 @@
   .admin-stats-grid {
     grid-template-columns: 1fr;
   }
+
+  .daily-local-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .autoconsumo-kpis { grid-template-columns: 1fr; }
+  .autoconsumo-row { align-items: flex-start; flex-direction: column; }
+  .autoconsumo-row > div:last-child { text-align: left; }
 
   .admin-user-row {
     grid-template-columns: auto minmax(0, 1fr);

@@ -5,3 +5,108 @@
 .payment-panel .field {
   display: block;
 }
+
+.cash-opening-field {
+  color: #334155;
+  max-width: 280px;
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  display: block;
+}
+
+.cash-opening-field .field {
+  margin-top: 6px;
+}
+
+.cash-opening-field small {
+  color: #64748b;
+  margin-top: 6px;
+  font-weight: 600;
+  display: block;
+}
+
+.cash-opening-amount {
+  color: #0f766e;
+  margin: 8px 0 0;
+  font-weight: 800;
+}
+
+.cash-opening-modal {
+  text-align: left;
+}
+
+.cash-opening-modal h2 {
+  margin-bottom: 8px;
+}
+
+.cash-opening-actions {
+  margin-top: 22px;
+}
+
+.personal-consumption-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  max-width: 1120px;
+  margin: 0 auto 18px;
+  padding: 20px 22px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #eef2ff;
+}
+.personal-consumption-panel h2 { margin: 0 0 6px; }
+.personal-consumption-panel .muted { margin: 0; }
+.personal-consumption-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.autoconsumo-products { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+.autoconsumo-selected { display: grid; gap: 8px; padding: 12px; border-radius: 8px; background: #f8fafc; }
+.autoconsumo-selected > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.signature-check { display: flex; align-items: flex-start; gap: 9px; margin-top: 18px; color: #334155; font-weight: 700; }
+.signature-box { margin-top: 18px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; }
+.signature-box > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.signature-box canvas { width: 100%; height: 180px; border: 1px dashed #94a3b8; border-radius: 6px; background: #fff; touch-action: none; cursor: crosshair; }
+
+@media (max-width: 760px) {
+  .personal-consumption-panel { align-items: stretch; flex-direction: column; }
+  .personal-consumption-actions { display: grid; }
+  .autoconsumo-products { grid-template-columns: 1fr; }
+}
+
+.cart-item-detail {
+  min-width: 0;
+}
+
+.cart-item-name {
+  font-weight: 800;
+}
+
+.ingredient-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ingredient-chip {
+  color: #334155;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ingredient-chip:hover {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+.removed-ingredients,
+.cart-item-detail small {
+  color: #64748b;
+  margin-top: 7px;
+  display: block;
+}

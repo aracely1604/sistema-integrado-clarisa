@@ -1,0 +1,47 @@
+.virtual-credential {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  max-width: 1120px;
+  margin: 0 auto 18px;
+  padding: 16px 18px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: linear-gradient(120deg, #eff6ff, #f0fdfa);
+}
+
+.credential-access {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 14px 0 0;
+  border-top: 1px solid #e2e8f0;
+}
+.credential-access span { color: #64748b; font-size: 14px; }
+.credential-modal .virtual-credential { margin: 16px 0 0; }
+
+.virtual-credential strong,
+.virtual-credential span { display: block; }
+.virtual-credential span { color: #475569; margin-top: 4px; font-size: 14px; }
+
+.credential-code {
+  display: grid;
+  place-items: center;
+  min-width: 94px;
+  min-height: 58px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: #0f172a;
+  background: repeating-linear-gradient(90deg, #0f172a 0 3px, #fff 3px 6px);
+}
+
+.credential-code b,
+.credential-code small { background: #fff; padding: 1px 5px; }
+.credential-code small { font-size: 10px; font-weight: 800; }
+
+@media (max-width: 760px) {
+  .virtual-credential { align-items: flex-start; }
+}
