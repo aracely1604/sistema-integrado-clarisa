@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import jsPDF from 'jspdf';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import '../styles/views/admin.css';
-
-import { useAuth } from '../controllers/AuthContext';
-import { useNavigate } from 'react-router-dom';
 
 const locales = [
   { id: 'almacen', nombre: 'Almacén' },
@@ -136,6 +134,24 @@ const prepararSeriesMetodosPago = (ventas, periodo) => {
   return [...grupos.values()].sort((a, b) => a.clave.localeCompare(b.clave)).slice(-8);
 };
 
+const fechaClaveChile = (valor) => {
+  if (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valor)) return valor;
+  const fecha = valor instanceof Date ? valor : new Date(valor || Date.now());
+  return Number.isNaN(fecha.getTime()) ? '' : new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(fecha);
+};
+
+const prepararSerieAutoconsumosDiarios = (registros) => {
+  const grupos = new Map();
+  registros.forEach((registro) => {
+    const fecha = obtenerFechaVenta(registro);
+    const clave = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+    const actual = grupos.get(clave) || { clave, etiqueta: fecha.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' }), total: 0 };
+    actual.total += Number(registro.total || 0);
+    grupos.set(clave, actual);
+  });
+  return [...grupos.values()].sort((a, b) => a.clave.localeCompare(b.clave)).slice(-8);
+};
+
 const nombreLocalReporte = (localId) => {
   if (localId === 'todos') return 'Los 3 locales';
   return locales.find((local) => local.id === localId)?.nombre || 'Local';
@@ -197,19 +213,34 @@ function Barras({ datos, campos }) {
   );
 }
 
-function Admin({ }) {
+function Admin() {
   const navigate = useNavigate();
   const [ventas, setVentas] = useState([]);
   const [cajas, setCajas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
+  const [autoconsumos, setAutoconsumos] = useState([]);
+  const [firmasAutoconsumo, setFirmasAutoconsumo] = useState([]);
   const [metodoActivo, setMetodoActivo] = useState('todos');
   const [periodo, setPeriodo] = useState('diario');
   const [ahora, setAhora] = useState(new Date());
   const [mostrarLocales, setMostrarLocales] = useState(false);
-  const [mostrarUsuariosActivos, setMostrarUsuariosActivos] = useState(false);
   const [reportePeriodo, setReportePeriodo] = useState('diario');
   const [reporteLocal, setReporteLocal] = useState('todos');
+  const [fechaReporte, setFechaReporte] = useState('');
+  const [mesReporte, setMesReporte] = useState('');
+  const [anioReporte, setAnioReporte] = useState(String(new Date().getFullYear()));
   const [localActivo, setLocalActivo] = useState('general');
+  const [trabajadorConsumo, setTrabajadorConsumo] = useState(null);
+
+  const buscarFirmaRegistro = (registro, firmas = firmasAutoconsumo) => firmas.find((firma) => {
+    if (String(firma.trabajadorId) !== String(registro.trabajadorId) || !firma.aceptada || !firma.firmaDigital) return false;
+    const diaFirma = fechaClaveChile(firma.fecha || firma.firmadaEn);
+    if (diaFirma !== fechaClaveChile(registro.fecha)) return false;
+    if (Array.isArray(firma.resumenConsumo?.registros)) {
+      return firma.resumenConsumo.registros.some((item) => String(item.id) === String(registro.id));
+    }
+    return Boolean(firma.firmadaEn) && obtenerFechaVenta(registro).getTime() <= new Date(firma.firmadaEn).getTime();
+  });
 
   useEffect(() => {
     const reloj = setInterval(() => setAhora(new Date()), 1000);
@@ -220,9 +251,13 @@ function Admin({ }) {
     const cargarDatos = async () => {
       const ventasLocales = JSON.parse(localStorage.getItem('ventas')) || [];
       const cajasLocales = JSON.parse(localStorage.getItem('cajas')) || [];
+      const autoconsumosLocales = JSON.parse(localStorage.getItem('autoconsumos')) || [];
+      const firmasLocales = JSON.parse(localStorage.getItem('firmasAutoconsumo')) || [];
 
       setVentas(ventasLocales);
       setCajas(cajasLocales);
+      setAutoconsumos(autoconsumosLocales);
+      setFirmasAutoconsumo(firmasLocales);
 
       try {
         const ventasFirebase = await getDocs(collection(db, 'ventas'));
@@ -255,9 +290,38 @@ function Admin({ }) {
       } catch (error) {
         console.error('No se pudieron cargar usuarios de Firebase:', error);
       }
+
+      try {
+        const [autoconsumosFirebase, firmasFirebase] = await Promise.all([
+          getDocs(collection(db, 'autoconsumos')),
+          getDocs(collection(db, 'firmasAutoconsumo')),
+        ]);
+        const autoconsumosUnidos = unirPorId(autoconsumosLocales, autoconsumosFirebase.docs.map((documento) => ({ id: documento.id, ...documento.data() })));
+        const firmasUnidas = unirPorId(firmasLocales, firmasFirebase.docs.map((documento) => ({ id: documento.id, ...documento.data() })));
+        setAutoconsumos(autoconsumosUnidos);
+        setFirmasAutoconsumo(firmasUnidas);
+        localStorage.setItem('autoconsumos', JSON.stringify(autoconsumosUnidos));
+        localStorage.setItem('firmasAutoconsumo', JSON.stringify(firmasUnidas));
+      } catch (error) {
+        console.error('No se pudieron cargar los autoconsumos:', error);
+      }
     };
 
     cargarDatos();
+    const actualizarVentasLocales = () => {
+      setVentas(JSON.parse(localStorage.getItem('ventas')) || []);
+    };
+    const actualizarAutoconsumosLocales = () => {
+      setAutoconsumos(JSON.parse(localStorage.getItem('autoconsumos')) || []);
+      setFirmasAutoconsumo(JSON.parse(localStorage.getItem('firmasAutoconsumo')) || []);
+    };
+    window.addEventListener('ventas-actualizadas', actualizarVentasLocales);
+    window.addEventListener('autoconsumos-actualizados', actualizarAutoconsumosLocales);
+
+    return () => {
+      window.removeEventListener('ventas-actualizadas', actualizarVentasLocales);
+      window.removeEventListener('autoconsumos-actualizados', actualizarAutoconsumosLocales);
+    };
   }, []);
 
   const cerrarCajaAdmin = async (caja) => {
@@ -324,9 +388,42 @@ function Admin({ }) {
         ];
   const totalGeneral = ventasNormalizadas.reduce((a, b) => a + b.total, 0);
   const totalFiltrado = ventasFiltradas.reduce((a, b) => a + b.total, 0);
-  const hoy = new Date().toISOString().slice(0, 10);
-  const ventasHoy = ventasNormalizadas.filter((venta) => obtenerFechaVenta(venta).toISOString().slice(0, 10) === hoy);
+  const hoy = fechaClaveChile(new Date());
+  const ventasHoy = ventasNormalizadas.filter((venta) => fechaClaveChile(venta.fecha || venta.createdAt || venta.date || venta.dia) === hoy);
   const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
+  const autoconsumosHoy = autoconsumos.filter((registro) => fechaClaveChile(registro.fecha || registro.createdAt || registro.date || registro.dia) === hoy);
+  const totalAutoconsumosHoy = autoconsumosHoy.reduce((suma, registro) => suma + Number(registro.total || 0), 0);
+  const autoconsumosPorLocal = locales.map((local) => ({
+    ...local,
+    cantidad: autoconsumosHoy.filter((registro) => normalizarLocal(registro) === local.id).length,
+    total: autoconsumosHoy.filter((registro) => normalizarLocal(registro) === local.id).reduce((suma, registro) => suma + Number(registro.total || 0), 0),
+  }));
+  const firmasHoy = firmasAutoconsumo.filter((firma) => fechaClaveChile(firma.fecha || firma.firmadaEn) === hoy && firma.aceptada && firma.firmaDigital);
+  const serieAutoconsumosDiarios = prepararSerieAutoconsumosDiarios(autoconsumos);
+  const ventasPorLocalHoy = locales.map((local) => {
+    const ventasLocal = ventasHoy.filter((venta) => venta.localNormalizado === local.id);
+    return {
+      ...local,
+      cantidad: ventasLocal.length,
+      total: ventasLocal.reduce((suma, venta) => suma + venta.total, 0),
+    };
+  });
+  const resumenCajasHoy = cajas.map((caja) => {
+    const ventasCaja = ventasHoy.filter((venta) => venta.cajaId === caja.id);
+    const totalVentas = ventasCaja.reduce((suma, venta) => suma + venta.total, 0);
+    const ventasEfectivo = ventasCaja
+      .filter((venta) => venta.metodoPagoNormalizado === 'efectivo')
+      .reduce((suma, venta) => suma + venta.total, 0);
+    const fondoInicial = Number(caja.efectivoInicial || 0);
+
+    return {
+      id: caja.id,
+      totalVentas,
+      ventasEfectivo,
+      fondoInicial,
+      efectivoEnCaja: fondoInicial + ventasEfectivo,
+    };
+  });
   const totalMetodos = metodosPago.map((metodo) => ({
     ...metodo,
     total: ventasFiltradas
@@ -337,28 +434,40 @@ function Admin({ }) {
     metodoActivo === 'todos'
       ? 'Todos los métodos'
       : metodosPago.find((metodo) => metodo.id === metodoActivo)?.nombre || 'Método';
-  const usuariosActivos = usuarios.filter((usuario) => usuario.estado === 'activo');
+  const aniosReporte = [...new Set([
+    new Date().getFullYear(),
+    ...ventasNormalizadas.map((venta) => obtenerFechaVenta(venta).getFullYear()),
+  ])].sort((a, b) => b - a);
 
   const filtrarVentasReporte = () => {
     return ventasNormalizadas
       .filter((venta) => reporteLocal === 'todos' || venta.localNormalizado === reporteLocal)
       .filter((venta) => {
-        const fecha = obtenerFechaVenta(venta);
-        const hoyReporte = new Date();
+        const fechaVenta = obtenerFechaVenta(venta);
+        const mesVenta = `${fechaVenta.getFullYear()}-${String(fechaVenta.getMonth() + 1).padStart(2, '0')}`;
+        const fechaVentaTexto = `${mesVenta}-${String(fechaVenta.getDate()).padStart(2, '0')}`;
 
-        switch (reportePeriodo) {
-          case 'diario':
-            return fecha.toDateString() === hoyReporte.toDateString();
-          case 'semanal':
-            return fecha >= obtenerInicioSemana(hoyReporte);
-          case 'mensual':
-            return fecha.getMonth() === hoyReporte.getMonth() && fecha.getFullYear() === hoyReporte.getFullYear();
-          case 'anual':
-            return fecha.getFullYear() === hoyReporte.getFullYear();
-          default:
-            return true;
+        if (reportePeriodo === 'mensual') return !mesReporte || mesVenta === mesReporte;
+        if (reportePeriodo === 'anual') return !anioReporte || fechaVenta.getFullYear() === Number(anioReporte);
+        if (reportePeriodo === 'semanal') {
+          if (!fechaReporte) return true;
+          return obtenerInicioSemana(fechaVenta).toISOString().slice(0, 10)
+            === obtenerInicioSemana(new Date(`${fechaReporte}T00:00:00`)).toISOString().slice(0, 10);
         }
+
+        return !fechaReporte || fechaVentaTexto === fechaReporte;
       });
+  };
+
+  const descripcionFiltroReporte = () => {
+    if (reportePeriodo === 'mensual' && mesReporte) {
+      return new Date(`${mesReporte}-01T00:00:00`).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+    }
+    if (reportePeriodo === 'anual' && anioReporte) return anioReporte;
+    if ((reportePeriodo === 'diario' || reportePeriodo === 'semanal') && fechaReporte) {
+      return new Date(`${fechaReporte}T00:00:00`).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' });
+    }
+    return 'Todas las fechas';
   };
 
   const generarPDF = () => {
@@ -369,7 +478,7 @@ function Admin({ }) {
     const anchoPagina = doc.internal.pageSize.getWidth();
     const margen = 14;
     const anchoTabla = anchoPagina - margen * 2;
-    const subtitulo = `${nombreLocalReporte(reporteLocal)} - ${nombrePeriodoReporte(reportePeriodo)}`;
+    const subtitulo = `${nombreLocalReporte(reporteLocal)} - ${nombrePeriodoReporte(reportePeriodo)}: ${descripcionFiltroReporte()}`;
 
     const dibujarEncabezado = () => {
       doc.setFillColor(15, 118, 110);
@@ -406,7 +515,7 @@ function Admin({ }) {
       doc.setTextColor(100, 116, 139);
       doc.setFont('helvetica', 'normal');
       doc.text('No hay ventas registradas para los filtros seleccionados.', margen, 70);
-      doc.save('reporte-ventas.pdf');
+      doc.save(`reporte-ventas-${reportePeriodo}.pdf`);
       return;
     }
 
@@ -434,7 +543,57 @@ function Admin({ }) {
       y += 10;
     });
 
-    doc.save('reporte-ventas.pdf');
+    doc.save(`reporte-ventas-${reportePeriodo}.pdf`);
+  };
+
+  const generarPDFAutoconsumo = (registros, trabajador = 'general') => {
+    const doc = new jsPDF();
+    const ancho = doc.internal.pageSize.getWidth();
+    const alto = doc.internal.pageSize.getHeight();
+    const margen = 14;
+    let y = 40;
+    const dibujarCabecera = () => {
+      doc.setFillColor(91, 33, 182);
+      doc.rect(0, 0, ancho, 27, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('RESUMEN DE AUTOCONSUMO', margen, 12);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text(`Fecha: ${new Date().toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })} · Trabajador: ${trabajador}`, margen, 20);
+      doc.setTextColor(15, 23, 42);
+      y = 36;
+    };
+    dibujarCabecera();
+    if (!registros.length) {
+      doc.setFontSize(10);
+      doc.text('No hay autoconsumos registrados para este resumen.', margen, y);
+    }
+    registros.forEach((registro) => {
+      const productos = (registro.productos || []).map((producto) => `${producto.cantidad}× ${producto.nombre}`).join(', ') || 'Sin detalle de productos';
+      const lineas = doc.splitTextToSize(productos, ancho - margen * 2 - 4);
+      const altura = 24 + Math.max(1, lineas.length) * 5;
+      if (y + altura > alto - 18) { doc.addPage(); dibujarCabecera(); }
+      const firma = buscarFirmaRegistro(registro);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(margen, y, ancho - margen * 2, altura, 2, 2);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text(limpiarTextoPDF(registro.trabajadorNombre || trabajador, 55), margen + 4, y + 7);
+      doc.text(`$${Number(registro.total || 0).toLocaleString('es-CL')}`, ancho - margen - 4, y + 7, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(`${registro.localNombre || registro.local || 'Local'} · ${formatearFechaHora(obtenerFechaVenta(registro))} · ${firma ? 'Firmado' : 'No firmado'}`, margen + 4, y + 13);
+      doc.text(lineas, margen + 4, y + 19);
+      y += altura + 4;
+    });
+    const total = registros.reduce((suma, registro) => suma + Number(registro.total || 0), 0);
+    if (y + 12 > alto - 12) { doc.addPage(); dibujarCabecera(); }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(`Total: $${total.toLocaleString('es-CL')} · ${registros.length} registro(s)`, margen, y + 5);
+    doc.save(`autoconsumo-${trabajador === 'general' ? hoy : 'trabajador'}-${hoy}.pdf`);
   };
 
   return (
@@ -450,21 +609,11 @@ function Admin({ }) {
             className="btn btn-primary"
             onClick={() => {
               setMostrarLocales(!mostrarLocales);
-              setMostrarUsuariosActivos(false);
             }}
           >
             Locales
           </button>
-          <button
-            className="btn btn-secondary"
-            onClick={() => {
-              setMostrarUsuariosActivos(!mostrarUsuariosActivos);
-              setMostrarLocales(false);
-            }}
-          >
-            Usuarios activos
-          </button>
-          <button className="btn btn-secondary" onClick={() => navigate('/portal')}>
+          <button className="btn btn-secondary" onClick={() => navigate('portal')}>
             Volver al portal
           </button>
         </div>
@@ -484,66 +633,29 @@ function Admin({ }) {
           </div>
 
           <div className="action-grid">
-            <button className="module-card module-green" onClick={() => navigate('/almacen')}>
+            <button className="module-card module-green" onClick={() => navigate('/almacen', { state: { volverA: '/admin' } })}>
               <span className="module-icon">Almacén</span>
               <strong>Punto de venta</strong>
               <small>Ingresar al punto de venta del almacén.</small>
             </button>
 
-            <button className="module-card module-blue" onClick={() => navigate('/cafeteria')}>
+            <button className="module-card module-blue" onClick={() => navigate('/cafeteria', { state: { volverA: '/admin' } })}>
               <span className="module-icon">Cafetería</span>
               <strong>Punto de venta</strong>
               <small>Ingresar al punto de venta de cafetería.</small>
             </button>
 
-            <button className="module-card module-orange" onClick={() => navigate('/comidaRapida')}>
+            <button className="module-card module-orange" onClick={() => navigate('/comidaRapida', { state: { volverA: '/admin' } })}>
               <span className="module-icon">Comida</span>
               <strong>Punto de venta</strong>
               <small>Ingresar al punto de venta de comida rápida.</small>
             </button>
-          </div>
-        </section>
-      )}
 
-      {mostrarUsuariosActivos && (
-        <section className="admin-users-panel portal-shell">
-          <div className="portal-header">
-            <div>
-              <p className="eyebrow">Usuarios</p>
-              <h2>Usuarios activos</h2>
-              <p className="muted">Revisa las cuentas aprobadas que pueden ingresar al sistema.</p>
-            </div>
-            <button className="btn btn-secondary" onClick={() => setMostrarUsuariosActivos(false)}>
-              Volver al panel
+            <button className="module-card module-blue" onClick={() => navigate('/delivery')}>
+              <span className="module-icon">Delivery</span>
+              <strong>Pedidos online</strong>
+              <small>Ver los pedidos disponibles para reparto.</small>
             </button>
-          </div>
-
-          <div className="admin-users-list">
-            {usuariosActivos.length === 0 ? (
-              <p className="muted admin-users-empty">No hay usuarios activos registrados.</p>
-            ) : (
-              usuariosActivos.map((usuario) => {
-                const nombreCompleto = [usuario.nombre, usuario.apellido].filter(Boolean).join(' ');
-
-                return (
-                  <article className="admin-user-row" key={usuario.uid || usuario.id || usuario.user || usuario.rut}>
-                    <span className="admin-user-avatar">
-                      {(usuario.nombre || usuario.user || 'U').slice(0, 1)}
-                      {(usuario.apellido || '').slice(0, 1)}
-                    </span>
-                    <div className="admin-user-data">
-                      <strong>{nombreCompleto || usuario.user || 'Usuario sin nombre'}</strong>
-                      <span>{usuario.user || 'Sin correo'}</span>
-                      <small>RUT: {usuario.rut || '-'}</small>
-                    </div>
-                    <div className="admin-user-meta">
-                      <span>{usuario.rol || 'Sin rol'}</span>
-                      <small>{usuario.local || 'Sin local'}</small>
-                    </div>
-                  </article>
-                );
-              })
-            )}
           </div>
         </section>
       )}
@@ -568,6 +680,47 @@ function Admin({ }) {
         </div>
       </section>
 
+      <section className="analytics-panel autoconsumo-dashboard">
+        <div className="analytics-head"><div><p className="eyebrow">Autoconsumo personal</p><h2>Control y trazabilidad del día</h2><p className="muted">Registros identificados por trabajador, credencial y firma digital.</p></div><button type="button" className="btn btn-secondary" onClick={() => generarPDFAutoconsumo(autoconsumosHoy)}>Descargar autoconsumos PDF</button></div>
+        <div className="autoconsumo-kpis">
+          <div><span>Autoconsumos hoy</span><strong>{autoconsumosHoy.length}</strong></div>
+          <div><span>Monto referencial</span><strong>${totalAutoconsumosHoy.toLocaleString('es-CL')}</strong></div>
+          <div><span>Firmas diarias</span><strong>{firmasHoy.length}</strong></div>
+        </div>
+        <div className="daily-local-summary">
+          {autoconsumosPorLocal.map((local) => <div className="daily-local-row" key={local.id}><span>{local.nombre}</span><small>{local.cantidad} registros</small><strong>${local.total.toLocaleString('es-CL')}</strong></div>)}
+        </div>
+        <div className="autoconsumo-chart">
+          <div className="chart-title"><h3>Gráfico de consumo diario</h3><span>Últimos 8 días con registros</span></div>
+          <Barras datos={serieAutoconsumosDiarios} campos={[{ id: 'total', nombre: 'Autoconsumo', className: 'bar-autoconsumo' }]} />
+        </div>
+        <div className="autoconsumo-list">
+          {autoconsumosHoy.length === 0 ? <p className="muted">Aún no hay autoconsumos registrados hoy.</p> : autoconsumosHoy.slice().reverse().map((registro) => {
+            const firma = buscarFirmaRegistro(registro, firmasHoy);
+            const tieneFirma = Boolean(firma);
+            return <article key={registro.id} className="autoconsumo-row"><div><strong>{registro.trabajadorNombre || 'Trabajador/a'}</strong><span>{registro.localNombre || registro.local} · Credencial {registro.credencial || 'virtual'}</span><small>{(registro.productos || []).map((producto) => `${producto.cantidad}× ${producto.nombre}`).join(', ') || 'Sin detalle'} · {formatearFechaHora(obtenerFechaVenta(registro))}</small></div><div className="autoconsumo-row-actions"><strong>${Number(registro.total || 0).toLocaleString('es-CL')}</strong><small className={tieneFirma ? 'signature-ok' : 'signature-pending'}>{tieneFirma ? 'Firmado' : 'No firmado'}</small><button type="button" className="btn btn-secondary btn-small autoconsumo-eye" aria-label={`Ver resumen de ${registro.trabajadorNombre || 'trabajador'}`} title="Ver resumen de consumo" onClick={() => setTrabajadorConsumo({ registro, firma })}>◉</button></div></article>;
+          })}
+        </div>
+      </section>
+
+      {trabajadorConsumo && (() => {
+        const { registro, firma } = trabajadorConsumo;
+        const delTrabajador = autoconsumosHoy.filter((item) => String(item.trabajadorId) === String(registro.trabajadorId));
+        const resumenGuardado = firma?.resumenConsumo;
+        const detalle = resumenGuardado?.registros || delTrabajador;
+        const total = Number(resumenGuardado?.total ?? delTrabajador.reduce((suma, item) => suma + Number(item.total || 0), 0));
+        return <div className="consumo-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setTrabajadorConsumo(null); }}>
+          <section className="consumo-modal" role="dialog" aria-modal="true" aria-labelledby="consumo-modal-title">
+            <div className="modal-head"><div><p className="eyebrow">Resumen de autoconsumo</p><h2 id="consumo-modal-title">{registro.trabajadorNombre || 'Trabajador/a'}</h2></div><button type="button" className="icon-btn" aria-label="Cerrar" onClick={() => setTrabajadorConsumo(null)}>×</button></div>
+            <p className={firma ? 'signature-ok' : 'signature-pending'}>{firma ? `Firmado${firma.firmadaEn ? ` · ${formatearFechaHora(new Date(firma.firmadaEn))}` : ''}` : 'No firmado'}</p>
+            <div className="consumo-modal-summary"><span>{detalle.length} registro(s)</span><strong>Total: ${total.toLocaleString('es-CL')}</strong></div>
+            <div className="consumo-modal-list">{detalle.map((item, index) => <article key={item.id || index}><div><strong>{item.localNombre || item.local || 'Local'}</strong><small>{(item.productos || []).map((producto) => `${producto.cantidad}× ${producto.nombre}`).join(', ') || 'Sin productos'}{item.fecha ? ` · ${formatearFechaHora(obtenerFechaVenta(item))}` : ''}</small></div><b>${Number(item.total || 0).toLocaleString('es-CL')}</b></article>)}</div>
+            {firma?.firmaDigital && <img className="consumo-signature-image" src={firma.firmaDigital} alt="Firma digital del trabajador" />}
+            <div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={() => generarPDFAutoconsumo(detalle, registro.trabajadorNombre || 'trabajador')}>Descargar resumen PDF</button><button type="button" className="btn btn-primary" onClick={() => setTrabajadorConsumo(null)}>Cerrar</button></div>
+          </section>
+        </div>;
+      })()}
+
       <section className="open-cash-panel">
         <div className="analytics-head">
           <div>
@@ -577,22 +730,41 @@ function Admin({ }) {
           </div>
         </div>
 
+        <p className="daily-summary-title">Ventas acumuladas hoy por local</p>
+        <div className="daily-local-summary">
+          {ventasPorLocalHoy.map((local) => (
+            <div className="daily-local-row" key={local.id}>
+              <span>{local.nombre}</span>
+              <small>{local.cantidad} ventas hoy</small>
+              <strong>${local.total.toLocaleString('es-CL')}</strong>
+            </div>
+          ))}
+        </div>
+
         <div className="open-cash-list">
           {cajas.length === 0 ? (
             <p className="muted">No hay cajas abiertas.</p>
           ) : (
-            cajas.map((caja) => (
-              <div className="open-cash-row" key={caja.id}>
-                <div>
-                  <strong>{caja.localNombre || caja.local}</strong>
-                  <span>{caja.nombre ? `${caja.nombre} ${caja.apellido}` : caja.usuario}</span>
-                  <small>Abierta: {formatearFechaHora(caja.abiertaDesde)}</small>
+            cajas.map((caja) => {
+              const resumen = resumenCajasHoy.find((item) => item.id === caja.id);
+              return (
+                <div className="open-cash-row" key={caja.id}>
+                  <div>
+                    <strong>{caja.localNombre || caja.local}</strong>
+                    <span>{caja.nombre ? `${caja.nombre} ${caja.apellido}` : caja.usuario}</span>
+                    <small>Abierta: {formatearFechaHora(caja.abiertaDesde)}</small>
+                    <div className="cash-day-summary">
+                      <small>Fondo inicial: ${resumen?.fondoInicial.toLocaleString('es-CL') || '0'}</small>
+                      <small>Ventas de hoy: ${resumen?.totalVentas.toLocaleString('es-CL') || '0'}</small>
+                      <strong>Efectivo en caja: ${resumen?.efectivoEnCaja.toLocaleString('es-CL') || '0'}</strong>
+                    </div>
+                  </div>
+                  <button className="btn btn-danger" onClick={() => cerrarCajaAdmin(caja)}>
+                    Cerrar caja
+                  </button>
                 </div>
-                <button className="btn btn-danger" onClick={() => cerrarCajaAdmin(caja)}>
-                  Cerrar caja
-                </button>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </section>
@@ -680,9 +852,7 @@ function Admin({ }) {
                   <h2>Descargar reporte PDF</h2>
                 </div>
               </div>
-
-              <div className="report-options">
-                <div className="report-field">
+              <div className="report-field">
                   <h4>Periodo</h4>
                   <div className="period-toggle">
                     <button className={reportePeriodo === 'diario' ? 'active' : ''} onClick={() => setReportePeriodo('diario')}>
@@ -698,6 +868,56 @@ function Admin({ }) {
                       Anual
                     </button>
                   </div>
+                </div>
+
+              <div className="report-options">
+                <div className="report-field">
+                  <h4>
+                    {reportePeriodo === 'mensual'
+                      ? 'Seleccionar mes'
+                      : reportePeriodo === 'anual'
+                        ? 'Seleccionar año'
+                        : reportePeriodo === 'semanal'
+                          ? 'Seleccionar una fecha de la semana'
+                          : 'Seleccionar fecha'}
+                  </h4>
+                  <p className="muted">
+                    {reportePeriodo === 'mensual'
+                      ? 'El reporte incluirá todas las ventas del mes seleccionado.'
+                      : reportePeriodo === 'anual'
+                        ? 'El reporte incluirá todas las ventas del año seleccionado.'
+                        : reportePeriodo === 'semanal'
+                          ? 'El reporte incluirá la semana de la fecha seleccionada.'
+                          : 'Selecciona el día del que deseas descargar el reporte.'}
+                  </p>
+                  <div className="report-date-control">
+                    {reportePeriodo === 'mensual' ? (
+                      <input
+                        type="month"
+                        value={mesReporte}
+                        onChange={(e) => setMesReporte(e.target.value)}
+                        className="field"
+                      />
+                    ) : reportePeriodo === 'anual' ? (
+                      <select value={anioReporte} onChange={(e) => setAnioReporte(e.target.value)} className="field">
+                        {aniosReporte.map((anio) => <option value={anio} key={anio}>{anio}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type="date"
+                        value={fechaReporte}
+                        onChange={(e) => setFechaReporte(e.target.value)}
+                        className="field"
+                      />
+                    )}
+                    {(reportePeriodo === 'mensual' && mesReporte) && (
+                      <button type="button" className="btn btn-secondary" onClick={() => setMesReporte('')}>Limpiar mes</button>
+                    )}
+                    {((reportePeriodo === 'diario' || reportePeriodo === 'semanal') && fechaReporte) && (
+                      <button type="button" className="btn btn-secondary" onClick={() => setFechaReporte('')}>Limpiar fecha</button>
+                    )}
+                  </div>
+                  <p className="report-selected-period">Reporte seleccionado: {descripcionFiltroReporte()}</p>
                 </div>
 
                 <div className="report-field">

@@ -4,6 +4,7 @@ import PersonalModal from '../screens/PersonalScreen';
 import LocalesModal from '../screens/LocalesScreen';
 import { logoutEmpleado } from '../controllers/AuthControl';
 import { useAuth } from '../controllers/AuthContext';
+import CredencialVirtual from '../components/CredencialVirtual';
 import '../css/Portal.css';
 
 
@@ -125,6 +126,8 @@ function Portal() {
             <small>Define entrada y salida de cafetería, almacén y comida rápida.</small>
           </button>
         </div>
+
+        <CredencialVirtual />
       </section>
 
       {/* Modal de gestión de usuario (mismo componente que en PersonalScreen) */}

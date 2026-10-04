@@ -2,6 +2,15 @@
   min-width: 0;
 }
 
+.module-users {
+  background: #ecfeff;
+  border-color: #a5f3fc;
+}
+
+.module-users .module-icon {
+  background: #0e7490;
+}
+
 .portal-shell .modal-actions {
   margin-top: 8px;
 }

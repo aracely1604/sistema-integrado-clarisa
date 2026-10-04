@@ -6,10 +6,12 @@ import { cerrarSesion } from '../models/authModel';
 import { obtenerMetodosPagoLocal, obtenerProductosLocal } from '../models/productModel';
 
 import { useAuth } from '../controllers/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 function Cafeteria({ notify }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const rutaVolver = location.state?.volverA || '/portal';
   const { usuario: sesion } = useAuth();
   if (!sesion) {
     setTimeout(() => navigate('login'), 0);
@@ -28,7 +30,9 @@ function Cafeteria({ notify }) {
           <Reloj />
         </div>
         <div className="admin-actions">
-          <button className="btn btn-secondary" onClick={() => navigate('/portal')}>Volver al panel</button>
+          <button className="btn btn-secondary" onClick={() => navigate(rutaVolver)}>
+            {rutaVolver === '/admin' ? 'Volver a administración' : 'Volver al panel'}
+          </button>
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
       </header>

@@ -14,6 +14,7 @@ const LOCALES = [
   { key: 'cafeteria', label: 'Cafetería' },
   { key: 'almacen', label: 'Almacén' },
   { key: 'comidaRapida', label: 'Comida Rápida' },
+  { key: 'delivery', label: 'Delivery' },
 ];
 
 const TURNOS = [

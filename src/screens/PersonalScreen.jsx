@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
-  FiSearch, FiX, FiPlus, FiSun, FiMoon, FiCircle, FiLock, FiCalendar,
+  FiSearch, FiX, FiSun, FiMoon, FiCircle, FiLock, FiCalendar,
   FiCheckCircle, FiAlertTriangle, FiClipboard, FiUser, FiList, FiGrid, FiPackage,
 } from 'react-icons/fi';
 import { FaCrown, FaReceipt, FaMotorcycle, FaHamburger, FaCoffee, FaUsers } from 'react-icons/fa';
@@ -130,6 +130,10 @@ function formatFechaHora(iso) {
 function estaEnLinea(ultimaConexion) {
   if (!ultimaConexion) return false;
   return (Date.now() - new Date(ultimaConexion).getTime()) < 15 * 60 * 1000;
+}
+
+function usuarioActivo(usuario) {
+  return usuario?.activo !== false && usuario?.estado !== 'inactivo' && usuario?.estado !== 'rechazado';
 }
 
 function validarNombre(nombre) {
@@ -1095,12 +1099,13 @@ function EmpleadoFilaMobile({ emp, onPress, colors, isLast, horariosLocales }) {
 
 // ─── Métricas KPI ─────────────────────────────────────────────────────────────
 function MetricasPersonal({ usuarios, colors }) {
-  const total      = usuarios.length;
-  const activos    = usuarios.filter(e => e.activo).length;
-  const enLinea    = usuarios.filter(e => estaEnLinea(e.ultimaConexion)).length;
-  const cajeros    = usuarios.filter(e => e.rol === 'cajero').length;
-  const repartidores = usuarios.filter(e => e.rol === 'delivery').length;
-  const admins     = usuarios.filter(e => e.rol === 'administrador').length;
+  const usuariosActivos = usuarios.filter(usuarioActivo);
+  const total      = usuariosActivos.length;
+  const activos    = usuariosActivos.length;
+  const enLinea    = usuariosActivos.filter(e => estaEnLinea(e.ultimaConexion)).length;
+  const cajeros    = usuariosActivos.filter(e => e.rol === 'cajero').length;
+  const repartidores = usuariosActivos.filter(e => e.rol === 'delivery').length;
+  const admins     = usuariosActivos.filter(e => e.rol === 'administrador').length;
 
   const metricas = [
     { label: 'Total',        value: total,   color: colors.textPrimary },
@@ -1166,16 +1171,6 @@ function FiltroBar({ filtros, setFiltros, colors }) {
         </button>
       ))}
 
-      {/* Solo activos */}
-      <button type="button" onClick={() => setFiltros(p => ({ ...p, soloActivos: !p.soloActivos }))}
-        className="ps-filter-chip"
-        style={{
-          borderColor: filtros.soloActivos ? '#639922' : colors.border,
-          backgroundColor: filtros.soloActivos ? '#639922' : 'transparent',
-        }}>
-        <span className="ps-filter-chip-text" style={{ color: filtros.soloActivos ? '#FFFFFF' : colors.textSecondary }}>Solo activos</span>
-      </button>
-
     </div>
   );
 }
@@ -1186,7 +1181,7 @@ function FiltroBar({ filtros, setFiltros, colors }) {
 function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, verificarDuplicados, horariosLocales }) {
   const { colors } = useTheme();
   const [vista,    setVista]    = useState('tabla'); // 'tabla' | 'cards'
-  const [filtros,  setFiltros]  = useState({ busqueda: '', rol: null, local: null, soloActivos: true });
+  const [filtros,  setFiltros]  = useState({ busqueda: '', rol: null, local: null });
   const [modalEmpId, setModalEmpId] = useState(null);
   const modalEmp = modalEmpId === 'nuevo' ? null : usuarios.find(e => e.id === modalEmpId) ?? null;
 
@@ -1196,7 +1191,7 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
     // Solo el super-admin (usuario.rol === 'admin') puede ver empleados con rol "administrador".
     // Un "administrador" que mira la lista no ve a otros administradores.
     if (!esAdmin && e.rol === 'administrador') return false;
-    if (filtros.soloActivos && !e.activo) return false;
+    if (!usuarioActivo(e)) return false;
     if (filtros.rol   && e.rol   !== filtros.rol)   return false;
     if (filtros.local && !localesAsignados(e.localAsignado).includes(filtros.local)) return false;
     if (filtros.busqueda) {
@@ -1217,24 +1212,14 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
           <div className="ps-row" style={{ gap: 8 }}>
             <FaUsers size={18} color={colors.textPrimary} />
             <div>
-              <p className="psd-topbar-title" style={{ color: colors.textPrimary }}>Gestión de Personal</p>
+              <p className="psd-topbar-title" style={{ color: colors.textPrimary }}>Usuarios activos</p>
               <p className="psd-topbar-sub" style={{ color: colors.textSecondary }}>
-                {usuarios.filter(e => e.activo).length} activos · {usuarios.filter(e => estaEnLinea(e.ultimaConexion)).length} en línea ahora
+                {usuarios.filter(usuarioActivo).length} usuarios disponibles · {usuarios.filter(e => usuarioActivo(e) && estaEnLinea(e.ultimaConexion)).length} en línea ahora
               </p>
             </div>
           </div>
 
           <div className="ps-row" style={{ gap: 10 }}>
-            <button
-              type="button"
-              onClick={() => setModalEmpId('nuevo')}
-              className="ps-btn-primary ps-reset-btn ps-row"
-              style={{ paddingLeft: 14, paddingRight: 14, paddingTop: 9, paddingBottom: 9, borderRadius: 9, gap: 6 }}
-            >
-              <FiPlus size={14} color="#FFFFFF" />
-              <span className="ps-btn-primary-text" style={{ fontSize: 13 }}>Nuevo empleado</span>
-            </button>
-
             {/* Botón cerrar */}
             <button type="button" className="ps-reset-btn" onClick={onClose}>
               <FiX size={20} color="#7F8C8D" />
@@ -1249,7 +1234,7 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
 
           {/* Filtros + toggle vista */}
           <div className="ps-row" style={{ justifyContent: 'space-between', marginTop: 16, marginBottom: 4 }}>
-            <p className="ps-section-label" style={{ color: colors.textSecondary, margin: 0 }}>EMPLEADOS · {empFiltrados.length}</p>
+            <p className="ps-section-label" style={{ color: colors.textSecondary, margin: 0 }}>USUARIOS ACTIVOS · {empFiltrados.length}</p>
             <div className="ps-row" style={{ gap: 4 }}>
               {[{ id: 'tabla', Icon: FiList }, { id: 'cards', Icon: FiGrid }].map(v => (
                 <button key={v.id} type="button" onClick={() => setVista(v.id)}
@@ -1275,7 +1260,7 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
               {empFiltrados.length === 0 ? (
                 <div className="ps-empty-box" style={{ border: 'none', margin: 16 }}>
                   <FiUser size={22} color="#BDC3C7" style={{ marginBottom: 6 }} />
-                  <p className="ps-empty-text" style={{ color: colors.textSecondary }}>Sin empleados con los filtros aplicados</p>
+                  <p className="ps-empty-text" style={{ color: colors.textSecondary }}>No hay usuarios activos con esos filtros</p>
                 </div>
               ) : empFiltrados.map((emp, i) => (
                 <EmpleadoFila key={emp.id} emp={emp} colors={colors} horariosLocales={horariosLocales}
@@ -1290,7 +1275,7 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
               {empFiltrados.length === 0 ? (
                 <div className="ps-empty-box" style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
                   <FiUser size={22} color="#BDC3C7" style={{ marginBottom: 6 }} />
-                  <p className="ps-empty-text" style={{ color: colors.textSecondary }}>Sin empleados con los filtros aplicados</p>
+                  <p className="ps-empty-text" style={{ color: colors.textSecondary }}>No hay usuarios activos con esos filtros</p>
                 </div>
               ) : empFiltrados.map(emp => (
                 <EmpleadoCard key={emp.id} emp={emp} colors={colors} horariosLocales={horariosLocales} onPress={e => setModalEmpId(e.id)} />
@@ -1324,7 +1309,7 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
 // ─────────────────────────────────────────────────────────────────────────────
 function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, verificarDuplicados, horariosLocales }) {
   const { colors } = useTheme();
-  const [filtros,  setFiltros]  = useState({ busqueda: '', rol: null, local: null, soloActivos: true });
+  const [filtros,  setFiltros]  = useState({ busqueda: '', rol: null, local: null });
   const [modalEmpId, setModalEmpId] = useState(null);
   const modalEmp = modalEmpId === 'nuevo' ? null : usuarios.find(e => e.id === modalEmpId) ?? null;
   const [vista,    setVista]    = useState('cards'); // 'cards' | 'tabla'
@@ -1335,7 +1320,7 @@ function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ver
     // Solo el super-admin (usuario.rol === 'admin') puede ver empleados con rol "administrador".
     // Un "administrador" que mira la lista no ve a otros administradores.
     if (!esAdmin && e.rol === 'administrador') return false;
-    if (filtros.soloActivos && !e.activo) return false;
+    if (!usuarioActivo(e)) return false;
     if (filtros.rol   && e.rol   !== filtros.rol)   return false;
     if (filtros.local && !localesAsignados(e.localAsignado).includes(filtros.local)) return false;
     if (filtros.busqueda) {
@@ -1353,9 +1338,9 @@ function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ver
         <div className="ps-row" style={{ gap: 8 }}>
           <FaUsers size={16} color={colors.textPrimary} />
           <div>
-            <p className="ps-header-title" style={{ color: colors.textPrimary, margin: 0 }}>Personal</p>
+            <p className="ps-header-title" style={{ color: colors.textPrimary, margin: 0 }}>Usuarios activos</p>
             <p className="ps-header-sub" style={{ color: colors.textSecondary, margin: 0 }}>
-              {usuarios.filter(e => e.activo).length} activos · {usuarios.filter(e => estaEnLinea(e.ultimaConexion)).length} en línea
+              {usuarios.filter(usuarioActivo).length} usuarios · {usuarios.filter(e => usuarioActivo(e) && estaEnLinea(e.ultimaConexion)).length} en línea
             </p>
           </div>
         </div>
@@ -1376,7 +1361,7 @@ function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ver
         {/* Section label + vista toggle */}
         <div className="ps-row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
           <p className="ps-section-label" style={{ color: colors.textSecondary, margin: 0 }}>
-            EMPLEADOS · {empFiltrados.length}
+            USUARIOS ACTIVOS · {empFiltrados.length}
           </p>
           <div className="ps-row" style={{ gap: 4 }}>
             {[{ id: 'cards', Icon: FiGrid }, { id: 'tabla', Icon: FiList }].map(v => (
@@ -1394,7 +1379,7 @@ function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ver
           empFiltrados.length === 0 ? (
             <div className="ps-empty-box" style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
               <FiUser size={22} color="#BDC3C7" style={{ marginBottom: 6 }} />
-              <p className="ps-empty-text" style={{ color: colors.textSecondary }}>Sin empleados con los filtros aplicados</p>
+              <p className="ps-empty-text" style={{ color: colors.textSecondary }}>No hay usuarios activos con esos filtros</p>
             </div>
           ) : empFiltrados.map(emp => (
             <EmpleadoCard key={emp.id} emp={emp} colors={colors} horariosLocales={horariosLocales} onPress={e => setModalEmpId(e.id)} />
@@ -1412,7 +1397,7 @@ function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ver
             {empFiltrados.length === 0 ? (
               <div className="ps-empty-box" style={{ border: 'none', margin: 16 }}>
                 <FiUser size={22} color="#BDC3C7" style={{ marginBottom: 6 }} />
-                <p className="ps-empty-text" style={{ color: colors.textSecondary }}>Sin empleados con los filtros aplicados</p>
+                <p className="ps-empty-text" style={{ color: colors.textSecondary }}>No hay usuarios activos con esos filtros</p>
               </div>
             ) : empFiltrados.map((emp, i) => (
               <EmpleadoFilaMobile key={emp.id} emp={emp} colors={colors} horariosLocales={horariosLocales}
@@ -1420,14 +1405,6 @@ function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ver
             ))}
           </div>
         )}
-
-        {/* Botón nuevo */}
-        <button type="button" onClick={() => setModalEmpId('nuevo')}
-          className="ps-btn-primary ps-reset-btn ps-row"
-          style={{ borderRadius: 10, padding: 13, justifyContent: 'center', marginTop: 12, gap: 6, width: '100%' }}>
-          <FiPlus size={15} color="#FFFFFF" />
-          <span className="ps-btn-primary-text">Nuevo empleado</span>
-        </button>
 
       </div>
 

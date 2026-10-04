@@ -1,26 +1,37 @@
 import React, { useEffect, useState } from 'react';
 import { collection, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
-import { db } from '../firebase';
+import { signOut } from 'firebase/auth';
+import { auth, db } from '../firebase';
+import { useAuth } from '../controllers/AuthContext';
 import { cerrarSesion, obtenerOpcionRol, obtenerVistaInicial, opcionesRol } from '../models/authModel';
+import PersonalModal from '../screens/PersonalScreen';
+import LocalesModal from '../screens/LocalesScreen';
 import '../styles/views/portal.css';
 
 function Portal({ navigate, notify }) {
   const [mostrarSolicitudes, setMostrarSolicitudes] = useState(false);
+  const [mostrarUsuarios, setMostrarUsuarios] = useState(false);
+  const [mostrarTurnos, setMostrarTurnos] = useState(false);
   const [solicitudes, setSolicitudes] = useState([]);
   const [rolesSeleccionados, setRolesSeleccionados] = useState({});
-  const sesion = JSON.parse(localStorage.getItem('sesion'));
-
-  if (!sesion) {
-    setTimeout(() => navigate('login'), 0);
-    return null;
-  }
-
-  if (sesion.rol !== 'admin') {
-    setTimeout(() => navigate(obtenerVistaInicial(sesion)), 0);
-    return null;
-  }
+  const { usuario } = useAuth();
+  const [sesionGuardada] = useState(() => JSON.parse(localStorage.getItem('sesion') || 'null'));
+  // Firebase es la fuente principal; localStorage permite completar la
+  // transición inmediatamente después de iniciar sesión.
+  const sesion = usuario || sesionGuardada;
 
   useEffect(() => {
+    if (!sesion) {
+      navigate('login');
+      return;
+    }
+
+    if (sesion.rol !== 'admin') navigate(obtenerVistaInicial(sesion));
+  }, [sesion, navigate]);
+
+  useEffect(() => {
+    if (!sesion || sesion.rol !== 'admin') return undefined;
+
     const consulta = query(collection(db, 'solicitudesUsuarios'), where('estado', '==', 'pendiente'));
     const cancelarEscucha = onSnapshot(
       consulta,
@@ -42,7 +53,7 @@ function Portal({ navigate, notify }) {
     );
 
     return () => cancelarEscucha();
-  }, []);
+  }, [sesion, notify]);
 
   const marcarNotificacionLeida = async (uid) => {
     try {
@@ -67,7 +78,7 @@ function Portal({ navigate, notify }) {
       estado: 'activo',
       creadoEn: solicitud.creadaEn || aprobadoEn,
       aprobadoEn,
-      aprobadoPor: sesion.user,
+      aprobadoPor: sesion.user || sesion.email || 'administrador',
     };
 
     try {
@@ -76,7 +87,7 @@ function Portal({ navigate, notify }) {
         estado: 'aceptada',
         rolAsignado: opcionRol.label,
         aprobadaEn: aprobadoEn,
-        aprobadaPor: sesion.user,
+        aprobadaPor: sesion.user || sesion.email || 'administrador',
       });
       await marcarNotificacionLeida(solicitud.uid);
 
@@ -96,7 +107,7 @@ function Portal({ navigate, notify }) {
       await updateDoc(doc(db, 'solicitudesUsuarios', solicitud.id), {
         estado: 'rechazada',
         rechazadaEn: new Date().toISOString(),
-        rechazadaPor: sesion.user,
+        rechazadaPor: sesion.user || sesion.email || 'administrador',
       });
       await marcarNotificacionLeida(solicitud.uid);
       notify('Solicitud rechazada. El otro equipo verá el cambio al instante.', 'success');
@@ -106,6 +117,8 @@ function Portal({ navigate, notify }) {
     }
   };
 
+  if (!sesion || sesion.rol !== 'admin') return null;
+
   return (
     <main className="portal-page">
       <section className="portal-shell">
@@ -114,10 +127,16 @@ function Portal({ navigate, notify }) {
             <p className="eyebrow">Panel principal</p>
             <h1>Sistema Integrado</h1>
             <p className="muted">
-              Bienvenido/a, <b>{sesion.nombre || sesion.user}</b> (administrador)
+              Bienvenido/a, <b>{sesion.nombre || sesion.user || sesion.email}</b> (administrador)
             </p>
           </div>
-          <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>
+          <button
+            className="btn btn-danger"
+            onClick={async () => {
+              await signOut(auth);
+              cerrarSesion(navigate);
+            }}
+          >
             Salir
           </button>
         </div>
@@ -129,7 +148,7 @@ function Portal({ navigate, notify }) {
             <small>Ver resumen de ventas y control general.</small>
           </button>
 
-          <button onClick={() => notify('Derivando al Módulo de Inventario (Equipo N 4).', 'info')} className="module-card module-blue">
+          <button onClick={() => navigate('alertas')} className="module-card module-blue">
             <span className="module-icon">Stock</span>
             <strong>Inventario</strong>
             <small>Consulta y control de productos.</small>
@@ -139,6 +158,18 @@ function Portal({ navigate, notify }) {
             <span className="module-icon">User</span>
             <strong>Solicitudes</strong>
             <small>{solicitudes.length} cuenta(s) esperando aprobación.</small>
+          </button>
+
+          <button onClick={() => setMostrarUsuarios(true)} className="module-card module-users">
+            <span className="module-icon">Users</span>
+            <strong>Ver usuarios</strong>
+            <small>Consulta, edita y administra los usuarios registrados.</small>
+          </button>
+
+          <button onClick={() => setMostrarTurnos(true)} className="module-card module-green">
+            <span className="module-icon">Turno</span>
+            <strong>Horarios de locales</strong>
+            <small>Configura los turnos de cafetería, almacén, comida rápida y delivery.</small>
           </button>
         </div>
       </section>
@@ -188,7 +219,7 @@ function Portal({ navigate, notify }) {
 
                     <div className="request-actions">
                       <button className="btn btn-danger" onClick={() => denegarSolicitud(solicitud)}>
-                        Rechazar
+                        No aceptar
                       </button>
                       <button className="btn btn-primary" onClick={() => aceptarSolicitud(solicitud)}>
                         Aceptar
@@ -206,6 +237,16 @@ function Portal({ navigate, notify }) {
           </section>
         </div>
       )}
+
+      <PersonalModal
+        visible={mostrarUsuarios}
+        onClose={() => setMostrarUsuarios(false)}
+      />
+
+      <LocalesModal
+        visible={mostrarTurnos}
+        onClose={() => setMostrarTurnos(false)}
+      />
     </main>
   );
 }

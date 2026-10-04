@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, doc, onSnapshot, orderBy, query, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import Perfil from './Perfil';
 import { db } from '../firebase';
@@ -13,12 +13,25 @@ const estadosPedido = [
   { id: 'entregado', nombre: 'Entregado' },
 ];
 
-const obtenerIndiceEstado = (estado) => Math.max(0, estadosPedido.findIndex((item) => item.id === estado));
+const normalizarEstado = (estado) => String(estado || 'recibido')
+  .trim()
+  .toLowerCase()
+  .replaceAll(' ', '_')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '');
+
+const obtenerIndiceEstado = (estado) => Math.max(0, estadosPedido.findIndex((item) => item.id === normalizarEstado(estado)));
 
 const formatearFechaHora = (valor) => {
   if (!valor) return '-';
   const fecha = typeof valor.toDate === 'function' ? valor.toDate() : new Date(valor);
   return Number.isNaN(fecha.getTime()) ? '-' : fecha.toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+};
+
+const fechaPedido = (pedido) => {
+  const valor = pedido.creadoEn || pedido.createdAt || pedido.fecha;
+  const fecha = valor?.toDate?.() || new Date(valor || 0);
+  return Number.isNaN(fecha.getTime()) ? 0 : fecha.getTime();
 };
 
 function Delivery({ notify }) {
@@ -29,13 +42,16 @@ function Delivery({ notify }) {
   const [codigosFinales, setCodigosFinales] = useState({});
 
   useEffect(() => {
-    const consulta = query(collection(db, 'pedidos'), orderBy('creadoEn', 'desc'));
+    // No se ordena desde Firestore: pedidos creados por el portal antiguo no
+    // siempre tienen `creadoEn` y quedaban invisibles para el repartidor.
+    const consulta = query(collection(db, 'pedidos'));
     const cancelarEscucha = onSnapshot(
       consulta,
       (resultado) => {
         const pedidosActualizados = resultado.docs
           .map((documento) => ({ id: documento.id, ...documento.data() }))
-          .filter((pedido) => pedido.estado !== 'entregado');
+          .filter((pedido) => normalizarEstado(pedido.estado) !== 'entregado')
+          .sort((a, b) => fechaPedido(b) - fechaPedido(a));
         setPedidos(pedidosActualizados);
       },
       (error) => {
@@ -55,10 +71,10 @@ function Delivery({ notify }) {
   const datosAutoCompletos = Boolean(sesion.patente && sesion.colorAuto && sesion.marcaAuto);
 
   const repartidorId = sesion.uid || sesion.user;
-  const pedidoEnCurso = pedidos.find((pedido) => pedido.estado === 'en_camino' && pedido.repartidorId === repartidorId);
+  const pedidoEnCurso = pedidos.find((pedido) => normalizarEstado(pedido.estado) === 'en_camino' && pedido.repartidorId === repartidorId);
   const pedidosVisibles = pedidoEnCurso
     ? [pedidoEnCurso]
-    : pedidos.filter((pedido) => pedido.estado === 'recibido' || !pedido.repartidorId);
+    : pedidos.filter((pedido) => !pedido.repartidorId);
 
   const datosRepartidor = {
     repartidorId,
@@ -162,34 +178,38 @@ function Delivery({ notify }) {
         <div className="delivery-panel-head">
           <div>
             <p className="eyebrow">Pedidos en tiempo real</p>
-            <h2>{datosAutoCompletos ? 'Pedidos activos' : 'Completa los datos del vehículo'}</h2>
+            <h2>Pedidos activos</h2>
             <p className="muted">
               {datosAutoCompletos
                 ? 'Actualiza el estado para que el cliente lo vea al instante en seguimiento.'
-                : 'Ingresa patente, color del auto y marca en Editar perfil para comenzar.'}
+                : 'Los pedidos están visibles. Completa los datos del vehículo en tu perfil antes de tomar uno.'}
             </p>
           </div>
           <strong>{pedidosVisibles.length} pedido(s)</strong>
         </div>
 
-        {!datosAutoCompletos ? (
-          <p className="muted delivery-empty">Completa tu perfil para tomar pedidos.</p>
-        ) : pedidosVisibles.length === 0 ? (
+        {pedidosVisibles.length === 0 ? (
           <p className="muted delivery-empty">No hay pedidos pendientes por ahora.</p>
         ) : (
           <div className="delivery-order-list">
             {pedidosVisibles.map((pedido) => {
               const indiceEstado = obtenerIndiceEstado(pedido.estado);
               const cliente = pedido.entrega || {};
-              const esPedidoEnCurso = pedido.estado === 'en_camino' && pedido.repartidorId === repartidorId;
+              const nombreCliente = [
+                cliente.nombre || pedido.nombre || pedido.nombres,
+                cliente.apellido || pedido.apellido || pedido.apellidos,
+              ].filter(Boolean).join(' ') || (typeof pedido.cliente === 'string' ? pedido.cliente : 'Cliente');
+              const direccionCliente = cliente.direccion || pedido.direccion || pedido.domicilio || 'Dirección no registrada';
+              const telefonoCliente = cliente.telefono || pedido.telefono || '-';
+              const esPedidoEnCurso = normalizarEstado(pedido.estado) === 'en_camino' && pedido.repartidorId === repartidorId;
 
               return (
                 <article className="delivery-order" key={pedido.id}>
                   <div className="delivery-order-main">
                     <span className="delivery-order-code">#{pedido.id.slice(0, 6).toUpperCase()}</span>
-                    <h3>{cliente.nombre || 'Cliente'} {cliente.apellido || ''}</h3>
-                    <p>{cliente.direccion || 'Dirección no registrada'}</p>
-                    <small>{cliente.telefono || '-'} · {formatearFechaHora(pedido.creadoEn)}</small>
+                    <h3>{nombreCliente}</h3>
+                    <p>{direccionCliente}</p>
+                    <small>{telefonoCliente} · {formatearFechaHora(pedido.creadoEn || pedido.createdAt || pedido.fecha)}</small>
                   </div>
 
                   <div className="delivery-products">
@@ -227,10 +247,10 @@ function Delivery({ notify }) {
                     ) : (
                       <button
                         className="btn btn-primary"
-                        disabled={actualizandoId === pedido.id || Boolean(pedidoEnCurso)}
+                        disabled={actualizandoId === pedido.id || Boolean(pedidoEnCurso) || !datosAutoCompletos}
                         onClick={() => tomarPedido(pedido)}
                       >
-                        Tomar pedido
+                        {datosAutoCompletos ? 'Tomar pedido' : 'Completa tu vehículo'}
                       </button>
                     )}
                   </div>

@@ -6,10 +6,12 @@ import { cerrarSesion } from '../models/authModel';
 import { obtenerProductosLocal } from '../models/productModel';
 
 import { useAuth } from '../controllers/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 function Almacen({ notify }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const rutaVolver = location.state?.volverA || '/portal';
   const { usuario: sesion } = useAuth(); //cambiar y usar: const { usuario } = useAuth();
   // ejemplo de uso:
   // usuario.nombre = juan(muestra el nombre del que inicio sesion)
@@ -31,8 +33,8 @@ function Almacen({ notify }) {
           <Reloj />
         </div>
         <div className="admin-actions">
-          <button onClick={() => navigate('/portal')} className="btn btn-secondary">
-            Volver al panel
+          <button onClick={() => navigate(rutaVolver)} className="btn btn-secondary">
+            {rutaVolver === '/admin' ? 'Volver a administración' : 'Volver al panel'}
           </button>
           <button onClick={() => cerrarSesion(navigate)} className="btn btn-danger">
             Cerrar sesión

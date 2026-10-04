@@ -6,6 +6,17 @@
   min-height: 72px;
 }
 
+.profile-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.profile-summary > span { display: grid; gap: 5px; }
+.profile-summary small { color: #64748b; }
+.profile-modal-backdrop { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 18px; background: rgb(15 23 42 / 55%); }
+.profile-modal { width: min(100%, 460px); display: grid; gap: 16px; padding: 22px; border-radius: 14px; background: #fff; box-shadow: 0 24px 70px rgb(15 23 42 / 25%); }
+.profile-modal label { display: grid; gap: 6px; color: #334155; font-weight: 700; }
+.profile-modal .field { margin-top: 0; }
+.profile-modal .modal-head { display: flex; justify-content: space-between; align-items: center; }
+.profile-modal .modal-head h2 { margin: 0; }
+.profile-modal .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
 .profile-form-wide {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

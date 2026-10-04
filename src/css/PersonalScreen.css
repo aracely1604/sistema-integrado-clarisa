@@ -75,11 +75,45 @@
 
 /* Modal */
 .ps-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000;
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.58); z-index: 1000;
   display: flex; align-items: flex-start; justify-content: center;
+  backdrop-filter: blur(5px);
 }
 .ps-overlay-inner {
   display: flex; flex-direction: column; flex: 1; height: 100%; overflow: hidden;
+  background: #f4f8f7; box-shadow: 0 28px 80px rgba(15, 23, 42, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+.psd-topbar, .ps-header {
+  background: linear-gradient(120deg, #0f766e, #0b5d58) !important;
+  border-bottom: 0 !important;
+  box-shadow: 0 6px 20px rgba(15, 118, 110, 0.24);
+}
+.psd-topbar-title, .ps-header-title { color: #fff !important; letter-spacing: -0.2px; font-size: 18px; }
+.psd-topbar-sub, .ps-header-sub { color: rgba(255, 255, 255, 0.78) !important; }
+.psd-topbar .ps-reset-btn svg, .ps-header .ps-reset-btn svg { color: #fff !important; }
+.ps-kpi-card {
+  background: #fff !important;
+  border: 1px solid #dbe7e4 !important;
+  border-radius: 14px;
+  min-width: 112px;
+  padding: 13px 14px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+.ps-kpi-label { color: #64748b !important; }
+.ps-kpi-value { font-size: 23px; }
+.ps-search-box { border-radius: 12px; box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04); }
+.ps-filter-chip { border-radius: 999px; padding: 7px 11px; }
+.ps-vista-btn { border-radius: 9px; }
+.ps-table-wrap { border: 1px solid #dbe7e4 !important; border-radius: 14px; box-shadow: 0 7px 22px rgba(15, 23, 42, 0.06); }
+.ps-table-header { background: #eaf5f2 !important; padding: 12px 14px; }
+.ps-table-row { min-height: 62px; border-bottom: 1px solid #edf2f1; }
+.ps-table-row:hover, .ps-emp-card:hover { transform: translateY(-1px); background: #f0f9f6 !important; }
+.ps-emp-card { border: 1px solid #dbe7e4 !important; border-radius: 14px; box-shadow: 0 5px 18px rgba(15, 23, 42, 0.05); }
+
+@media (min-width: 768px) {
+  .ps-overlay-inner { max-width: 1120px; height: min(82vh, 760px); align-self: center; border-radius: 20px; }
+  .psd-topbar { padding: 18px 22px; }
 }
 .ps-sheet-overlay {
   position: fixed; inset: 0; z-index: 1100;

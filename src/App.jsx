@@ -4,11 +4,12 @@ import {
   Routes,
   Route,
   Navigate,
+  useNavigate,
 } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 
-import Login from './screens/LoginScreen';
-import Portal from './screens/Portal';
+import Login from './views/Login';
+import Portal from './views/Portal';
 import Admin from './views/Admin';
 import Almacen from './views/Almacen';
 import Delivery from './views/Delivery';
@@ -25,6 +26,19 @@ import './styles/App.css';
 
 function AppRoutes({ notify }) {
   const { usuario, cargando } = useAuth();
+  const navigate = useNavigate();
+  // Firebase puede reconocer la contraseña antes de que el administrador
+  // apruebe la cuenta. Solo habilitamos rutas privadas con un rol válido.
+  const usuarioAutorizado = Boolean(
+    usuario
+    && usuario.rol
+    && usuario.estado !== 'pendiente'
+    && usuario.activo !== false,
+  );
+
+  // Las vistas de acceso usan nombres de módulo (por ejemplo, "portal").
+  // Esta adaptación conserva el enrutamiento real de React Router.
+  const navegarVista = (vista) => navigate(vista.startsWith('/') ? vista : `/${vista}`);
 
   if (cargando) {
     return (
@@ -36,22 +50,23 @@ function AppRoutes({ notify }) {
 
   return (
     <Routes>
-      {!usuario ? (
+      {!usuarioAutorizado ? (
         <>
-          <Route path="/login" element={<Login notify={notify} />} />
-          <Route path="/portal" element={<Portal notify={notify} />} />
+          <Route path="/login" element={<Login navigate={navegarVista} notify={notify} />} />
+          <Route path="/portal" element={<Portal navigate={navegarVista} notify={notify} />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </>
       ) : (
         <>
           <Route path="/alertas" element={<AlertasScreen notify={notify} />} />
 
-          <Route path="/portal" element={<Portal notify={notify} />} />
+          <Route path="/portal" element={<Portal navigate={navegarVista} notify={notify} />} />
           <Route path="/admin" element={<Admin notify={notify} />} />
           <Route path="/almacen" element={<Almacen notify={notify} />} />
           <Route path="/delivery" element={<Delivery notify={notify} />} />
           <Route path="/cafeteria" element={<Cafeteria notify={notify} />} />
           <Route path="/comidaRapida" element={<ComidaRapida notify={notify} />} />
+          <Route path="/comida_rapida" element={<ComidaRapida notify={notify} />} />
           <Route path="/perfil" element={<Perfil notify={notify} />} />
           <Route path="*" element={<Navigate to="/portal" replace />} />
         </>
