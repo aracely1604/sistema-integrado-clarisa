@@ -14,6 +14,14 @@ import {
   suscribirProveedoresPorLocal, suscribirProveedoresGlobales,
 } from '../../controllers/ProveedorControl';
 import { getInitials } from '../../models/ProveedorModel';
+import {
+  crearProductoGlobal, obtenerProductoPorCodigoBarra,
+} from '../../controllers/ProductoControl';
+import {
+  crearRecetaGlobal, obtenerRecetasGlobales, existeNombreReceta,
+} from '../../controllers/RecetaControl';
+import { UNIDADES_MEDIDA_RECETA, crearIngredienteVacio } from '../../models/RecetaModel';
+import { CATEGORIAS, UNIDADES_MEDIDA } from './gestionProductosData';
 import '../../css/DetalleModals.css';
 
 // ─── Modal detalle de stock ───────────────────────────────────────────────────
@@ -962,6 +970,511 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo }) 
             </div>
           </form>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal: Registrar producto (nodo global) ────────────────────────────────
+// Datos base del producto, compartidos por los 3 locales (comida rápida,
+// cafetería y almacén): nombre, categoría, código de barras y unidad de
+// medida. NO incluye estado activo/inactivo ni se asigna a ningún local
+// automáticamente — eso se define después, al registrar el producto DENTRO
+// de un local puntual (ver LocalProductoControl / GestionProductosForms).
+//
+// Flujo en 2 pasos:
+//  1) "codigo": se lee el código con la pistola (a integrar más adelante)
+//     o se ingresa manualmente, y se verifica si ya existe en el nodo
+//     global antes de seguir.
+//  2) "formulario": si el código no existe, se completan los datos base
+//     y se guarda el producto.
+export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
+  const FORM_INIT = { nombre: '', categoria: CATEGORIAS[0], codigoBarra: '', unidadMedida: 'unidad' };
+
+  const [paso, setPaso]                       = useState('codigo'); // 'codigo' | 'formulario'
+  const [codigoInput, setCodigoInput]         = useState('');
+  const [verificando, setVerificando]         = useState(false);
+  const [errorCodigo, setErrorCodigo]         = useState('');
+  const [productoExistente, setProductoExistente] = useState(null);
+
+  const [form, setForm]           = useState(FORM_INIT);
+  const [errors, setErrors]       = useState({});
+  const [guardando, setGuardando] = useState(false);
+
+  function limpiarCodigo(valor) {
+    return valor.replace(/\D/g, '');
+  }
+
+  function handleClose() {
+    setPaso('codigo');
+    setCodigoInput('');
+    setErrorCodigo('');
+    setProductoExistente(null);
+    setForm(FORM_INIT);
+    setErrors({});
+    onClose();
+  }
+
+  // Simula la lectura con pistola — reemplazar por la integración real del lector/cámara
+  function handleEscanear() {
+    setCodigoInput('7891234560099');
+    setErrorCodigo('');
+    setProductoExistente(null);
+  }
+
+  async function handleVerificar(e) {
+    e.preventDefault();
+    const codigo = codigoInput.trim();
+    if (!codigo) {
+      setErrorCodigo('Ingresa o escanea un código de barras');
+      return;
+    }
+    setErrorCodigo('');
+    setProductoExistente(null);
+    setVerificando(true);
+    try {
+      const existente = await obtenerProductoPorCodigoBarra(codigo);
+      if (existente) {
+        setProductoExistente(existente);
+        return;
+      }
+      setForm(prev => ({ ...prev, codigoBarra: codigo }));
+      setPaso('formulario');
+    } catch (err) {
+      setErrorCodigo('No se pudo verificar el código. Intenta nuevamente.');
+    } finally {
+      setVerificando(false);
+    }
+  }
+
+  function handleVolverACodigo() {
+    setPaso('codigo');
+    setErrors({});
+  }
+
+  async function handleGuardar(e) {
+    e.preventDefault();
+    setErrors({});
+    setGuardando(true);
+    try {
+      const creado = await crearProductoGlobal(form);
+      onGuardado?.(creado);
+      handleClose();
+    } catch (err) {
+      setErrors(err?.errores ?? { general: 'No se pudo guardar el producto. Intenta nuevamente.' });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  if (!visible) return null;
+
+  return (
+    <div className="inv-modal-overlay" onClick={handleClose}>
+      <div className="inv-modal-sheet inv-modal-sheet-tall" onClick={(e) => e.stopPropagation()}>
+        <div className="inv-modal-handle" />
+        <div className="inv-modal-row-between" style={{ marginBottom: 6 }}>
+          <h2 className="inv-modal-title">
+            {paso === 'codigo' ? 'Registrar producto' : 'Datos del producto'}
+          </h2>
+          <button type="button" className="inv-modal-close" onClick={handleClose} aria-label="Cerrar">
+            <FiX size={20} />
+          </button>
+        </div>
+
+        <p className="inv-modal-hint-inline" style={{ marginBottom: 14, display: 'block' }}>
+          Datos base del producto, compartidos por los 3 locales (comida rápida, cafetería y almacén).
+          El stock, precio y proveedor se gestionan por separado en cada local.
+        </p>
+
+        {/* ── Paso 1: verificar código de barras ── */}
+        {paso === 'codigo' && (
+          <form className="inv-modal-scroll" onSubmit={handleVerificar}>
+            <button
+              type="button"
+              onClick={handleEscanear}
+              className="inv-modal-row"
+              style={{
+                width: '100%', gap: 10, justifyContent: 'center', padding: '16px 12px',
+                border: '1.5px dashed var(--c-border, #E4E2DD)', borderRadius: 12,
+                background: 'var(--c-surface2, transparent)', cursor: 'pointer', marginBottom: 8,
+              }}
+            >
+              <FiClipboard size={18} />
+              <span style={{ fontWeight: 600, fontSize: 13.5 }}>Escanear código de barras</span>
+            </button>
+            <p className="inv-modal-hint-inline" style={{ textAlign: 'center', marginBottom: 12, display: 'block' }}>
+              Usa la pistola lectora o ingresa el código manualmente abajo
+            </p>
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">
+                Código de barras <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <input
+                className="inv-modal-input"
+                style={errorCodigo ? { borderColor: '#E24B4A' } : undefined}
+                type="text"
+                inputMode="numeric"
+                placeholder="Ej: 7891234560012"
+                value={codigoInput}
+                onChange={(e) => {
+                  setCodigoInput(limpiarCodigo(e.target.value));
+                  setErrorCodigo('');
+                  setProductoExistente(null);
+                }}
+              />
+              {errorCodigo && <p className="inv-modal-errortext">{errorCodigo}</p>}
+            </div>
+
+            {productoExistente && (
+              <div
+                className="inv-modal-row"
+                style={{
+                  gap: 10, padding: '10px 12px', border: '1px solid #F2C94C',
+                  background: 'rgba(242, 201, 76, 0.12)', borderRadius: 10, marginBottom: 12,
+                }}
+              >
+                <FiAlertTriangle size={16} color="#8A6D1D" />
+                <div>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>Este código ya está registrado</p>
+                  <p style={{ margin: 0, fontSize: 12, color: 'var(--c-textSecondary, #7F8C8D)' }}>
+                    {productoExistente.nombre} · {productoExistente.categoria}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
+              <button type="button" className="inv-modal-btn inv-modal-btn-secondary" onClick={handleClose}>
+                Cancelar
+              </button>
+              <button type="submit" className="inv-modal-btn inv-modal-btn-primary" disabled={verificando}>
+                {verificando ? 'Verificando...' : 'Verificar código'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ── Paso 2: formulario de datos del producto ── */}
+        {paso === 'formulario' && (
+          <form className="inv-modal-scroll" onSubmit={handleGuardar}>
+            <button
+              type="button"
+              onClick={handleVolverACodigo}
+              className="inv-modal-row"
+              style={{ gap: 4, background: 'none', border: 'none', padding: 0, marginBottom: 12, cursor: 'pointer', color: 'var(--c-textSecondary, #7F8C8D)' }}
+            >
+              <FiChevronLeft size={16} /> Cambiar código
+            </button>
+
+            {errors.general && <p className="inv-modal-errortext" style={{ marginBottom: 10 }}>{errors.general}</p>}
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">Código de barras</label>
+              <input className="inv-modal-input" type="text" value={form.codigoBarra} disabled />
+            </div>
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">
+                Nombre del producto <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <input
+                className="inv-modal-input"
+                style={errors.nombre ? { borderColor: '#E24B4A' } : undefined}
+                type="text"
+                placeholder="Ej: Coca Cola 2.5 lts"
+                value={form.nombre}
+                onChange={(e) => setForm(prev => ({ ...prev, nombre: e.target.value }))}
+              />
+              <p className="inv-modal-hint-inline" style={{ marginTop: 4, display: 'block' }}>
+                Ingrese nombre del producto junto a su medida
+              </p>
+              {errors.nombre && <p className="inv-modal-errortext">{errors.nombre}</p>}
+            </div>
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">
+                Categoría <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <div className="inv-modal-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                {CATEGORIAS.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setForm(prev => ({ ...prev, categoria: cat }))}
+                    className={`inv-modal-dia-toggle ${form.categoria === cat ? 'inv-modal-dia-toggle-active' : ''}`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              {errors.categoria && <p className="inv-modal-errortext">{errors.categoria}</p>}
+            </div>
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">
+                Unidad de medida <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <p className="inv-modal-hint-inline" style={{ marginBottom: 6, display: 'block' }}>
+                Cómo se vende este producto: por unidad, por litro o por kilo
+              </p>
+              <div className="inv-modal-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                {UNIDADES_MEDIDA.map((u) => (
+                  <button
+                    key={u.value}
+                    type="button"
+                    onClick={() => setForm(prev => ({ ...prev, unidadMedida: u.value }))}
+                    className={`inv-modal-dia-toggle ${form.unidadMedida === u.value ? 'inv-modal-dia-toggle-active' : ''}`}
+                  >
+                    {u.label}
+                  </button>
+                ))}
+              </div>
+              {errors.unidadMedida && <p className="inv-modal-errortext">{errors.unidadMedida}</p>}
+            </div>
+
+            <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
+              <button type="button" className="inv-modal-btn inv-modal-btn-secondary" onClick={handleClose}>
+                Cancelar
+              </button>
+              <button type="submit" className="inv-modal-btn inv-modal-btn-primary" disabled={guardando}>
+                {guardando ? 'Guardando...' : 'Guardar producto'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal: Registrar receta global (nodo global) ───────────────────────────
+// Plantilla única de ingredientes/cantidades, compartida por todo el sistema.
+// NO almacena precio, estado ni productos de local: eso lo define después
+// cada local por separado. Las cantidades acá son la fuente de verdad que
+// se usará para descontar inventario automáticamente al vender.
+export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
+  const FORM_INIT = { nombre: '', ingredientes: [crearIngredienteVacio()] };
+
+  const [form, setForm]           = useState(FORM_INIT);
+  const [errors, setErrors]       = useState({});
+  const [guardando, setGuardando] = useState(false);
+  const [recetasExistentes, setRecetasExistentes] = useState([]);
+
+  useEffect(() => {
+    if (!visible) return;
+    obtenerRecetasGlobales()
+      .then(setRecetasExistentes)
+      .catch(() => setRecetasExistentes([]));
+  }, [visible]);
+
+  function handleClose() {
+    setForm(FORM_INIT);
+    setErrors({});
+    onClose();
+  }
+
+  function handleNombreChange(valor) {
+    setForm(prev => ({ ...prev, nombre: valor }));
+    setErrors(prev => ({ ...prev, nombre: undefined }));
+  }
+
+  function handleAgregarIngrediente() {
+    setForm(prev => ({
+      ...prev,
+      ingredientes: [...prev.ingredientes, crearIngredienteVacio()],
+    }));
+  }
+
+  function handleEliminarIngrediente(id) {
+    setForm(prev => ({
+      ...prev,
+      ingredientes: prev.ingredientes.filter(ing => ing.id !== id),
+    }));
+    setErrors(prev => ({ ...prev, ingredientesDetalle: undefined }));
+  }
+
+  function handleIngredienteChange(id, campo, valor) {
+    setForm(prev => ({
+      ...prev,
+      ingredientes: prev.ingredientes.map(ing =>
+        ing.id === id ? { ...ing, [campo]: valor } : ing
+      ),
+    }));
+  }
+
+  async function handleGuardar(e) {
+    e.preventDefault();
+    setErrors({});
+
+    if (existeNombreReceta(form.nombre, recetasExistentes)) {
+      setErrors({ nombre: 'Ya existe una receta con este nombre' });
+      return;
+    }
+
+    setGuardando(true);
+    try {
+      const creada = await crearRecetaGlobal(form);
+      onGuardado?.(creada);
+      handleClose();
+    } catch (err) {
+      setErrors(err?.errores ?? { general: 'No se pudo guardar la receta. Intenta nuevamente.' });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  if (!visible) return null;
+
+  const erroresIngredientes = errors.ingredientesDetalle ?? [];
+
+  return (
+    <div className="inv-modal-overlay" onClick={handleClose}>
+      <div className="inv-modal-sheet inv-modal-sheet-tall" onClick={(e) => e.stopPropagation()}>
+        <div className="inv-modal-handle" />
+        <div className="inv-modal-row-between" style={{ marginBottom: 6 }}>
+          <h2 className="inv-modal-title">Nueva receta global</h2>
+          <button type="button" className="inv-modal-close" onClick={handleClose} aria-label="Cerrar">
+            <FiX size={20} />
+          </button>
+        </div>
+
+        <p className="inv-modal-hint-inline" style={{ marginBottom: 14, display: 'block' }}>
+          Plantilla única de ingredientes para todo el sistema. El precio, el estado y los
+          productos de inventario se definen después, por cada local.
+        </p>
+
+        <form className="inv-modal-scroll" onSubmit={handleGuardar}>
+          {errors.general && <p className="inv-modal-errortext" style={{ marginBottom: 10 }}>{errors.general}</p>}
+
+          <div className="inv-modal-formgroup">
+            <label className="inv-modal-formlabel">
+              Nombre de la receta <span style={{ color: '#E24B4A' }}>*</span>
+            </label>
+            <input
+              className="inv-modal-input"
+              style={errors.nombre ? { borderColor: '#E24B4A' } : undefined}
+              type="text"
+              placeholder="Ej: Completo Italiano"
+              value={form.nombre}
+              onChange={(e) => handleNombreChange(e.target.value)}
+            />
+            {errors.nombre && <p className="inv-modal-errortext">{errors.nombre}</p>}
+          </div>
+
+          <div className="inv-modal-row-between" style={{ marginTop: 10, marginBottom: 8 }}>
+            <label className="inv-modal-formlabel" style={{ margin: 0 }}>
+              Ingredientes <span style={{ color: '#E24B4A' }}>*</span>
+            </label>
+            <button
+              type="button"
+              onClick={handleAgregarIngrediente}
+              className="inv-modal-btn inv-modal-btn-secondary"
+              style={{ padding: '6px 12px', fontSize: 12.5 }}
+            >
+              + Agregar ingrediente
+            </button>
+          </div>
+          {errors.ingredientes && <p className="inv-modal-errortext" style={{ marginBottom: 8 }}>{errors.ingredientes}</p>}
+
+          {form.ingredientes.map((ingrediente, index) => {
+            const erroresIng = erroresIngredientes[index] ?? {};
+            return (
+              <div
+                key={ingrediente.id}
+                style={{
+                  border: '1px solid var(--c-border, #E4E2DD)', borderRadius: 10,
+                  padding: '12px', marginBottom: 10,
+                }}
+              >
+                <div className="inv-modal-row-between" style={{ marginBottom: 8 }}>
+                  <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--c-textSecondary, #7F8C8D)' }}>
+                    Ingrediente {index + 1}
+                  </span>
+                  {form.ingredientes.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleEliminarIngrediente(ingrediente.id)}
+                      className="inv-modal-close"
+                      style={{ width: 24, height: 24 }}
+                      aria-label="Eliminar ingrediente"
+                    >
+                      <FiX size={14} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="inv-modal-formgroup" style={{ marginBottom: 8 }}>
+                  <label className="inv-modal-formlabel">Nombre</label>
+                  <input
+                    className="inv-modal-input"
+                    style={erroresIng.nombre ? { borderColor: '#E24B4A' } : undefined}
+                    type="text"
+                    placeholder="Ej: Pan"
+                    value={ingrediente.nombre}
+                    onChange={(e) => handleIngredienteChange(ingrediente.id, 'nombre', e.target.value)}
+                  />
+                  {erroresIng.nombre && <p className="inv-modal-errortext">{erroresIng.nombre}</p>}
+                </div>
+
+                <div className="inv-modal-row" style={{ gap: 8 }}>
+                  <div className="inv-modal-formgroup" style={{ marginBottom: 8, flex: 1 }}>
+                    <label className="inv-modal-formlabel">Cantidad</label>
+                    <input
+                      className="inv-modal-input"
+                      style={erroresIng.cantidad ? { borderColor: '#E24B4A' } : undefined}
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="Ej: 80"
+                      value={ingrediente.cantidad}
+                      onChange={(e) => handleIngredienteChange(ingrediente.id, 'cantidad', e.target.value)}
+                    />
+                    {erroresIng.cantidad && <p className="inv-modal-errortext">{erroresIng.cantidad}</p>}
+                  </div>
+
+                  <div className="inv-modal-formgroup" style={{ marginBottom: 8, width: 100 }}>
+                    <label className="inv-modal-formlabel">Unidad</label>
+                    <select
+                      className="inv-modal-input"
+                      style={erroresIng.unidadMedida ? { borderColor: '#E24B4A' } : undefined}
+                      value={ingrediente.unidadMedida}
+                      onChange={(e) => handleIngredienteChange(ingrediente.id, 'unidadMedida', e.target.value)}
+                    >
+                      {UNIDADES_MEDIDA_RECETA.map(u => (
+                        <option key={u.value} value={u.value}>{u.label}</option>
+                      ))}
+                    </select>
+                    {erroresIng.unidadMedida && <p className="inv-modal-errortext">{erroresIng.unidadMedida}</p>}
+                  </div>
+                </div>
+
+                <div className="inv-modal-formgroup">
+                  <label className="inv-modal-formlabel">Equivalencia</label>
+                  <input
+                    className="inv-modal-input"
+                    style={erroresIng.equivalencia ? { borderColor: '#E24B4A' } : undefined}
+                    type="text"
+                    placeholder="Ej: 1 marraqueta"
+                    value={ingrediente.equivalencia}
+                    onChange={(e) => handleIngredienteChange(ingrediente.id, 'equivalencia', e.target.value)}
+                  />
+                  {erroresIng.equivalencia && <p className="inv-modal-errortext">{erroresIng.equivalencia}</p>}
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
+            <button type="button" className="inv-modal-btn inv-modal-btn-secondary" onClick={handleClose}>
+              Cancelar
+            </button>
+            <button type="submit" className="inv-modal-btn inv-modal-btn-primary" disabled={guardando}>
+              {guardando ? 'Guardando...' : 'Guardar receta'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

@@ -94,10 +94,31 @@ export const HISTORIALES = {
   ],
 };
 
-export const CATEGORIAS = ['Abarrotes', 'Lácteos', 'Bebidas', 'congelados', 'Limpieza', 'Otros'];
+// Pensadas para cubrir los 3 tipos de locales (comida rápida, cafetería y almacén)
+export const CATEGORIAS = [
+  'Abarrotes',
+  'Lácteos',
+  'Bebidas',
+  'Congelados',
+  'Panadería y pastelería',
+  'Carnes y embutidos',
+  'Snacks y confites',
+  'Café e infusiones',
+  'Condimentos y salsas',
+  'Desechables y envases',
+  'Limpieza',
+  'Otros',
+];
 export const TIPOS_MOVIMIENTO = ['Ingreso de mercadería', 'Devolución de cliente'];
 // Categorías que NO requieren fecha de vencimiento
-export const CATEGORIAS_SIN_VENC = ['Limpieza', 'Otros'];
+export const CATEGORIAS_SIN_VENC = ['Limpieza', 'Desechables y envases', 'Otros'];
+
+// Unidad de medida por la que se puede llegar a vender el producto
+export const UNIDADES_MEDIDA = [
+  { value: 'unidad',      label: 'Unidad' },
+  { value: 'litros',      label: 'Litros' },
+  { value: 'kilogramos',  label: 'Kilogramos' },
+];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,17 +128,83 @@ export function getStockStatus(stock, minimo) {
   return 'ok';
 }
 
-export function formatStock(stock, unidad) {
-  if (unidad === 'g') {
-    if (stock >= 1000) return (stock / 1000).toFixed(2).replace(/\.?0+$/, '') + ' kg';
-    return stock + ' g';
-  }
-  return stock + ' uds.';
+// Mapea la unidad de medida del catálogo global a la unidad BASE en la que
+// se almacena internamente el stock de cada local: kilogramos -> gramos,
+// litros -> mililitros, unidad -> unidades (sin conversión).
+// Acepta tanto 'kilogramos'/'litros' (nombre completo, como se definió en
+// UNIDADES_MEDIDA) como 'g'/'ml' directamente (como quedó guardado en la
+// base real) — así funciona sin importar cuál de las dos formas tenga el
+// documento en Firestore.
+export function unidadBaseDesdeUnidadMedida(unidadMedida) {
+  if (unidadMedida === 'kilogramos' || unidadMedida === 'g') return 'g';
+  if (unidadMedida === 'litros' || unidadMedida === 'ml') return 'ml';
+  return 'uds';
 }
 
-export function formatPrecio(precio, unidad) {
-  const base = '$' + precio.toLocaleString('es-CL');
-  return unidad === 'g' ? base + ' / kg' : base;
+function formatNumeroConvertido(valor) {
+  return Number(valor).toLocaleString('es-CL', { maximumFractionDigits: 2 });
+}
+
+// Muestra siempre en la unidad "de compra" (kg / L), nunca en la unidad
+// base interna (g / ml) — así se lea 142 kg y no 142000 g.
+export function formatStock(stock, unidadBase) {
+  const num = Number(stock) || 0;
+  if (unidadBase === 'g') return formatNumeroConvertido(num / 1000) + ' kg';
+  if (unidadBase === 'ml') return formatNumeroConvertido(num / 1000) + ' lt';
+  return num.toLocaleString('es-CL') + ' uds';
+}
+
+export function formatPrecio(precio, unidadBase) {
+  const base = '$' + Number(precio).toLocaleString('es-CL');
+  if (unidadBase === 'g') return base + ' / kg';
+  if (unidadBase === 'ml') return base + ' / lt';
+  return base;
+}
+
+// Texto de la unidad "de compra", para etiquetas de formulario dinámicas
+// (ej. "Cantidad (kg)", "Stock mínimo (lt)").
+export function etiquetaUnidadIngreso(unidadBase) {
+  if (unidadBase === 'g') return 'kg';
+  if (unidadBase === 'ml') return 'lt';
+  return 'uds';
+}
+
+// El usuario SIEMPRE ingresa cantidades en la unidad "de compra" (kg/L) —
+// así se reabastece en la vida real — pero internamente todo se guarda en
+// la unidad base (g/ml). Esta función hace esa conversión antes de guardar.
+export function convertirACantidadBase(cantidadIngresada, unidadBase) {
+  const num = Number(cantidadIngresada) || 0;
+  if (unidadBase === 'g' || unidadBase === 'ml') return Math.round(num * 1000);
+  return Math.round(num);
+}
+
+// La inversa: toma una cantidad guardada en unidad base (g/ml) y la
+// convierte de vuelta a la unidad "de compra" (kg/L), para precargar un
+// campo editable (ej. abrir "Editar producto" y mostrar el stock mínimo en kg).
+export function convertirBaseAIngreso(cantidadBase, unidadBase) {
+  const num = Number(cantidadBase) || 0;
+  if (unidadBase === 'g' || unidadBase === 'ml') {
+    return Math.round((num / 1000) * 100) / 100; // 2 decimales
+  }
+  return num;
+}
+
+// El "costo unitario" que ingresa el usuario es siempre $/kg o $/L (cómo
+// compra). Como cantidad se guarda en unidad base (g/ml), el costo unitario
+// también se convierte a base ($/g ó $/ml) ANTES de guardar — así
+// valorTotal = valorUnitarioBase * cantidadBase sigue dando el monto correcto.
+export function convertirValorUnitarioABase(valorPorUnidadIngreso, unidadBase) {
+  const num = Number(valorPorUnidadIngreso) || 0;
+  if (unidadBase === 'g' || unidadBase === 'ml') return num / 1000;
+  return num;
+}
+
+// La inversa: para MOSTRAR el costo unitario guardado (ej. en el historial)
+// de vuelta en $/kg o $/L, que es como la persona lo ingresó.
+export function convertirValorUnitarioAIngreso(valorPorUnidadBase, unidadBase) {
+  const num = Number(valorPorUnidadBase) || 0;
+  if (unidadBase === 'g' || unidadBase === 'ml') return num * 1000;
+  return num;
 }
 
 export function requiereFechaVenc(categoria) {

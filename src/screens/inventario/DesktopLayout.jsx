@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
 import {
   FiChevronUp, FiChevronDown, FiBox, FiBookOpen, FiTruck, FiFileText,
-  FiUser, FiUsers, FiUserPlus, FiLogOut, FiAlertTriangle, FiClock, FiPlusCircle,
+  FiUserPlus, FiLogOut, FiAlertTriangle, FiClock, FiPlusCircle,
 } from 'react-icons/fi';
 
 import { useAuth, localesAsignados } from '../../controllers/AuthContext';
 import { logoutEmpleado } from '../../controllers/AuthControl';
 import { useTheme } from '../../context/ThemeContext';
 import SessionWarningBanner from '../../controllers/SessionWarningBanner';
-import PersonalScreen from '../PersonalScreen';
-import { ModalGestionProveedores } from './DetalleModals';
+import { ModalGestionProveedores, ModalRegistrarProductoGlobal, ModalRecetaGlobal } from './DetalleModals';
 import GestionProductosModal from './GestionProductosModal';
 import GestionRecetasModal from './GestionRecetasModal';
 
@@ -27,13 +26,16 @@ export default function DesktopLayout({ state, actions }) {
   const { usuario } = useAuth();
   const { colors, isDark, toggle } = useTheme();
 
-  const [personalVisible, setPersonalVisible] = useState(false);
   const [reporteModal,    setReporteModal]    = useState(false);
   const [proveedoresGlobalVisible, setProveedoresGlobalVisible] = useState(false);
+  // Modal del nodo global de productos (datos base: nombre, categoría, código, unidad, activo)
+  const [modalProductoGlobal, setModalProductoGlobal] = useState(false);
   // Modal de gestión de productos: { local, autoAbrirRegistro } o null si está cerrado
   const [modalProductosGestion, setModalProductosGestion] = useState(null);
   // Modal de gestión de recetas: { local } o null si está cerrado
   const [modalRecetasGestion,   setModalRecetasGestion]   = useState(null);
+  // Modal de creación de receta global (plantilla única para todo el sistema)
+  const [modalRecetaGlobalVisible, setModalRecetaGlobalVisible] = useState(false);
 
   const {
     activeLocal, modo, proveedores, modalStock, modalVenc, modalProv, modalNuevoProv,
@@ -206,24 +208,23 @@ export default function DesktopLayout({ state, actions }) {
 
         {/* Fondo sidebar */}
         <div className="dl-sb-bottom">
-          <button type="button" className="dl-sb-bottom-btn">
-            <FiUser size={13} />
-            <span>Mi perfil</span>
-          </button>
-
           <button
             type="button"
             className="dl-sb-bottom-btn"
-            onClick={() => setModalProductosGestion({ local: activeLocal, autoAbrirRegistro: true })}
+            onClick={() => setModalProductoGlobal(true)}
           >
             <FiPlusCircle size={13} />
             <span>Registrar producto</span>
           </button>
 
           {!esCajero && (
-            <button type="button" className="dl-sb-bottom-btn" onClick={() => setPersonalVisible(true)}>
-              <FiUsers size={13} />
-              <span>Gestión de usuarios</span>
+            <button
+              type="button"
+              className="dl-sb-bottom-btn"
+              onClick={() => setModalRecetaGlobalVisible(true)}
+            >
+              <FiBookOpen size={13} />
+              <span>Recetas</span>
             </button>
           )}
 
@@ -249,13 +250,17 @@ export default function DesktopLayout({ state, actions }) {
             <span className="dl-sb-logout-text">Cerrar sesión</span>
           </button>
 
-          <PersonalScreen
-            visible={personalVisible}
-            onClose={() => setPersonalVisible(false)}
+          <ModalRegistrarProductoGlobal
+            visible={modalProductoGlobal}
+            onClose={() => setModalProductoGlobal(false)}
           />
           <ModalGestionProveedores
             visible={proveedoresGlobalVisible}
             onClose={() => setProveedoresGlobalVisible(false)}
+          />
+          <ModalRecetaGlobal
+            visible={modalRecetaGlobalVisible}
+            onClose={() => setModalRecetaGlobalVisible(false)}
           />
         </div>
       </div>

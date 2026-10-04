@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   FiMenu, FiBox, FiBookOpen, FiTruck, FiShoppingBag, FiArrowRight,
-  FiPackage, FiCheckCircle, FiUser, FiLock, FiUsers, FiUserPlus, FiFileText, FiLogOut,
+  FiPackage, FiCheckCircle, FiLock, FiUserPlus, FiFileText, FiLogOut,
   FiPlusCircle,
 } from 'react-icons/fi';
 
@@ -9,7 +9,6 @@ import { useAuth, localesAsignados } from '../../controllers/AuthContext';
 import { logoutEmpleado } from '../../controllers/AuthControl';
 import { useTheme } from '../../context/ThemeContext';
 import SessionWarningBanner from '../../controllers/SessionWarningBanner';
-import PersonalScreen from '../PersonalScreen';
 import GestionProductosModal from './GestionProductosModal';
 import GestionRecetasModal from './GestionRecetasModal';
 
@@ -22,6 +21,7 @@ import { FloatingKPIList, FloatingSheet, FloatingReporte, FloatingVisitanHoy } f
 import {
   ModalDetalleStock, ModalDetalleVencimiento,
   ModalDetalleProveedor, ModalNuevoProveedor, ModalGestionProveedores,
+  ModalRegistrarProductoGlobal, ModalRecetaGlobal,
 } from './DetalleModals';
 import DesktopVentasView from './DesktopVentasView';
 import {
@@ -38,7 +38,6 @@ export default function MobileLayout({ state, actions }) {
   const { colors, isDark, toggle } = useTheme();
 
   const [drawerOpen,      setDrawerOpen]      = useState(false);
-  const [personalVisible, setPersonalVisible] = useState(false);
   const [agendaHoyModal,  setAgendaHoyModal]  = useState(false);
   const [kpiMetricas,     setKpiMetricas]     = useState(false);
   const [kpiRecetas,      setKpiRecetas]      = useState(false);
@@ -47,6 +46,10 @@ export default function MobileLayout({ state, actions }) {
   const [proveedoresGlobalVisible, setProveedoresGlobalVisible] = useState(false);
   // Local que disparó el modal de nuevo proveedor o reporte desde el drawer
   const [localDelModal,   setLocalDelModal]   = useState(null);
+  // Modal del nodo global de productos (datos base: nombre, categoría, código, unidad)
+  const [modalProductoGlobal, setModalProductoGlobal] = useState(false);
+  // Modal de creación de receta global (plantilla única para todo el sistema)
+  const [modalRecetaGlobalVisible, setModalRecetaGlobalVisible] = useState(false);
   // Modal de gestión de productos: { local, autoAbrirRegistro } o null si está cerrado
   const [modalProductosGestion, setModalProductosGestion] = useState(null);
   // Modal de gestión de recetas: { local } o null si está cerrado
@@ -153,16 +156,12 @@ export default function MobileLayout({ state, actions }) {
           {/* CUENTA */}
           <div className="ml-drawer-section">
             <p className="ml-drawer-section-label">CUENTA</p>
-            <button type="button" className="ml-drawer-btn">
-              <FiUser size={15} />
-              <span>Mi perfil</span>
-            </button>
             <button
               type="button"
               className="ml-drawer-btn"
               onClick={() => {
                 setDrawerOpen(false);
-                setModalProductosGestion({ local: activeLocal, autoAbrirRegistro: true });
+                setModalProductoGlobal(true);
               }}
             >
               <FiPlusCircle size={15} />
@@ -191,10 +190,13 @@ export default function MobileLayout({ state, actions }) {
               <button
                 type="button"
                 className="ml-drawer-btn"
-                onClick={() => { setDrawerOpen(false); setPersonalVisible(true); }}
+                onClick={() => {
+                  setDrawerOpen(false);
+                  setModalRecetaGlobalVisible(true);
+                }}
               >
-                <FiUsers size={15} />
-                <span>Gestión de usuarios</span>
+                <FiBookOpen size={15} />
+                <span>Recetas</span>
               </button>
             )}
 
@@ -509,17 +511,14 @@ export default function MobileLayout({ state, actions }) {
       </div>
 
       {/* ── Modales ── */}
-      {/*
-        PersonalScreen se renderiza aquí, a nivel raíz de MobileLayout, y NO
-        dentro de .ml-drawer. El drawer se anima con transform (slide open/close),
-        y un transform en un ancestro se vuelve el containing block de cualquier
-        hijo con position:fixed — por eso antes el modal quedaba encajonado al
-        ancho angosto del drawer. Al vivir aquí, se posiciona respecto al viewport
-        completo sin importar si el drawer está abierto o cerrado.
-      */}
-      <PersonalScreen
-        visible={personalVisible}
-        onClose={() => setPersonalVisible(false)}
+      <ModalRegistrarProductoGlobal
+        visible={modalProductoGlobal}
+        onClose={() => setModalProductoGlobal(false)}
+      />
+
+      <ModalRecetaGlobal
+        visible={modalRecetaGlobalVisible}
+        onClose={() => setModalRecetaGlobalVisible(false)}
       />
 
       <ModalGestionProveedores
