@@ -26,8 +26,6 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
   const [mostrarAutoconsumo, setMostrarAutoconsumo] = useState(false);
   const [mostrarFirma, setMostrarFirma] = useState(false);
   const [autoconsumo, setAutoconsumo] = useState([]);
-  const [tipoCredencial, setTipoCredencial] = useState('virtual');
-  const [identificadorFisico, setIdentificadorFisico] = useState('');
   const [aceptaFirma, setAceptaFirma] = useState(false);
   const [firmaDibujada, setFirmaDibujada] = useState(false);
   const firmaCanvasRef = useRef(null);
@@ -196,11 +194,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       notify('Selecciona al menos un producto para registrar el autoconsumo.', 'error');
       return;
     }
-    if (tipoCredencial === 'fisica' && !identificadorFisico.trim()) {
-      notify('Ingresa el código de la credencial física.', 'error');
-      return;
-    }
-    if (tipoCredencial === 'virtual' && !trabajador?.rut) {
+    if (!trabajador?.rut) {
       notify('No tienes un RUT registrado. Solicita a administración que lo complete antes de registrar un autoconsumo.', 'error');
       return;
     }
@@ -214,9 +208,8 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       localNombre,
       productos: autoconsumo,
       total: totalAutoconsumo,
-      credencial: tipoCredencial === 'fisica' ? 'fisica' : 'rut',
-      codigoCredencial: tipoCredencial === 'fisica' ? identificadorFisico.trim() : trabajador.rut,
-      codigoCredencialFisica: tipoCredencial === 'fisica' ? identificadorFisico.trim() : null,
+      credencial: 'rut',
+      codigoCredencial: trabajador.rut,
       fecha: new Date().toISOString(),
       firmaEstado: 'pendiente',
     };
@@ -229,7 +222,6 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       console.error('No se pudo guardar el autoconsumo en Firebase:', error);
     }
     setAutoconsumo([]);
-    setIdentificadorFisico('');
     setMostrarAutoconsumo(false);
     notify('Autoconsumo registrado. Quedará pendiente de tu firma diaria.', 'success');
   };
@@ -507,8 +499,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
               {autoconsumo.length === 0 ? <p className="muted">Sin productos seleccionados.</p> : autoconsumo.map((item) => <div key={item.nombre}><span>{item.nombre} ×{item.cantidad}</span><button type="button" className="btn btn-secondary btn-small" onClick={() => quitarAutoconsumo(item.nombre)}>Quitar uno</button></div>)}
               <strong>Total referencial: ${totalAutoconsumo.toLocaleString('es-CL')}</strong>
             </div>
-            <label>Tipo de credencial<select className="field" value={tipoCredencial} onChange={(e) => setTipoCredencial(e.target.value)}><option value="virtual">Credencial virtual</option><option value="fisica">Credencial física</option></select></label>
-            {tipoCredencial === 'fisica' ? <input className="field" value={identificadorFisico} onChange={(e) => setIdentificadorFisico(e.target.value)} placeholder="Código de credencial física" /> : <div className="credential-rut-summary"><strong>Credencial virtual</strong><span>RUT: {trabajador?.rut || 'Sin RUT registrado'}</span></div>}
+            <div className="credential-rut-summary"><strong>Credencial virtual</strong><span>RUT: {trabajador?.rut || 'Sin RUT registrado'}</span></div>
             <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setMostrarAutoconsumo(false)}>Cancelar</button><button className="btn btn-primary" onClick={registrarAutoconsumo}>Registrar consumo</button></div>
           </section>
         </div>
@@ -564,7 +555,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       </section>
 
       <section className="personal-consumption-panel">
-        <div><p className="eyebrow">Consumo personal</p><h2>Autoconsumo del trabajador</h2><p className="muted">Registra tus productos con credencial virtual o física y firma tu resumen al terminar el turno.</p></div>
+        <div><p className="eyebrow">Consumo personal</p><h2>Autoconsumo del trabajador</h2><p className="muted">Tu credencial virtual corresponde a tu RUT. Firma tu resumen al terminar el turno.</p></div>
         <div className="personal-consumption-actions"><button className="btn btn-secondary" onClick={() => setMostrarAutoconsumo(true)}>Registrar autoconsumo</button><button className="btn btn-primary" onClick={() => setMostrarFirma(true)}>Firmar resumen diario</button></div>
       </section>
 
