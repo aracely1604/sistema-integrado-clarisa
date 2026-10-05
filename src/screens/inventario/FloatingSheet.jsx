@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { FiX, FiInfo, FiDownload, FiTruck } from 'react-icons/fi';
+import { FiX, FiInfo, FiDownload, FiTruck,} from 'react-icons/fi';
 import '../../css/FloatingSheet.css';
+
+
 
 // ─── Overlay borroso (fondo oscuro que cierra al hacer click) ────────────────
 export function BlurOverlay({ onPress, children }) {
@@ -48,22 +50,45 @@ export function FloatingSheet({ visible, onClose, title, children }) {
 }
 
 // ─── Pantalla flotante de reporte de inventario ──────────────────────────────
-export function FloatingReporte({ visible, onClose, activeLocal, localLabels }) {
+export function FloatingReporte({
+  visible,
+  onClose,
+  activeLocal,
+  localLabels,
+  onGenerarReporte,
+  onGenerarReporteRentabilidad
+}) {
   const [periodo, setPeriodo] = useState('diario');
+  console.log('FloatingReporte props:', {
+  visible,
+  onGenerarReporteRentabilidad
+});
+
   if (!visible) return null;
 
   return (
-    <FloatingSheet visible={visible} onClose={onClose} title="Generar reporte de inventario">
-      <p className="inv-fl-muted-label">Local: {localLabels?.[activeLocal]}</p>
+    <FloatingSheet
+      visible={visible}
+      onClose={onClose}
+      title="Generar reporte de inventario"
+    >
+      <p className="inv-fl-muted-label">
+        Local: {localLabels?.[activeLocal]}
+      </p>
 
-      <p className="inv-fl-section-label">PERIODO</p>
+      <p className="inv-fl-section-label">
+        PERIODO
+      </p>
+
       <div className="inv-rep-pills">
         {['diario', 'semanal', 'mensual'].map(p => (
           <button
             type="button"
             key={p}
             onClick={() => setPeriodo(p)}
-            className={`inv-rep-pill ${periodo === p ? 'inv-rep-pill-active' : ''}`}
+            className={`inv-rep-pill ${
+              periodo === p ? 'inv-rep-pill-active' : ''
+            }`}
           >
             {p.charAt(0).toUpperCase() + p.slice(1)}
           </button>
@@ -72,16 +97,44 @@ export function FloatingReporte({ visible, onClose, activeLocal, localLabels }) 
 
       <div className="inv-rep-infobox">
         <FiInfo size={14} />
+
         <span>
-          {periodo === 'diario'  && 'Reporte de movimientos del día de hoy.'}
-          {periodo === 'semanal' && 'Reporte de los últimos 7 días de inventario.'}
-          {periodo === 'mensual' && 'Reporte del mes actual con resumen de ingresos.'}
+          {periodo === 'diario' &&
+            'Reporte de movimientos del día de hoy.'}
+
+          {periodo === 'semanal' &&
+            'Reporte de los últimos 7 días de inventario.'}
+
+          {periodo === 'mensual' &&
+            'Reporte del mes actual con resumen de ingresos.'}
         </span>
       </div>
 
-      <button type="button" className="inv-rep-genbtn" onClick={onClose}>
+      <button
+        type="button"
+        className="inv-rep-genbtn"
+        onClick={onGenerarReporte}
+      >
         <FiDownload size={15} />
         Generar reporte {periodo}
+      </button>
+
+      <button
+        type="button"
+        className="inv-rep-rentabilidad-btn"
+      onClick={() => {
+        console.log('CLICK RENTABILIDAD');
+        console.log('FUNCIÓN RECIBIDA:', onGenerarReporteRentabilidad);
+
+        if (typeof onGenerarReporteRentabilidad === 'function') {
+          onGenerarReporteRentabilidad();
+        } else {
+          alert('La función de rentabilidad no está llegando a FloatingReporte');
+        }
+      }}
+              
+      >
+        Ver reporte de rentabilidad
       </button>
     </FloatingSheet>
   );

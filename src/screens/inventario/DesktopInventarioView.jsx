@@ -11,6 +11,8 @@ import { getLevel, getVencLevel, nextVisitOffset } from './inventarioHelpers';
 import { Badge } from './InventarioShared';
 import { StockAlertCard, VencimientoCard, ProductoRecienteCard, CalendarioSemanal } from './AlertCards';
 import { FloatingKPIList, FloatingSheet, FloatingReporte, FloatingVisitanHoy } from './FloatingSheet';
+import ReporteRentabilidad from './ReporteRentabilidad';
+
 import {
   ModalDetalleStock, ModalDetalleVencimiento,
   ModalDetalleProveedor, ModalNuevoProveedor,
@@ -42,7 +44,8 @@ export default function DesktopInventarioView({
   const [kpiProveedores, setKpiProveedores] = useState(false);
   const [agendaHoyModal, setAgendaHoyModal] = useState(false);
   const [reporteModal,   setReporteModal]   = useState(false);
-
+  const [mostrarReporteRentabilidad, setMostrarReporteRentabilidad] = useState(false);
+  
   // ── Derivados ──
   const stockLocal     = STOCK_DATA.filter(i => i.local === activeLocal);
   const vencLocal      = VENCIMIENTOS_DATA.filter(i => i.local === activeLocal);
@@ -301,14 +304,31 @@ export default function DesktopInventarioView({
         }
       </FloatingSheet>
 
+      {console.log('DESKTOP - renderizando FloatingReporte con rentabilidad')}
       {/* Reporte flotante */}
       <FloatingReporte
         visible={reporteModal}
         onClose={() => setReporteModal(false)}
         activeLocal={activeLocal}
         localLabels={LOCAL_LABELS}
+        onGenerarReporte={() => {
+          setReporteModal(false);
+          // aquí queda tu lógica del reporte de inventario
+        }}
+        onGenerarReporteRentabilidad={() => { 
+          console.log('ABRIENDO RENTABILIDAD');
+          setReporteModal(false);  
+          setMostrarReporteRentabilidad(true); 
+        }}
       />
-
+      {mostrarReporteRentabilidad && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#fff', overflow: 'auto' }}>
+          <ReporteRentabilidad
+            activeLocal={activeLocal}
+            localLabels={LOCAL_LABELS}
+          />
+        </div>
+      )}
       {/* Recordatorio de proveedores al entrar */}
       <FloatingVisitanHoy
         visible={visitanHoyVisible}

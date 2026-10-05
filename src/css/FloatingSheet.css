@@ -231,3 +231,31 @@
   background-color: var(--c-btnBg, #1A1916);
   color: var(--c-btnText, #F4F2EE);
 }
+
+/* Botón Ver reporte de rentabilidad */
+.inv-rep-rentabilidad-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 13px;
+  border-radius: 10px;
+  border: none;
+  background-color: var(--c-btnBg, #1A1916);
+  color: var(--c-btnText, #F4F2EE);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 10px;
+  font-family: inherit;
+  transition: opacity 0.2s ease;
+}
+
+.inv-rep-rentabilidad-btn:hover {
+  opacity: 0.88;
+}
+
+.inv-rep-rentabilidad-btn:active {
+  opacity: 0.75;
+}

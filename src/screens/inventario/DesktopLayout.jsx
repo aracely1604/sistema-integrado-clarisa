@@ -11,6 +11,8 @@ import SessionWarningBanner from '../../controllers/SessionWarningBanner';
 import { ModalGestionProveedores, ModalRegistrarProductoGlobal, ModalRecetaGlobal } from './DetalleModals';
 import GestionProductosModal from './GestionProductosModal';
 import GestionRecetasModal from './GestionRecetasModal';
+import ReporteRentabilidad from './ReporteRentabilidad';
+
 
 import { ToggleSwitch, ModoToggleDesktop } from './InventarioShared';
 import { FloatingReporte } from './FloatingSheet';
@@ -36,6 +38,7 @@ export default function DesktopLayout({ state, actions }) {
   const [modalRecetasGestion,   setModalRecetasGestion]   = useState(null);
   // Modal de creación de receta global (plantilla única para todo el sistema)
   const [modalRecetaGlobalVisible, setModalRecetaGlobalVisible] = useState(false);
+  const [mostrarReporteRentabilidad, setMostrarReporteRentabilidad] = useState(false);
 
   const {
     activeLocal, modo, proveedores, modalStock, modalVenc, modalProv, modalNuevoProv,
@@ -326,7 +329,32 @@ export default function DesktopLayout({ state, actions }) {
         onClose={() => setReporteModal(false)}
         activeLocal={localDelModal}
         localLabels={LOCAL_LABELS}
+        onGenerarReporte={() => {
+          setReporteModal(false);
+        }}
+        onGenerarReporteRentabilidad={() => {
+          setReporteModal(false);
+          setMostrarReporteRentabilidad(true);
+        }}
       />
+
+      {mostrarReporteRentabilidad && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: '#fff',
+            overflow: 'auto',
+          }}
+        >
+          <ReporteRentabilidad
+            activeLocal={localDelModal}
+            localLabels={LOCAL_LABELS}
+          />
+        </div>
+      )}
+
 
       {modalProductosGestion && (
         <GestionProductosModal
