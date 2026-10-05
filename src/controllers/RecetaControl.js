@@ -37,7 +37,7 @@ function prepararIngredientes(ingredientes) {
     nombre: ing.nombre.trim(),
     cantidad: Number(ing.cantidad),
     unidadMedida: ing.unidadMedida,
-    equivalencia: ing.equivalencia.trim(),
+    equivalencia: (ing.equivalencia ?? '').trim(), // opcional
   }));
 }
 

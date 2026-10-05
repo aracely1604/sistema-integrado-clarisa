@@ -62,9 +62,7 @@ export function validarIngrediente(ingrediente) {
     errores.unidadMedida = 'Selecciona una unidad de medida válida';
   }
 
-  if (!normalizarTexto(ingrediente.equivalencia)) {
-    errores.equivalencia = 'La equivalencia es obligatoria';
-  }
+  // La equivalencia es OPCIONAL: no se valida como obligatoria.
 
   return errores;
 }

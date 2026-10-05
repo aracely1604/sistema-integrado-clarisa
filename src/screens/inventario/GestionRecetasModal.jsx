@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { FormAsignacionReceta, SelectorRecetaGlobal, DetalleContenido, DetalleModal } from './GestionRecetasForms';
 import {
-  obtenerRecetasConEstadoLocal, obtenerProductosLocal,
+  obtenerRecetasConEstadoLocal, suscribirProductosLocalEnriquecidos,
   guardarAsignacionReceta, toggleActivoRecetaLocal,
 } from '../../controllers/RecetaLocalControl';
-import { crearAsignacionVacia, clonarAsignacionParaEditar } from '../../models/RecetaLocalModel';
+import { crearAsignacionVacia, clonarAsignacionParaEditar, calcularProduccionEstimada } from '../../models/RecetaLocalModel';
 import '../../css/GestionRecetas.css';
 
 const DESKTOP_BREAKPOINT = 768;
@@ -22,8 +22,9 @@ function useWindowWidth() {
 
 // ─── Tarjeta de receta (vista lista) ──────────────────────────────────────────
 // item: { receta (global), asignacion (local, siempre presente en esta lista) }
-function TarjetaReceta({ item, isSelected, onClick }) {
+function TarjetaReceta({ item, productosLocal, isSelected, onClick }) {
   const { receta, asignacion } = item;
+  const estimacion = calcularProduccionEstimada(receta, asignacion, productosLocal);
   return (
     <button className={`rec-card${isSelected ? ' selected' : ''}`} onClick={onClick}>
       <div className="rec-card-icon">🍽️</div>
@@ -37,20 +38,41 @@ function TarjetaReceta({ item, isSelected, onClick }) {
       <div className="rec-card-right">
         <div className="rec-precio-num">${Number(asignacion.precioVenta).toLocaleString('es-CL')}</div>
         <div className="rec-precio-lbl">CLP</div>
+        <div
+          className="rec-badge"
+          style={{
+            marginTop: 6,
+            backgroundColor: estimacion.cantidadPreparable > 0 ? '#E8F5EC' : '#FCEBEB',
+            color: estimacion.cantidadPreparable > 0 ? '#1F6B3A' : '#791F1F',
+          }}
+        >
+          {estimacion.cantidadPreparable} preparables
+        </div>
       </div>
     </button>
   );
 }
 
 // ─── Tarjeta de receta (vista cuadrícula) ─────────────────────────────────────
-function TarjetaRecetaGrid({ item, onClick }) {
+function TarjetaRecetaGrid({ item, productosLocal, onClick }) {
   const { receta, asignacion } = item;
+  const estimacion = calcularProduccionEstimada(receta, asignacion, productosLocal);
   return (
     <button className={`rec-grid-card${!asignacion.activo ? ' inactiva' : ''}`} onClick={onClick}>
       <div className="rec-grid-img-wrap">
         <span className="rec-grid-img-fallback">🍽️</span>
       </div>
       <span className="rec-grid-name">{receta.nombre}</span>
+      <span
+        className="rec-badge"
+        style={{
+          marginTop: 4,
+          backgroundColor: estimacion.cantidadPreparable > 0 ? '#E8F5EC' : '#FCEBEB',
+          color: estimacion.cantidadPreparable > 0 ? '#1F6B3A' : '#791F1F',
+        }}
+      >
+        {estimacion.cantidadPreparable} preparables
+      </span>
     </button>
   );
 }
@@ -91,24 +113,27 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  // Cargar recetas globales + su estado en este local, y los productos del local
+  // Cargar recetas globales + su estado en este local (una vez)
   useEffect(() => {
     let cancelado = false;
     setCargando(true);
-    Promise.all([obtenerRecetasConEstadoLocal(local), obtenerProductosLocal(local)])
-      .then(([conEstado, productos]) => {
-        if (cancelado) return;
-        setRecetasConEstado(conEstado);
-        setProductosLocal(productos);
+    obtenerRecetasConEstadoLocal(local)
+      .then((conEstado) => {
+        if (!cancelado) setRecetasConEstado(conEstado);
       })
       .catch(() => {
-        if (!cancelado) {
-          setRecetasConEstado([]);
-          setProductosLocal([]);
-        }
+        if (!cancelado) setRecetasConEstado([]);
       })
       .finally(() => { if (!cancelado) setCargando(false); });
     return () => { cancelado = true; };
+  }, [local]);
+
+  // Productos del local, EN VIVO — así la estimación de producción de cada
+  // receta se recalcula sola cada vez que el stock cambia (venta, reposición,
+  // transferencia), sin que el usuario tenga que hacer nada.
+  useEffect(() => {
+    const unsubscribe = suscribirProductosLocalEnriquecidos(local, setProductosLocal);
+    return () => unsubscribe?.();
   }, [local]);
 
   // ── Lo primero que se ve: solo recetas que este local ya asignó ──────────
@@ -277,7 +302,7 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
             {vista === 'grid' ? (
               <div className="rec-grid">
                 {recetasFiltradas.map((item) => (
-                  <TarjetaRecetaGrid key={item.receta.id} item={item} onClick={() => abrirDetalle(item)} />
+                  <TarjetaRecetaGrid key={item.receta.id} item={item} productosLocal={productosLocal} onClick={() => abrirDetalle(item)} />
                 ))}
               </div>
             ) : (
@@ -286,6 +311,7 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
                   <TarjetaReceta
                     key={item.receta.id}
                     item={item}
+                    productosLocal={productosLocal}
                     isSelected={recetaActual?.receta.id === item.receta.id}
                     onClick={() => abrirDetalle(item)}
                   />
@@ -323,13 +349,13 @@ export default function GestionRecetasModal({ onClose, local, localLabel }) {
           {vista === 'grid' ? (
             <div className="rec-grid">
               {recetasFiltradas.map((item) => (
-                <TarjetaRecetaGrid key={item.receta.id} item={item} onClick={() => abrirDetalle(item)} />
+                <TarjetaRecetaGrid key={item.receta.id} item={item} productosLocal={productosLocal} onClick={() => abrirDetalle(item)} />
               ))}
             </div>
           ) : (
             <div className="rec-list">
               {recetasFiltradas.map((item) => (
-                <TarjetaReceta key={item.receta.id} item={item} isSelected={false} onClick={() => abrirDetalle(item)} />
+                <TarjetaReceta key={item.receta.id} item={item} productosLocal={productosLocal} isSelected={false} onClick={() => abrirDetalle(item)} />
               ))}
             </div>
           )}

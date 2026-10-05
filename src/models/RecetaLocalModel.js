@@ -112,3 +112,57 @@ export function productosDisponiblesParaIngrediente(productos, ingrediente, asig
 
   return filtradosPorNombre.length > 0 ? filtradosPorNombre : noUsados;
 }
+
+// ─── Estimación de producción según el stock actual ─────────────────────────
+// Para cada ingrediente, calcula cuántas unidades de la receta alcanzan con
+// el stock del producto asignado: floor(stockActual / cantidadRequerida).
+// El mínimo entre todos los ingredientes es lo que realmente se puede
+// preparar, y ese ingrediente es el "limitante" (el cuello de botella).
+//
+// Si algún ingrediente no tiene producto asignado todavía, se cuenta como
+// 0 unidades posibles para ESE ingrediente (bloquea toda la receta), pero
+// se marca con `sinAsignar: true` para que la UI pueda explicar por qué.
+//
+// Nota: asume que la unidad del producto asignado coincide con la unidad
+// declarada en el ingrediente (g/ml/unidad) — no hace conversión de unidades.
+export function calcularProduccionEstimada(recetaGlobal, asignacion, productosLocal) {
+  const ingredientes = recetaGlobal?.ingredientes ?? [];
+
+  if (!asignacion || ingredientes.length === 0) {
+    return { cantidadPreparable: 0, ingredienteLimitante: null, detalle: [] };
+  }
+
+  const productosPorId = new Map(productosLocal.map((p) => [p.id, p]));
+
+  const detalle = ingredientes.map((ing) => {
+    const asignado = (asignacion.ingredientes ?? []).find((a) => a.idIngredienteGlobal === ing.id);
+    const producto = asignado ? productosPorId.get(asignado.idProductoLocal) : null;
+    const cantidadRequerida = Number(ing.cantidad) || 0;
+    const stockDisponible = producto ? Number(producto.stockActual) || 0 : 0;
+    const unidadesPosibles = (!producto || cantidadRequerida <= 0)
+      ? 0
+      : Math.floor(stockDisponible / cantidadRequerida);
+
+    return {
+      idIngrediente: ing.id,
+      nombreIngrediente: ing.nombre,
+      nombreProducto: producto?.nombre ?? null,
+      sinAsignar: !producto,
+      cantidadRequerida,
+      unidadMedida: ing.unidadMedida,
+      stockDisponible,
+      unidadesPosibles,
+    };
+  });
+
+  const ingredienteLimitante = detalle.reduce(
+    (min, item) => (item.unidadesPosibles < min.unidadesPosibles ? item : min),
+    detalle[0]
+  );
+
+  return {
+    cantidadPreparable: ingredienteLimitante.unidadesPosibles,
+    ingredienteLimitante,
+    detalle,
+  };
+}

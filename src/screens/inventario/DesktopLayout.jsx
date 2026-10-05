@@ -64,6 +64,7 @@ export default function DesktopLayout({ state, actions }) {
   const SIDEBAR_SUBITEMS = esCajero
     ? [
         { id: 'inventario',  label: 'Inventario',  icon: FiBox },
+        { id: 'recetas',     label: 'Recetas',     icon: FiBookOpen },
         { id: 'proveedores', label: 'Proveedores', icon: FiTruck },
       ]
     : [
@@ -227,13 +228,13 @@ export default function DesktopLayout({ state, actions }) {
               onClick={() => setModalRecetaGlobalVisible(true)}
             >
               <FiBookOpen size={13} />
-              <span>Recetas</span>
+              <span>Gestionar recetas</span>
             </button>
           )}
 
           <button type="button" className="dl-sb-bottom-btn" onClick={() => setProveedoresGlobalVisible(true)}>
             <FiUserPlus size={13} />
-            <span>Gestión de proveedores</span>
+            <span>Gestinar proveedores</span>
           </button>
 
           {/* Modo oscuro con toggle */}

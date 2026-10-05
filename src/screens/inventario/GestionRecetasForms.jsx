@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { productosDisponiblesParaIngrediente } from '../../models/RecetaLocalModel';
+import { productosDisponiblesParaIngrediente, calcularProduccionEstimada } from '../../models/RecetaLocalModel';
 
 // ─── Campo de formulario reutilizable ────────────────────────────────────────
 
@@ -152,6 +152,7 @@ export function FormAsignacionReceta({
   }
 
   const erroresIngredientes = errores.ingredientesDetalle ?? [];
+  const estimacion = calcularProduccionEstimada(recetaGlobal, asignacion, productosLocal);
 
   return (
     <ModalShell isDesktop={isDesktop} onClose={onCerrar} title={recetaGlobal.nombre}>
@@ -165,12 +166,31 @@ export function FormAsignacionReceta({
           unidad de medida vienen fijas desde la receta global y no se pueden modificar acá.
         </p>
 
+        {/* Se recalcula solo, en vivo, a medida que asignas productos */}
+        <div className="rec-info-block" style={{ marginBottom: 14 }}>
+          <div className="rec-block-title">Producción estimada con el stock actual</div>
+          <div className="rec-stat-value" style={{ fontSize: 22 }}>
+            {estimacion.cantidadPreparable} {estimacion.cantidadPreparable === 1 ? 'unidad' : 'unidades'}
+          </div>
+          {estimacion.detalle.some((d) => d.sinAsignar) ? (
+            <p className="rec-stat-sub" style={{ marginTop: 2, color: '#E24B4A' }}>
+              Hay ingredientes sin producto asignado todavía.
+            </p>
+          ) : estimacion.ingredienteLimitante && (
+            <p className="rec-stat-sub" style={{ marginTop: 2 }}>
+              Limita: {estimacion.ingredienteLimitante.nombreIngrediente}
+              {estimacion.ingredienteLimitante.nombreProducto ? ` (${estimacion.ingredienteLimitante.nombreProducto})` : ''}
+            </p>
+          )}
+        </div>
+
         {recetaGlobal.ingredientes.map((ing, index) => {
           const seleccion = asignacion.ingredientes.find(a => a.idIngredienteGlobal === ing.id);
           const error = erroresIngredientes[index];
           const productosDisponibles = productosDisponiblesParaIngrediente(productosLocal, ing, asignacion);
           const opciones = productosDisponibles.map(p => ({ value: p.id, label: p.nombre }));
           const nombreSeleccionado = productosLocal.find(p => p.id === seleccion?.idProductoLocal)?.nombre ?? '';
+          const posiblesConEste = estimacion.detalle.find((d) => d.idIngrediente === ing.id)?.unidadesPosibles;
 
           return (
             <div className="rec-form-group" key={ing.id}>
@@ -181,6 +201,11 @@ export function FormAsignacionReceta({
                 onSeleccionar={(idProductoLocal) => handleProductoChange(ing.id, idProductoLocal)}
                 placeholder="Seleccionar producto del inventario..."
               />
+              {nombreSeleccionado && posiblesConEste !== undefined && (
+                <p style={{ color: 'var(--rec-text-secondary, #7F8C8D)', fontSize: 12, marginTop: -4 }}>
+                  Con el stock de "{nombreSeleccionado}" alcanza para {posiblesConEste} {posiblesConEste === 1 ? 'unidad' : 'unidades'}
+                </p>
+              )}
               {opciones.length === 0 && (
                 <p style={{ color: 'var(--rec-text-secondary, #7F8C8D)', fontSize: 12, marginTop: -4 }}>
                   No quedan productos disponibles en este local para este ingrediente.
@@ -224,14 +249,23 @@ export function DetalleContenido({ receta, asignacion, productosLocal, onEditar,
     return productosLocal.find(p => p.id === idProductoLocal)?.nombre ?? 'Sin asignar';
   }
 
+  const estimacion = calcularProduccionEstimada(receta, asignacion, productosLocal);
+
   const stats = [
+    {
+      label: 'Se pueden preparar',
+      value: asignacion ? `${estimacion.cantidadPreparable} ${estimacion.cantidadPreparable === 1 ? 'unidad' : 'unidades'}` : 'Sin asignar',
+      sub: asignacion && estimacion.ingredienteLimitante && !estimacion.ingredienteLimitante.sinAsignar
+        ? `Limita: ${estimacion.ingredienteLimitante.nombreIngrediente}`
+        : null,
+    },
     {
       label: 'Precio de venta',
       value: asignacion ? '$' + Number(asignacion.precioVenta).toLocaleString('es-CL') : 'Sin asignar',
       sub: asignacion ? 'CLP' : null,
     },
     { label: 'Ingredientes', value: String(receta.ingredientes.length), sub: 'items' },
-    { label: 'Estado', value: asignacion?.activo ? 'Activa' : 'Desactivada' },
+    { label: 'Estado', value: asignacion?.activo ? 'Activo' : 'Desactivado' },
   ];
 
   return (
@@ -250,11 +284,15 @@ export function DetalleContenido({ receta, asignacion, productosLocal, onEditar,
         <div className="rec-block-title">Ingredientes</div>
         {receta.ingredientes.map((ing) => {
           const asignado = asignacion?.ingredientes?.find(a => a.idIngredienteGlobal === ing.id);
+          const detalleIng = estimacion.detalle.find((d) => d.idIngrediente === ing.id);
+          const esLimitante = estimacion.ingredienteLimitante?.idIngrediente === ing.id
+            && estimacion.cantidadPreparable === (detalleIng?.unidadesPosibles ?? -1);
           return (
             <div key={ing.id} className="rec-info-row">
-              <span className="rec-info-key">{ing.nombre} · {ing.cantidad} {ing.unidadMedida}</span>
-              <span className="rec-info-val">
+              <span className="rec-info-key">{ing.nombre} · {ing.cantidad} {ing.unidadMedida} · <em>{ing.equivalencia}</em> </span>
+              <span className="rec-info-val" style={esLimitante ? { color: '#791F1F', fontWeight: 600 } : undefined}>
                 {asignado ? nombreProducto(asignado.idProductoLocal) : 'Sin asignar'}
+                {asignado && detalleIng && ` · ${detalleIng.unidadesPosibles} posibles`}
               </span>
             </div>
           );

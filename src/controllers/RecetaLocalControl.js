@@ -6,7 +6,8 @@
 import { getDoc, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { recetasColRef, productosColRef } from '../models/LocalModel';
 import { obtenerRecetasGlobales } from './RecetaControl';
-import { obtenerProductosGlobales } from './ProductoControl';
+import { obtenerProductosGlobales, suscribirProductosGlobales } from './ProductoControl';
+import { suscribirProductosLocal } from './LocalProductoControl';
 import { validarAsignacion, esAsignacionValida } from '../models/RecetaLocalModel';
 
 // ─── Productos del local ────────────────────────────────────────────────────
@@ -37,6 +38,45 @@ export async function obtenerProductosLocal(local) {
       activo: datosLocal.activo ?? true,
     };
   });
+}
+
+// ─── Lo mismo, pero EN VIVO ──────────────────────────────────────────────────
+// Se suscribe a la vez al stock por local (locales/{local}/productos) y al
+// catálogo global, y entrega la misma forma "enriquecida" de arriba cada vez
+// que cualquiera de los dos cambia. Esto es lo que permite que la estimación
+// de producción se recalcule sola cuando el stock se mueve (venta, reposición,
+// transferencia, etc.), sin que el usuario tenga que recargar la pantalla.
+export function suscribirProductosLocalEnriquecidos(local, callback) {
+  let ultimosLocales = null;
+  let ultimosGlobales = null;
+
+  function recalcular() {
+    if (ultimosLocales === null || ultimosGlobales === null) return;
+    const globalesPorId = new Map(ultimosGlobales.map((g) => [g.id, g]));
+    const productos = ultimosLocales.map((lp) => {
+      const global = globalesPorId.get(lp.idProducto);
+      return {
+        id: lp.idProducto,
+        nombre: global?.nombre ?? 'Producto sin datos en catálogo global',
+        categoria: global?.categoria ?? '',
+        unidadMedida: global?.unidadMedida ?? 'unidad',
+        codigoBarra: global?.codigoBarra ?? '',
+        stockActual: lp.stockActual,
+        stockMinimo: lp.stockMinimo,
+        precioVenta: lp.precioVenta,
+        activo: lp.activo,
+      };
+    });
+    callback(productos);
+  }
+
+  const unsubLocal = suscribirProductosLocal(local, (lista) => { ultimosLocales = lista; recalcular(); });
+  const unsubGlobal = suscribirProductosGlobales((lista) => { ultimosGlobales = lista; recalcular(); });
+
+  return () => {
+    unsubLocal();
+    unsubGlobal();
+  };
 }
 
 // ─── Recetas globales + su estado de asignación en este local ──────────────

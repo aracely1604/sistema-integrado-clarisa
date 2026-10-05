@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   FiX, FiAlertOctagon, FiClock, FiCalendar, FiClipboard,
   FiCheckCircle, FiAlertTriangle, FiArrowDown, FiChevronLeft,
-  FiChevronRight, FiUsers, FiUserPlus,
+  FiChevronRight, FiUsers, FiUserPlus, FiPlusCircle,
 } from 'react-icons/fi';
 import { Badge, LocalChip, ToggleSwitch } from './InventarioShared';
 import { STOCK_DATA, LOCAL_LABELS, LOCAL_COLORS, DIAS, DIAS_SEMANA, HOY_IDX } from './inventarioData';
@@ -15,14 +15,57 @@ import {
 } from '../../controllers/ProveedorControl';
 import { getInitials } from '../../models/ProveedorModel';
 import {
-  crearProductoGlobal, obtenerProductoPorCodigoBarra,
+  crearProductoGlobal, actualizarProductoGlobal, obtenerProductoPorCodigoBarra,
+  suscribirProductosGlobales,
 } from '../../controllers/ProductoControl';
 import {
-  crearRecetaGlobal, obtenerRecetasGlobales, existeNombreReceta,
+  crearRecetaGlobal, actualizarRecetaGlobal, obtenerRecetasGlobales, existeNombreReceta,
 } from '../../controllers/RecetaControl';
-import { UNIDADES_MEDIDA_RECETA, crearIngredienteVacio } from '../../models/RecetaModel';
+import {
+  UNIDADES_MEDIDA_RECETA, crearIngredienteVacio, normalizarTexto,
+  validarReceta, esRecetaValida,
+} from '../../models/RecetaModel';
 import { CATEGORIAS, UNIDADES_MEDIDA } from './gestionProductosData';
 import '../../css/DetalleModals.css';
+
+// ─── Mensaje de éxito reutilizable (banner verde con auto-ocultado) ─────────
+function useMensajeExito(duracion = 4000) {
+  const [mensaje, setMensaje] = useState('');
+  const timerRef = useRef(null);
+
+  const mostrar = useCallback((texto) => {
+    clearTimeout(timerRef.current);
+    setMensaje(texto);
+    timerRef.current = setTimeout(() => setMensaje(''), duracion);
+  }, [duracion]);
+
+  const ocultar = useCallback(() => {
+    clearTimeout(timerRef.current);
+    setMensaje('');
+  }, []);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  return [mensaje, mostrar, ocultar];
+}
+
+function MensajeExito({ texto }) {
+  if (!texto) return null;
+  return (
+    <div
+      role="status"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '10px 12px', marginBottom: 14, borderRadius: 10,
+        backgroundColor: '#EAF3DE', border: '1px solid #639922',
+        color: '#3B6D11', fontSize: 13, fontWeight: 600,
+      }}
+    >
+      <FiCheckCircle size={16} />
+      <span>{texto}</span>
+    </div>
+  );
+}
 
 // ─── Modal detalle de stock ───────────────────────────────────────────────────
 export function ModalDetalleStock({ item, onClose }) {
@@ -264,6 +307,7 @@ export function ModalGestionProveedores({ visible, onClose }) {
   const FORM_INIT = { nombre: '', empresa: '', telefono: '' };
 
   const [tab, setTab] = useState('nuevo'); // 'nuevo' | 'editar'
+  const [mensajeExito, mostrarExito, ocultarExito] = useMensajeExito();
 
   // ── Pestaña "Nuevo" ──
   const [form, setForm]           = useState(FORM_INIT);
@@ -301,7 +345,7 @@ export function ModalGestionProveedores({ visible, onClose }) {
     try {
       await crearProveedorGlobal(form);
       setForm(FORM_INIT);
-      onClose();
+      mostrarExito('Proveedor creado correctamente');
     } catch (err) {
       setErrors(err?.errores ?? { general: 'No se pudo guardar el proveedor. Intenta nuevamente.' });
     } finally {
@@ -329,6 +373,7 @@ export function ModalGestionProveedores({ visible, onClose }) {
     try {
       await actualizarProveedorGlobal(proveedorEditId, editForm);
       handleVolverALista();
+      mostrarExito('Proveedor actualizado correctamente');
     } catch (err) {
       setEditErrors(err?.errores ?? { general: 'No se pudieron guardar los cambios. Intenta nuevamente.' });
     } finally {
@@ -340,6 +385,7 @@ export function ModalGestionProveedores({ visible, onClose }) {
     setTab('nuevo');
     setForm(FORM_INIT);
     setErrors({});
+    ocultarExito();
     handleVolverALista();
     onClose();
   }
@@ -347,6 +393,7 @@ export function ModalGestionProveedores({ visible, onClose }) {
   function handleCambiarTab(nuevoTab) {
     setTab(nuevoTab);
     setErrors({});
+    ocultarExito();
     handleVolverALista();
   }
 
@@ -366,6 +413,8 @@ export function ModalGestionProveedores({ visible, onClose }) {
         <p className="inv-modal-hint-inline" style={{ marginBottom: 14, display: 'block' }}>
           Datos generales del proveedor. Para asignarlo a un local y definir sus días de visita, usa "Proveedores" dentro de cada local.
         </p>
+
+        <MensajeExito texto={mensajeExito} />
 
         {/* Selector de pestaña */}
         <div className="inv-modal-row" style={{ gap: 8, marginBottom: 16 }}>
@@ -982,7 +1031,13 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo }) 
 // automáticamente — eso se define después, al registrar el producto DENTRO
 // de un local puntual (ver LocalProductoControl / GestionProductosForms).
 //
-// Flujo en 2 pasos:
+// Tiene 2 pestañas (mismo diseño que ModalGestionProveedores):
+//  - "Nuevo":  crea un producto (flujo en 2 pasos, ver abajo).
+//  - "Editar": lista TODOS los productos globales (en vivo); al tocar uno se
+//              despliega el formulario. Solo se editan nombre y categoría;
+//              el código de barras y la unidad de medida quedan bloqueados.
+//
+// Flujo de la pestaña "Nuevo", en 2 pasos:
 //  1) "codigo": se lee el código con la pistola (a integrar más adelante)
 //     o se ingresa manualmente, y se verifica si ya existe en el nodo
 //     global antes de seguir.
@@ -990,6 +1045,9 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo }) 
 //     y se guarda el producto.
 export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   const FORM_INIT = { nombre: '', categoria: CATEGORIAS[0], codigoBarra: '', unidadMedida: 'unidad' };
+
+  const [tab, setTab] = useState('nuevo'); // 'nuevo' | 'editar'
+  const [mensajeExito, mostrarExito, ocultarExito] = useMensajeExito();
 
   const [paso, setPaso]                       = useState('codigo'); // 'codigo' | 'formulario'
   const [codigoInput, setCodigoInput]         = useState('');
@@ -1001,11 +1059,38 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   const [errors, setErrors]       = useState({});
   const [guardando, setGuardando] = useState(false);
 
+  // ── Pestaña "Editar" ──
+  const [listaGlobal, setListaGlobal]         = useState([]);
+  const [productoEditId, setProductoEditId]   = useState(null);
+  const [editForm, setEditForm]               = useState({ nombre: '', categoria: CATEGORIAS[0] });
+  const [editErrors, setEditErrors]           = useState({});
+  const [editGuardando, setEditGuardando]     = useState(false);
+  const [busquedaCodigo, setBusquedaCodigo]   = useState('');
+
+  // Se suscribe a TODOS los productos globales mientras el modal esté abierto.
+  useEffect(() => {
+    if (!visible) return undefined;
+    const cancelar = suscribirProductosGlobales(setListaGlobal);
+    return cancelar;
+  }, [visible]);
+
+  const productosOrdenados = [...listaGlobal].sort((a, b) =>
+    (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es')
+  );
+  const productosFiltrados = busquedaCodigo
+    ? productosOrdenados.filter(p => (p.codigoBarra ?? '').includes(busquedaCodigo))
+    : productosOrdenados;
+  const productoSeleccionado = listaGlobal.find(p => p.id === productoEditId) ?? null;
+
   function limpiarCodigo(valor) {
     return valor.replace(/\D/g, '');
   }
 
   function handleClose() {
+    setTab('nuevo');
+    setBusquedaCodigo('');
+    ocultarExito();
+    handleVolverALista();
     setPaso('codigo');
     setCodigoInput('');
     setErrorCodigo('');
@@ -1013,6 +1098,12 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     setForm(FORM_INIT);
     setErrors({});
     onClose();
+  }
+
+  // Simula la lectura con pistola para la búsqueda de la pestaña "Editar" —
+  // reemplazar por la integración real del lector/cámara (igual que handleEscanear).
+  function handleEscanearBusqueda() {
+    setBusquedaCodigo('7891234560099');
   }
 
   // Simula la lectura con pistola — reemplazar por la integración real del lector/cámara
@@ -1059,13 +1150,70 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     try {
       const creado = await crearProductoGlobal(form);
       onGuardado?.(creado);
-      handleClose();
+      setForm(FORM_INIT);
+      setCodigoInput('');
+      setProductoExistente(null);
+      setPaso('codigo');
+      mostrarExito('Producto creado correctamente');
     } catch (err) {
       setErrors(err?.errores ?? { general: 'No se pudo guardar el producto. Intenta nuevamente.' });
     } finally {
       setGuardando(false);
     }
   }
+
+  // ───────────────────────── Editar ─────────────────────────
+  function handleSeleccionarProducto(p) {
+    setProductoEditId(p.id);
+    setEditForm({ nombre: p.nombre, categoria: p.categoria || CATEGORIAS[0] });
+    setEditErrors({});
+  }
+
+  function handleVolverALista() {
+    setProductoEditId(null);
+    setEditForm({ nombre: '', categoria: CATEGORIAS[0] });
+    setEditErrors({});
+  }
+
+  async function handleGuardarEdicion(e) {
+    e.preventDefault();
+    if (!productoSeleccionado) return;
+    setEditErrors({});
+    setEditGuardando(true);
+    try {
+      // El controller valida el producto completo: se reenvían sin cambios
+      // el código de barras y la unidad de medida (no editables).
+      await actualizarProductoGlobal(productoSeleccionado.id, {
+        nombre:       editForm.nombre,
+        categoria:    editForm.categoria,
+        codigoBarra:  productoSeleccionado.codigoBarra,
+        unidadMedida: productoSeleccionado.unidadMedida,
+      });
+      handleVolverALista();
+      mostrarExito('Producto actualizado correctamente');
+    } catch (err) {
+      setEditErrors(err?.errores ?? { general: 'No se pudieron guardar los cambios. Intenta nuevamente.' });
+    } finally {
+      setEditGuardando(false);
+    }
+  }
+
+  function handleCambiarTab(nuevoTab) {
+    setTab(nuevoTab);
+    setErrors({});
+    setErrorCodigo('');
+    setBusquedaCodigo('');
+    ocultarExito();
+    handleVolverALista();
+  }
+
+  const estiloTab = (activa) => ({
+    flex: 1,
+    backgroundColor: activa ? 'var(--c-btnBg, #1B1B1B)' : 'transparent',
+    color: activa ? 'var(--c-btnText, #fff)' : 'var(--c-textSecondary, #7F8C8D)',
+    border: '1px solid var(--c-border, #E4E2DD)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+  });
 
   if (!visible) return null;
 
@@ -1075,7 +1223,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
         <div className="inv-modal-handle" />
         <div className="inv-modal-row-between" style={{ marginBottom: 6 }}>
           <h2 className="inv-modal-title">
-            {paso === 'codigo' ? 'Registrar producto' : 'Datos del producto'}
+            {tab === 'editar' ? 'Productos registrados' : (paso === 'codigo' ? 'Registrar producto' : 'Datos del producto')}
           </h2>
           <button type="button" className="inv-modal-close" onClick={handleClose} aria-label="Cerrar">
             <FiX size={20} />
@@ -1087,8 +1235,20 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
           El stock, precio y proveedor se gestionan por separado en cada local.
         </p>
 
+        <MensajeExito texto={mensajeExito} />
+
+        {/* Selector de pestaña */}
+        <div className="inv-modal-row" style={{ gap: 8, marginBottom: 16 }}>
+          <button type="button" onClick={() => handleCambiarTab('nuevo')} className="inv-modal-btn" style={estiloTab(tab === 'nuevo')}>
+            <FiPlusCircle size={14} /> Nuevo
+          </button>
+          <button type="button" onClick={() => handleCambiarTab('editar')} className="inv-modal-btn" style={estiloTab(tab === 'editar')}>
+            <FiClipboard size={14} /> Editar
+          </button>
+        </div>
+
         {/* ── Paso 1: verificar código de barras ── */}
-        {paso === 'codigo' && (
+        {tab === 'nuevo' && paso === 'codigo' && (
           <form className="inv-modal-scroll" onSubmit={handleVerificar}>
             <button
               type="button"
@@ -1157,7 +1317,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
         )}
 
         {/* ── Paso 2: formulario de datos del producto ── */}
-        {paso === 'formulario' && (
+        {tab === 'nuevo' && paso === 'formulario' && (
           <form className="inv-modal-scroll" onSubmit={handleGuardar}>
             <button
               type="button"
@@ -1244,37 +1404,226 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
             </div>
           </form>
         )}
+
+        {/* ── Pestaña Editar: lista ── */}
+        {tab === 'editar' && !productoSeleccionado && (
+          <div className="inv-modal-scroll">
+            {productosOrdenados.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleEscanearBusqueda}
+                  className="inv-modal-row"
+                  style={{
+                    width: '100%', gap: 10, justifyContent: 'center', padding: '16px 12px',
+                    border: '1.5px dashed var(--c-border, #E4E2DD)', borderRadius: 12,
+                    background: 'var(--c-surface2, transparent)', cursor: 'pointer', marginBottom: 8,
+                  }}
+                >
+                  <FiClipboard size={18} />
+                  <span style={{ fontWeight: 600, fontSize: 13.5 }}>Escanear código de barras</span>
+                </button>
+                <p className="inv-modal-hint-inline" style={{ textAlign: 'center', marginBottom: 12, display: 'block' }}>
+                  Usa la pistola lectora o ingresa el código manualmente abajo
+                </p>
+
+                <div className="inv-modal-formgroup" style={{ marginBottom: 12 }}>
+                  <label className="inv-modal-formlabel">Código de barras</label>
+                  <input
+                    className="inv-modal-input"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Ej: 7891234560012"
+                    value={busquedaCodigo}
+                    onChange={(e) => setBusquedaCodigo(limpiarCodigo(e.target.value))}
+                  />
+                </div>
+              </>
+            )}
+
+            {productosOrdenados.length === 0 ? (
+              <div className="inv-modal-recom-empty">
+                <FiCheckCircle size={20} color="#639922" />
+                <span>Aún no hay productos registrados</span>
+              </div>
+            ) : productosFiltrados.length === 0 ? (
+              <div className="inv-modal-recom-empty">
+                <FiAlertTriangle size={20} color="#8A6D1D" />
+                <span>No hay productos con ese código de barras</span>
+              </div>
+            ) : (
+              <div className="inv-modal-recom-list">
+                {productosFiltrados.map(p => (
+                  <button
+                    type="button"
+                    key={p.id}
+                    onClick={() => handleSeleccionarProducto(p)}
+                    className="inv-modal-row-between"
+                    style={{
+                      width: '100%', textAlign: 'left', padding: '10px 12px',
+                      border: '1px solid var(--c-border, #E4E2DD)', borderRadius: 10,
+                      background: 'transparent', cursor: 'pointer', marginBottom: 8,
+                    }}
+                  >
+                    <div className="inv-modal-row" style={{ gap: 10 }}>
+                      <span className="inv-avatar-lg" style={{ width: 34, height: 34, fontSize: 13 }}>{getInitials(p.nombre)}</span>
+                      <div>
+                        <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5 }}>{p.nombre}</p>
+                        <p style={{ margin: 0, fontSize: 12, color: 'var(--c-textSecondary, #7F8C8D)' }}>
+                          {p.categoria} · {p.codigoBarra}
+                        </p>
+                      </div>
+                    </div>
+                    <FiChevronRight size={16} color="var(--c-textSecondary, #7F8C8D)" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Pestaña Editar: formulario del producto seleccionado ── */}
+        {tab === 'editar' && productoSeleccionado && (
+          <form className="inv-modal-scroll" onSubmit={handleGuardarEdicion}>
+            <button
+              type="button"
+              onClick={handleVolverALista}
+              className="inv-modal-row"
+              style={{ gap: 4, background: 'none', border: 'none', padding: 0, marginBottom: 12, cursor: 'pointer', color: 'var(--c-textSecondary, #7F8C8D)' }}
+            >
+              <FiChevronLeft size={16} /> Volver a la lista
+            </button>
+
+            {editErrors.general && <p className="inv-modal-errortext" style={{ marginBottom: 10 }}>{editErrors.general}</p>}
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">Código de barras</label>
+              <input className="inv-modal-input" type="text" value={productoSeleccionado.codigoBarra} disabled />
+            </div>
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">
+                Nombre del producto <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <input
+                className="inv-modal-input"
+                style={editErrors.nombre ? { borderColor: '#E24B4A' } : undefined}
+                type="text"
+                value={editForm.nombre}
+                onChange={(e) => {
+                  setEditForm(prev => ({ ...prev, nombre: e.target.value }));
+                  setEditErrors(prev => ({ ...prev, nombre: undefined }));
+                }}
+              />
+              {editErrors.nombre && <p className="inv-modal-errortext">{editErrors.nombre}</p>}
+            </div>
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">
+                Categoría <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <div className="inv-modal-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                {CATEGORIAS.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setEditForm(prev => ({ ...prev, categoria: cat }))}
+                    className={`inv-modal-dia-toggle ${editForm.categoria === cat ? 'inv-modal-dia-toggle-active' : ''}`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              {editErrors.categoria && <p className="inv-modal-errortext">{editErrors.categoria}</p>}
+            </div>
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">Unidad de medida</label>
+              <input
+                className="inv-modal-input"
+                type="text"
+                value={UNIDADES_MEDIDA.find(u => u.value === productoSeleccionado.unidadMedida)?.label ?? productoSeleccionado.unidadMedida}
+                disabled
+              />
+            </div>
+
+            <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
+              <button type="button" className="inv-modal-btn inv-modal-btn-secondary" onClick={handleVolverALista}>
+                Cancelar
+              </button>
+              <button type="submit" className="inv-modal-btn inv-modal-btn-primary" disabled={editGuardando}>
+                {editGuardando ? 'Guardando...' : 'Actualizar producto'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Modal: Registrar receta global (nodo global) ───────────────────────────
+// ─── Modal: Gestión de recetas globales (nodo global) ───────────────────────
 // Plantilla única de ingredientes/cantidades, compartida por todo el sistema.
 // NO almacena precio, estado ni productos de local: eso lo define después
 // cada local por separado. Las cantidades acá son la fuente de verdad que
 // se usará para descontar inventario automáticamente al vender.
+//
+// Tiene 2 pestañas (mismo diseño que ModalGestionProveedores):
+//  - "Nueva":  crea una receta global.
+//  - "Editar": lista las recetas registradas; al tocar una se despliega el
+//              formulario de edición. Solo se pueden modificar el nombre de
+//              la receta y, por ingrediente, la cantidad y la equivalencia.
+
+// Solo dígitos y un único separador decimal (acepta coma o punto).
+function limpiarCantidad(valor) {
+  const soloNumeros = valor.replace(',', '.').replace(/[^0-9.]/g, '');
+  const [entero, ...resto] = soloNumeros.split('.');
+  return resto.length ? `${entero}.${resto.join('')}` : entero;
+}
+
+const EDIT_FORM_INIT = { nombre: '', ingredientes: [] };
+
 export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
   const FORM_INIT = { nombre: '', ingredientes: [crearIngredienteVacio()] };
 
+  const [tab, setTab] = useState('nuevo'); // 'nuevo' | 'editar'
+  const [mensajeExito, mostrarExito, ocultarExito] = useMensajeExito();
+  const [recetasExistentes, setRecetasExistentes] = useState([]);
+
+  // ── Pestaña "Nueva" ──
   const [form, setForm]           = useState(FORM_INIT);
   const [errors, setErrors]       = useState({});
   const [guardando, setGuardando] = useState(false);
-  const [recetasExistentes, setRecetasExistentes] = useState([]);
+  const [confirmarCreacion, setConfirmarCreacion] = useState(false);
+
+  // ── Pestaña "Editar" ──
+  const [recetaEditId, setRecetaEditId]   = useState(null);
+  const [editForm, setEditForm]           = useState(EDIT_FORM_INIT);
+  const [editErrors, setEditErrors]       = useState({});
+  const [editGuardando, setEditGuardando] = useState(false);
+  const [busquedaNombre, setBusquedaNombre] = useState('');
+
+  const cargarRecetas = useCallback(async () => {
+    try {
+      setRecetasExistentes(await obtenerRecetasGlobales());
+    } catch {
+      setRecetasExistentes([]);
+    }
+  }, []);
 
   useEffect(() => {
-    if (!visible) return;
-    obtenerRecetasGlobales()
-      .then(setRecetasExistentes)
-      .catch(() => setRecetasExistentes([]));
-  }, [visible]);
+    if (visible) cargarRecetas();
+  }, [visible, cargarRecetas]);
 
-  function handleClose() {
-    setForm(FORM_INIT);
-    setErrors({});
-    onClose();
-  }
+  const recetasOrdenadas = [...recetasExistentes].sort((a, b) =>
+    (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es')
+  );
+  const recetasFiltradas = busquedaNombre.trim()
+    ? recetasOrdenadas.filter(r => normalizarTexto(r.nombre).includes(normalizarTexto(busquedaNombre)))
+    : recetasOrdenadas;
+  const recetaSeleccionada = recetasExistentes.find(r => r.id === recetaEditId) ?? null;
 
+  // ───────────────────────── Nueva ─────────────────────────
   function handleNombreChange(valor) {
     setForm(prev => ({ ...prev, nombre: valor }));
     setErrors(prev => ({ ...prev, nombre: undefined }));
@@ -1304,20 +1653,32 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
     }));
   }
 
-  async function handleGuardar(e) {
+  // Paso 1: valida el formulario. Si está todo bien, pide confirmación
+  // antes de crear (después no se podrán agregar ni quitar ingredientes).
+  function handleGuardar(e) {
     e.preventDefault();
     setErrors({});
 
-    if (existeNombreReceta(form.nombre, recetasExistentes)) {
-      setErrors({ nombre: 'Ya existe una receta con este nombre' });
+    const erroresValidacion = validarReceta(form, recetasExistentes);
+    if (!esRecetaValida(erroresValidacion)) {
+      setErrors(erroresValidacion);
       return;
     }
 
+    setConfirmarCreacion(true);
+  }
+
+  // Paso 2: el usuario confirmó; recién ahí se crea la receta.
+  async function handleConfirmarCreacion() {
+    setConfirmarCreacion(false);
+    setErrors({});
     setGuardando(true);
     try {
       const creada = await crearRecetaGlobal(form);
       onGuardado?.(creada);
-      handleClose();
+      setForm({ nombre: '', ingredientes: [crearIngredienteVacio()] });
+      await cargarRecetas();
+      mostrarExito('Receta creada correctamente');
     } catch (err) {
       setErrors(err?.errores ?? { general: 'No se pudo guardar la receta. Intenta nuevamente.' });
     } finally {
@@ -1325,16 +1686,108 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
     }
   }
 
+  // ───────────────────────── Editar ─────────────────────────
+  function handleSeleccionarReceta(receta) {
+    setRecetaEditId(receta.id);
+    setEditForm({
+      nombre: receta.nombre ?? '',
+      ingredientes: (receta.ingredientes ?? []).map(ing => ({
+        ...ing,
+        cantidad: String(ing.cantidad ?? ''),
+        equivalencia: ing.equivalencia ?? '',
+      })),
+    });
+    setEditErrors({});
+  }
+
+  function handleVolverALista() {
+    setRecetaEditId(null);
+    setEditForm(EDIT_FORM_INIT);
+    setEditErrors({});
+  }
+
+  function handleEditNombreChange(valor) {
+    setEditForm(prev => ({ ...prev, nombre: valor }));
+    setEditErrors(prev => ({ ...prev, nombre: undefined }));
+  }
+
+  function handleEditIngredienteChange(id, campo, valor) {
+    setEditForm(prev => ({
+      ...prev,
+      ingredientes: prev.ingredientes.map(ing =>
+        ing.id === id ? { ...ing, [campo]: valor } : ing
+      ),
+    }));
+    setEditErrors(prev => ({ ...prev, ingredientesDetalle: undefined }));
+  }
+
+  async function handleGuardarEdicion(e) {
+    e.preventDefault();
+    if (!recetaEditId) return;
+    setEditErrors({});
+
+    if (existeNombreReceta(editForm.nombre, recetasExistentes, recetaEditId)) {
+      setEditErrors({ nombre: 'Ya existe una receta con este nombre' });
+      return;
+    }
+
+    setEditGuardando(true);
+    try {
+      const actualizada = await actualizarRecetaGlobal(recetaEditId, editForm);
+      onGuardado?.(actualizada);
+      await cargarRecetas();
+      handleVolverALista();
+      mostrarExito('Receta actualizada correctamente');
+    } catch (err) {
+      setEditErrors(err?.errores ?? { general: 'No se pudieron guardar los cambios. Intenta nuevamente.' });
+    } finally {
+      setEditGuardando(false);
+    }
+  }
+
+  // ───────────────────────── Navegación ─────────────────────────
+  function handleClose() {
+    setTab('nuevo');
+    setForm(FORM_INIT);
+    setErrors({});
+    setConfirmarCreacion(false);
+    setBusquedaNombre('');
+    ocultarExito();
+    handleVolverALista();
+    onClose();
+  }
+
+  function handleCambiarTab(nuevoTab) {
+    setTab(nuevoTab);
+    setErrors({});
+    setBusquedaNombre('');
+    ocultarExito();
+    handleVolverALista();
+  }
+
   if (!visible) return null;
 
-  const erroresIngredientes = errors.ingredientesDetalle ?? [];
+  const erroresIngredientes     = errors.ingredientesDetalle ?? [];
+  const erroresIngredientesEdit = editErrors.ingredientesDetalle ?? [];
+
+  const estiloTab = (activa) => ({
+    flex: 1,
+    backgroundColor: activa ? 'var(--c-btnBg, #1B1B1B)' : 'transparent',
+    color: activa ? 'var(--c-btnText, #fff)' : 'var(--c-textSecondary, #7F8C8D)',
+    border: '1px solid var(--c-border, #E4E2DD)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+  });
+
+  const etiquetaOpcional = (
+    <span style={{ color: 'var(--c-textSecondary, #7F8C8D)', fontWeight: 400 }}> (opcional)</span>
+  );
 
   return (
     <div className="inv-modal-overlay" onClick={handleClose}>
       <div className="inv-modal-sheet inv-modal-sheet-tall" onClick={(e) => e.stopPropagation()}>
         <div className="inv-modal-handle" />
         <div className="inv-modal-row-between" style={{ marginBottom: 6 }}>
-          <h2 className="inv-modal-title">Nueva receta global</h2>
+          <h2 className="inv-modal-title">{tab === 'nuevo' ? 'Nueva receta global' : 'Recetas registradas'}</h2>
           <button type="button" className="inv-modal-close" onClick={handleClose} aria-label="Cerrar">
             <FiX size={20} />
           </button>
@@ -1345,137 +1798,380 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
           productos de inventario se definen después, por cada local.
         </p>
 
-        <form className="inv-modal-scroll" onSubmit={handleGuardar}>
-          {errors.general && <p className="inv-modal-errortext" style={{ marginBottom: 10 }}>{errors.general}</p>}
+        <MensajeExito texto={mensajeExito} />
 
-          <div className="inv-modal-formgroup">
-            <label className="inv-modal-formlabel">
-              Nombre de la receta <span style={{ color: '#E24B4A' }}>*</span>
-            </label>
-            <input
-              className="inv-modal-input"
-              style={errors.nombre ? { borderColor: '#E24B4A' } : undefined}
-              type="text"
-              placeholder="Ej: Completo Italiano"
-              value={form.nombre}
-              onChange={(e) => handleNombreChange(e.target.value)}
-            />
-            {errors.nombre && <p className="inv-modal-errortext">{errors.nombre}</p>}
-          </div>
+        {/* Selector de pestaña */}
+        <div className="inv-modal-row" style={{ gap: 8, marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => handleCambiarTab('nuevo')}
+            className="inv-modal-btn"
+            style={estiloTab(tab === 'nuevo')}
+          >
+            <FiPlusCircle size={14} /> Nueva
+          </button>
+          <button
+            type="button"
+            onClick={() => handleCambiarTab('editar')}
+            className="inv-modal-btn"
+            style={estiloTab(tab === 'editar')}
+          >
+            <FiClipboard size={14} /> Editar
+          </button>
+        </div>
 
-          <div className="inv-modal-row-between" style={{ marginTop: 10, marginBottom: 8 }}>
-            <label className="inv-modal-formlabel" style={{ margin: 0 }}>
-              Ingredientes <span style={{ color: '#E24B4A' }}>*</span>
-            </label>
-            <button
-              type="button"
-              onClick={handleAgregarIngrediente}
-              className="inv-modal-btn inv-modal-btn-secondary"
-              style={{ padding: '6px 12px', fontSize: 12.5 }}
-            >
-              + Agregar ingrediente
-            </button>
-          </div>
-          {errors.ingredientes && <p className="inv-modal-errortext" style={{ marginBottom: 8 }}>{errors.ingredientes}</p>}
+        {/* ── Pestaña Nueva ── */}
+        {tab === 'nuevo' && (
+          <form className="inv-modal-scroll" onSubmit={handleGuardar}>
+            {errors.general && <p className="inv-modal-errortext" style={{ marginBottom: 10 }}>{errors.general}</p>}
 
-          {form.ingredientes.map((ingrediente, index) => {
-            const erroresIng = erroresIngredientes[index] ?? {};
-            return (
-              <div
-                key={ingrediente.id}
-                style={{
-                  border: '1px solid var(--c-border, #E4E2DD)', borderRadius: 10,
-                  padding: '12px', marginBottom: 10,
-                }}
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">
+                Nombre de la receta <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <input
+                className="inv-modal-input"
+                style={errors.nombre ? { borderColor: '#E24B4A' } : undefined}
+                type="text"
+                placeholder="Ej: Completo Italiano"
+                value={form.nombre}
+                onChange={(e) => handleNombreChange(e.target.value)}
+              />
+              {errors.nombre && <p className="inv-modal-errortext">{errors.nombre}</p>}
+            </div>
+
+            <div className="inv-modal-row-between" style={{ marginTop: 10, marginBottom: 8 }}>
+              <label className="inv-modal-formlabel" style={{ margin: 0 }}>
+                Ingredientes <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleAgregarIngrediente}
+                className="inv-modal-btn inv-modal-btn-secondary"
+                style={{ padding: '6px 12px', fontSize: 12.5 }}
               >
-                <div className="inv-modal-row-between" style={{ marginBottom: 8 }}>
-                  <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--c-textSecondary, #7F8C8D)' }}>
-                    Ingrediente {index + 1}
-                  </span>
-                  {form.ingredientes.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleEliminarIngrediente(ingrediente.id)}
-                      className="inv-modal-close"
-                      style={{ width: 24, height: 24 }}
-                      aria-label="Eliminar ingrediente"
-                    >
-                      <FiX size={14} />
-                    </button>
-                  )}
-                </div>
+                + Agregar ingrediente
+              </button>
+            </div>
+            {errors.ingredientes && <p className="inv-modal-errortext" style={{ marginBottom: 8 }}>{errors.ingredientes}</p>}
 
-                <div className="inv-modal-formgroup" style={{ marginBottom: 8 }}>
-                  <label className="inv-modal-formlabel">Nombre</label>
-                  <input
-                    className="inv-modal-input"
-                    style={erroresIng.nombre ? { borderColor: '#E24B4A' } : undefined}
-                    type="text"
-                    placeholder="Ej: Pan"
-                    value={ingrediente.nombre}
-                    onChange={(e) => handleIngredienteChange(ingrediente.id, 'nombre', e.target.value)}
-                  />
-                  {erroresIng.nombre && <p className="inv-modal-errortext">{erroresIng.nombre}</p>}
-                </div>
+            {form.ingredientes.map((ingrediente, index) => {
+              const erroresIng = erroresIngredientes[index] ?? {};
+              return (
+                <div
+                  key={ingrediente.id}
+                  style={{
+                    border: '1px solid var(--c-border, #E4E2DD)', borderRadius: 10,
+                    padding: '12px', marginBottom: 10,
+                  }}
+                >
+                  <div className="inv-modal-row-between" style={{ marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--c-textSecondary, #7F8C8D)' }}>
+                      Ingrediente {index + 1}
+                    </span>
+                    {form.ingredientes.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleEliminarIngrediente(ingrediente.id)}
+                        className="inv-modal-close"
+                        style={{ width: 24, height: 24 }}
+                        aria-label="Eliminar ingrediente"
+                      >
+                        <FiX size={14} />
+                      </button>
+                    )}
+                  </div>
 
-                <div className="inv-modal-row" style={{ gap: 8 }}>
-                  <div className="inv-modal-formgroup" style={{ marginBottom: 8, flex: 1 }}>
-                    <label className="inv-modal-formlabel">Cantidad</label>
+                  <div className="inv-modal-formgroup" style={{ marginBottom: 8 }}>
+                    <label className="inv-modal-formlabel">Nombre</label>
                     <input
                       className="inv-modal-input"
-                      style={erroresIng.cantidad ? { borderColor: '#E24B4A' } : undefined}
-                      type="number"
-                      min="0"
-                      step="any"
-                      placeholder="Ej: 80"
-                      value={ingrediente.cantidad}
-                      onChange={(e) => handleIngredienteChange(ingrediente.id, 'cantidad', e.target.value)}
+                      style={erroresIng.nombre ? { borderColor: '#E24B4A' } : undefined}
+                      type="text"
+                      placeholder="Ej: Pan"
+                      value={ingrediente.nombre}
+                      onChange={(e) => handleIngredienteChange(ingrediente.id, 'nombre', e.target.value)}
                     />
-                    {erroresIng.cantidad && <p className="inv-modal-errortext">{erroresIng.cantidad}</p>}
+                    {erroresIng.nombre && <p className="inv-modal-errortext">{erroresIng.nombre}</p>}
                   </div>
 
-                  <div className="inv-modal-formgroup" style={{ marginBottom: 8, width: 100 }}>
-                    <label className="inv-modal-formlabel">Unidad</label>
-                    <select
+                  <div className="inv-modal-row" style={{ gap: 8 }}>
+                    <div className="inv-modal-formgroup" style={{ marginBottom: 8, flex: 1 }}>
+                      <label className="inv-modal-formlabel">Cantidad</label>
+                      <input
+                        className="inv-modal-input"
+                        style={erroresIng.cantidad ? { borderColor: '#E24B4A' } : undefined}
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="Ej: 80"
+                        value={ingrediente.cantidad}
+                        onChange={(e) => handleIngredienteChange(ingrediente.id, 'cantidad', e.target.value)}
+                      />
+                      {erroresIng.cantidad && <p className="inv-modal-errortext">{erroresIng.cantidad}</p>}
+                    </div>
+
+                    <div className="inv-modal-formgroup" style={{ marginBottom: 8, width: 100 }}>
+                      <label className="inv-modal-formlabel">Unidad</label>
+                      <select
+                        className="inv-modal-input"
+                        style={erroresIng.unidadMedida ? { borderColor: '#E24B4A' } : undefined}
+                        value={ingrediente.unidadMedida}
+                        onChange={(e) => handleIngredienteChange(ingrediente.id, 'unidadMedida', e.target.value)}
+                      >
+                        {UNIDADES_MEDIDA_RECETA.map(u => (
+                          <option key={u.value} value={u.value}>{u.label}</option>
+                        ))}
+                      </select>
+                      {erroresIng.unidadMedida && <p className="inv-modal-errortext">{erroresIng.unidadMedida}</p>}
+                    </div>
+                  </div>
+
+                  <div className="inv-modal-formgroup">
+                    <label className="inv-modal-formlabel">Equivalencia{etiquetaOpcional}</label>
+                    <input
                       className="inv-modal-input"
-                      style={erroresIng.unidadMedida ? { borderColor: '#E24B4A' } : undefined}
-                      value={ingrediente.unidadMedida}
-                      onChange={(e) => handleIngredienteChange(ingrediente.id, 'unidadMedida', e.target.value)}
-                    >
-                      {UNIDADES_MEDIDA_RECETA.map(u => (
-                        <option key={u.value} value={u.value}>{u.label}</option>
-                      ))}
-                    </select>
-                    {erroresIng.unidadMedida && <p className="inv-modal-errortext">{erroresIng.unidadMedida}</p>}
+                      style={erroresIng.equivalencia ? { borderColor: '#E24B4A' } : undefined}
+                      type="text"
+                      placeholder="Ej: 1 marraqueta"
+                      value={ingrediente.equivalencia}
+                      onChange={(e) => handleIngredienteChange(ingrediente.id, 'equivalencia', e.target.value)}
+                    />
+                    {erroresIng.equivalencia && <p className="inv-modal-errortext">{erroresIng.equivalencia}</p>}
                   </div>
                 </div>
+              );
+            })}
 
-                <div className="inv-modal-formgroup">
-                  <label className="inv-modal-formlabel">Equivalencia</label>
-                  <input
-                    className="inv-modal-input"
-                    style={erroresIng.equivalencia ? { borderColor: '#E24B4A' } : undefined}
-                    type="text"
-                    placeholder="Ej: 1 marraqueta"
-                    value={ingrediente.equivalencia}
-                    onChange={(e) => handleIngredienteChange(ingrediente.id, 'equivalencia', e.target.value)}
-                  />
-                  {erroresIng.equivalencia && <p className="inv-modal-errortext">{erroresIng.equivalencia}</p>}
-                </div>
+            <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
+              <button type="button" className="inv-modal-btn inv-modal-btn-secondary" onClick={handleClose}>
+                Cancelar
+              </button>
+              <button type="submit" className="inv-modal-btn inv-modal-btn-primary" disabled={guardando}>
+                {guardando ? 'Guardando...' : 'Guardar receta'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ── Pestaña Editar: lista ── */}
+        {tab === 'editar' && !recetaSeleccionada && (
+          <div className="inv-modal-scroll">
+            {recetasOrdenadas.length > 0 && (
+              <div className="inv-modal-formgroup" style={{ marginBottom: 12 }}>
+                <label className="inv-modal-formlabel">Buscar receta por nombre</label>
+                <input
+                  className="inv-modal-input"
+                  type="text"
+                  placeholder="Ej: Completo Italiano"
+                  value={busquedaNombre}
+                  onChange={(e) => setBusquedaNombre(e.target.value)}
+                />
               </div>
-            );
-          })}
+            )}
 
-          <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
-            <button type="button" className="inv-modal-btn inv-modal-btn-secondary" onClick={handleClose}>
-              Cancelar
-            </button>
-            <button type="submit" className="inv-modal-btn inv-modal-btn-primary" disabled={guardando}>
-              {guardando ? 'Guardando...' : 'Guardar receta'}
-            </button>
+            {recetasOrdenadas.length === 0 ? (
+              <div className="inv-modal-recom-empty">
+                <FiCheckCircle size={20} color="#639922" />
+                <span>Aún no hay recetas registradas</span>
+              </div>
+            ) : recetasFiltradas.length === 0 ? (
+              <div className="inv-modal-recom-empty">
+                <FiAlertTriangle size={20} color="#8A6D1D" />
+                <span>No hay recetas con ese nombre</span>
+              </div>
+            ) : (
+              <div className="inv-modal-recom-list">
+                {recetasFiltradas.map(r => {
+                  const cantidadIngredientes = (r.ingredientes ?? []).length;
+                  return (
+                    <button
+                      type="button"
+                      key={r.id}
+                      onClick={() => handleSeleccionarReceta(r)}
+                      className="inv-modal-row-between"
+                      style={{
+                        width: '100%', textAlign: 'left', padding: '10px 12px',
+                        border: '1px solid var(--c-border, #E4E2DD)', borderRadius: 10,
+                        background: 'transparent', cursor: 'pointer', marginBottom: 8,
+                      }}
+                    >
+                      <div className="inv-modal-row" style={{ gap: 10 }}>
+                        <span className="inv-avatar-lg" style={{ width: 34, height: 34, fontSize: 13 }}>{getInitials(r.nombre)}</span>
+                        <div>
+                          <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5 }}>{r.nombre}</p>
+                          <p style={{ margin: 0, fontSize: 12, color: 'var(--c-textSecondary, #7F8C8D)' }}>
+                            {cantidadIngredientes} {cantidadIngredientes === 1 ? 'ingrediente' : 'ingredientes'}
+                          </p>
+                        </div>
+                      </div>
+                      <FiChevronRight size={16} color="var(--c-textSecondary, #7F8C8D)" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </form>
+        )}
+
+        {/* ── Pestaña Editar: formulario de la receta seleccionada ── */}
+        {tab === 'editar' && recetaSeleccionada && (
+          <form className="inv-modal-scroll" onSubmit={handleGuardarEdicion}>
+            <button
+              type="button"
+              onClick={handleVolverALista}
+              className="inv-modal-row"
+              style={{ gap: 4, background: 'none', border: 'none', padding: 0, marginBottom: 12, cursor: 'pointer', color: 'var(--c-textSecondary, #7F8C8D)' }}
+            >
+              <FiChevronLeft size={16} /> Volver a la lista
+            </button>
+
+            {editErrors.general && <p className="inv-modal-errortext" style={{ marginBottom: 10 }}>{editErrors.general}</p>}
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">
+                Nombre de la receta <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <input
+                className="inv-modal-input"
+                style={editErrors.nombre ? { borderColor: '#E24B4A' } : undefined}
+                type="text"
+                value={editForm.nombre}
+                onChange={(e) => handleEditNombreChange(e.target.value)}
+              />
+              {editErrors.nombre && <p className="inv-modal-errortext">{editErrors.nombre}</p>}
+            </div>
+
+            <label className="inv-modal-formlabel" style={{ marginTop: 10 }}>Ingredientes</label>
+            <p className="inv-modal-hint-inline" style={{ marginBottom: 8, display: 'block' }}>
+              Solo se puede modificar la cantidad y la equivalencia de cada ingrediente.
+            </p>
+            {editErrors.ingredientes && <p className="inv-modal-errortext" style={{ marginBottom: 8 }}>{editErrors.ingredientes}</p>}
+
+            {editForm.ingredientes.map((ingrediente, index) => {
+              const erroresIng = erroresIngredientesEdit[index] ?? {};
+              return (
+                <div
+                  key={ingrediente.id}
+                  style={{
+                    border: '1px solid var(--c-border, #E4E2DD)', borderRadius: 10,
+                    padding: '12px', marginBottom: 10,
+                  }}
+                >
+                  <span style={{ display: 'block', fontWeight: 600, fontSize: 12.5, marginBottom: 8, color: 'var(--c-textSecondary, #7F8C8D)' }}>
+                    Ingrediente {index + 1}
+                  </span>
+
+                  <div className="inv-modal-formgroup" style={{ marginBottom: 8 }}>
+                    <label className="inv-modal-formlabel">Nombre</label>
+                    <input className="inv-modal-input" type="text" value={ingrediente.nombre} disabled />
+                    {erroresIng.nombre && <p className="inv-modal-errortext">{erroresIng.nombre}</p>}
+                  </div>
+
+                  <div className="inv-modal-row" style={{ gap: 8 }}>
+                    <div className="inv-modal-formgroup" style={{ marginBottom: 8, flex: 1 }}>
+                      <label className="inv-modal-formlabel">Cantidad</label>
+                      <input
+                        className="inv-modal-input"
+                        style={erroresIng.cantidad ? { borderColor: '#E24B4A' } : undefined}
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="Ej: 80"
+                        value={ingrediente.cantidad}
+                        onChange={(e) => handleEditIngredienteChange(ingrediente.id, 'cantidad', limpiarCantidad(e.target.value))}
+                      />
+                      {erroresIng.cantidad && <p className="inv-modal-errortext">{erroresIng.cantidad}</p>}
+                    </div>
+
+                    <div className="inv-modal-formgroup" style={{ marginBottom: 8, width: 100 }}>
+                      <label className="inv-modal-formlabel">Unidad</label>
+                      <select className="inv-modal-input" value={ingrediente.unidadMedida} disabled>
+                        {UNIDADES_MEDIDA_RECETA.map(u => (
+                          <option key={u.value} value={u.value}>{u.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="inv-modal-formgroup">
+                    <label className="inv-modal-formlabel">Equivalencia{etiquetaOpcional}</label>
+                    <input
+                      className="inv-modal-input"
+                      type="text"
+                      placeholder="Ej: 1 marraqueta"
+                      value={ingrediente.equivalencia}
+                      onChange={(e) => handleEditIngredienteChange(ingrediente.id, 'equivalencia', e.target.value)}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
+              <button type="button" className="inv-modal-btn inv-modal-btn-secondary" onClick={handleVolverALista}>
+                Cancelar
+              </button>
+              <button type="submit" className="inv-modal-btn inv-modal-btn-primary" disabled={editGuardando}>
+                {editGuardando ? 'Guardando...' : 'Actualizar receta'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
+
+      {/* ── Confirmación antes de crear la receta ── */}
+      {confirmarCreacion && (
+        <div
+          onClick={(e) => { e.stopPropagation(); setConfirmarCreacion(false); }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1100,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20, backgroundColor: 'rgba(0, 0, 0, 0.45)',
+          }}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="confirmar-receta-titulo"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 380, padding: 20, borderRadius: 14,
+              backgroundColor: 'var(--c-surface, #fff)',
+              border: '1px solid var(--c-border, #E4E2DD)',
+            }}
+          >
+            <div className="inv-modal-row" style={{ gap: 10, marginBottom: 10 }}>
+              <FiAlertTriangle size={22} color="#8A6D1D" />
+              <h3 id="confirmar-receta-titulo" style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                ¿Crear la receta?
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 8px', fontSize: 13.5, lineHeight: 1.45 }}>
+              Una vez creada, <strong>no podrás agregar ni quitar ingredientes</strong>.
+              Solo podrás editar el nombre de la receta, la cantidad y la equivalencia de cada ingrediente.
+            </p>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--c-textSecondary, #7F8C8D)' }}>
+              Revisa que todo esté correcto. ¿Estás seguro de crear la receta?
+            </p>
+            <div className="inv-modal-row" style={{ gap: 10 }}>
+              <button
+                type="button"
+                className="inv-modal-btn inv-modal-btn-secondary"
+                onClick={() => setConfirmarCreacion(false)}
+              >
+                Revisar
+              </button>
+              <button
+                type="button"
+                className="inv-modal-btn inv-modal-btn-primary"
+                onClick={handleConfirmarCreacion}
+              >
+                Sí, crear receta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
