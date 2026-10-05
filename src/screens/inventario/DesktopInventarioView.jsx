@@ -1,18 +1,13 @@
 import { useState } from 'react';
 import { FiChevronDown, FiCheckCircle, FiInbox, FiPackage, FiBookOpen } from 'react-icons/fi';
 
-import {
-  STOCK_DATA, VENCIMIENTOS_DATA,
-  LOCAL_LABELS,
-  HOY_IDX, TODAY_KEY,
-} from './inventarioData';
+import { LOCAL_LABELS, HOY_IDX } from './inventarioData';
 import { getLevel, getVencLevel, nextVisitOffset } from './inventarioHelpers';
+import { useInventarioAlertas } from './useInventarioAlertas';
 
 import { Badge } from './InventarioShared';
 import { StockAlertCard, VencimientoCard, ProductoRecienteCard, CalendarioSemanal } from './AlertCards';
 import { FloatingKPIList, FloatingSheet, FloatingReporte, FloatingVisitanHoy } from './FloatingSheet';
-import ReporteRentabilidad from './ReporteRentabilidad';
-
 import {
   ModalDetalleStock, ModalDetalleVencimiento,
   ModalDetalleProveedor, ModalNuevoProveedor,
@@ -44,11 +39,13 @@ export default function DesktopInventarioView({
   const [kpiProveedores, setKpiProveedores] = useState(false);
   const [agendaHoyModal, setAgendaHoyModal] = useState(false);
   const [reporteModal,   setReporteModal]   = useState(false);
-  const [mostrarReporteRentabilidad, setMostrarReporteRentabilidad] = useState(false);
-  
+
+  // ── Stock / vencimiento / ingresados hoy: EN VIVO desde Firestore ──
+  // El hook ya entrega todo filtrado al local activo, con la misma forma
+  // de campos que usaba el mock (qty, min, max, unit, vence, lote, etc.)
+  const { stockData: stockLocal, vencimientosData: vencLocal, inventarioReciente: recienteLocal } = useInventarioAlertas(activeLocal);
+
   // ── Derivados ──
-  const stockLocal     = STOCK_DATA.filter(i => i.local === activeLocal);
-  const vencLocal      = VENCIMIENTOS_DATA.filter(i => i.local === activeLocal);
   const recetasLocal   = recetasData.filter(r => r.local === activeLocal);
   const productosLocal = productosData.filter(p => p.local === activeLocal);
   const criticos       = stockLocal.filter(i => ['critical', 'out'].includes(getLevel(i)));
@@ -63,7 +60,6 @@ export default function DesktopInventarioView({
   const totalProvLocal = provLocal.length;
   const recetasInactivas   = recetasLocal.filter(r => !r.activa);
   const productosInactivos = productosLocal.filter(p => !p.activo);
-  const recienteLocal  = inventarioReciente.filter(i => i.local === activeLocal && i.fecha === TODAY_KEY);
 
   return (
     <>
@@ -304,31 +300,14 @@ export default function DesktopInventarioView({
         }
       </FloatingSheet>
 
-      {console.log('DESKTOP - renderizando FloatingReporte con rentabilidad')}
       {/* Reporte flotante */}
       <FloatingReporte
         visible={reporteModal}
         onClose={() => setReporteModal(false)}
         activeLocal={activeLocal}
         localLabels={LOCAL_LABELS}
-        onGenerarReporte={() => {
-          setReporteModal(false);
-          // aquí queda tu lógica del reporte de inventario
-        }}
-        onGenerarReporteRentabilidad={() => { 
-          console.log('ABRIENDO RENTABILIDAD');
-          setReporteModal(false);  
-          setMostrarReporteRentabilidad(true); 
-        }}
       />
-      {mostrarReporteRentabilidad && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#fff', overflow: 'auto' }}>
-          <ReporteRentabilidad
-            activeLocal={activeLocal}
-            localLabels={LOCAL_LABELS}
-          />
-        </div>
-      )}
+
       {/* Recordatorio de proveedores al entrar */}
       <FloatingVisitanHoy
         visible={visitanHoyVisible}

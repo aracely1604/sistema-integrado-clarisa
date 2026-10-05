@@ -25,10 +25,10 @@ import {
 } from './DetalleModals';
 import DesktopVentasView from './DesktopVentasView';
 import {
-  STOCK_DATA, VENCIMIENTOS_DATA, LOCAL_LABELS, LOCAL_COLORS, LOCALES_LIST,
-  HOY_IDX, TODAY_KEY,
+  LOCAL_LABELS, LOCAL_COLORS, LOCALES_LIST, HOY_IDX,
 } from './inventarioData';
 import { getLevel, getVencLevel, nextVisitOffset } from './inventarioHelpers';
+import { useInventarioAlertas } from './useInventarioAlertas';
 import { LOCAL_ICON_COMPONENTS } from './localIcons';
 
 import '../../css/MobileLayout.css';
@@ -80,9 +80,10 @@ export default function MobileLayout({ state, actions }) {
     gerente: 'Gerente',
   }[usuario?.rol] ?? (usuario?.rol ?? '');
 
+  // Stock / vencimiento / ingresados hoy: EN VIVO desde Firestore
+  const { stockData: stockLocal, vencimientosData: vencLocal, inventarioReciente: recienteLocal } = useInventarioAlertas(activeLocal);
+
   // ── Derivados ──
-  const stockLocal     = STOCK_DATA.filter(i => i.local === activeLocal);
-  const vencLocal      = VENCIMIENTOS_DATA.filter(i => i.local === activeLocal);
   const recetasLocal   = recetasData.filter(r => r.local === activeLocal);
   const productosLocal = productosData.filter(p => p.local === activeLocal);
   const criticos       = stockLocal.filter(i => ['critical', 'out'].includes(getLevel(i)));
@@ -93,7 +94,6 @@ export default function MobileLayout({ state, actions }) {
   const provLocal      = proveedores.filter(p => p.locales.includes(activeLocal));
   const provHoy        = provLocal.filter(p => p.dias.includes(HOY_IDX));
   const provProximos   = [...provLocal].sort((a, b) => nextVisitOffset(a.dias) - nextVisitOffset(b.dias));
-  const recienteLocal  = inventarioReciente.filter(i => i.local === activeLocal && i.fecha === TODAY_KEY);
   const recetasInactivas   = recetasLocal.filter(r => !r.activa);
   const productosInactivos = productosLocal.filter(p => !p.activo);
 

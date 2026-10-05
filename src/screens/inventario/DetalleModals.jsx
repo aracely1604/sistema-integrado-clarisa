@@ -104,7 +104,7 @@ export function ModalDetalleStock({ item, onClose }) {
 
         <div style={{ marginBottom: 16 }}>
           <div className="inv-modal-row-between" style={{ marginBottom: 6 }}>
-            <span className="inv-modal-label">Nivel de stock</span>
+            <span className="inv-modal-label">Nivel de stock recomendable</span>
             <Badge
               label={level === 'out' ? 'Sin stock' : isCritical ? 'Crítico' : level === 'low' ? 'Stock bajo' : 'Normal'}
               level={isCritical ? 'critical' : level === 'low' ? 'low' : 'ok'}
@@ -160,18 +160,25 @@ export function ModalDetalleVencimiento({ item, onClose }) {
           </button>
         </div>
 
-        <div className="inv-modal-stats-row">
-          {[
+        {[
+          [
             { label: 'Vence en', value: `${item.vence} ${item.unit}` },
             { label: 'Cantidad', value: `${item.qty} ${item.unitQty}` },
-            { label: 'Lote',     value: item.lote },
-          ].map((stat, i) => (
-            <div key={i} className="inv-modal-statbox">
-              <span className="inv-modal-statlabel">{stat.label}</span>
-              <span className="inv-modal-statvalue" style={{ fontSize: 13 }}>{stat.value}</span>
-            </div>
-          ))}
-        </div>
+          ],
+          [
+            { label: 'Fecha de vencimiento',        value: item.fechaVencimiento },
+            { label: 'Última fecha de reposición', value: item.fechaReposicion ?? item.lote },
+          ],
+        ].map((fila, f) => (
+          <div key={f} className="inv-modal-stats-row" style={f > 0 ? { marginTop: 8 } : undefined}>
+            {fila.map((stat, i) => (
+              <div key={i} className="inv-modal-statbox">
+                <span className="inv-modal-statlabel">{stat.label}</span>
+                <span className="inv-modal-statvalue" style={{ fontSize: 13 }}>{stat.value}</span>
+              </div>
+            ))}
+          </div>
+        ))}
 
         <div className="inv-modal-warningbox" style={{ backgroundColor: boxColors.bg, borderColor: boxColors.border }}>
           <Icon size={18} color={boxColors.text} />

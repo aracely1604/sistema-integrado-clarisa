@@ -16,7 +16,7 @@
 
 import {
   doc, getDoc, updateDoc, setDoc, query, onSnapshot,
-  collection, runTransaction, serverTimestamp,
+  collection, runTransaction, serverTimestamp, where, orderBy, getDocs,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { productosColRef } from '../models/LocalModel';
@@ -149,6 +149,38 @@ export function suscribirProductosLocal(local, callback) {
 // documento(s) de historialStock — todo o nada.
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ─── Última reposición conocida de un producto en un local ──────────────────
+// Devuelve { fecha, vencimiento } de la reposición más reciente de ese producto
+// en ese local. Si el local nunca repuso por sí mismo pero recibió stock por
+// transferencia, usa la referencia que esa transferencia ya traía consigo
+// (así la fecha se va "arrastrando" de local en local). Queda en null si no hay.
+// Usa el mismo índice compuesto del historial de producto
+// (local Asc, idProducto Asc, fecha Desc).
+async function obtenerUltimaReposicionConocida(local, idProducto) {
+  const snap = await getDocs(query(
+    historialStockColRef(),
+    where('local', '==', local),
+    where('idProducto', '==', idProducto),
+    orderBy('fecha', 'desc'),
+  ));
+
+  let mejor = null;
+  const aMillis = (f) => (f && typeof f.toMillis === 'function' ? f.toMillis() : 0);
+
+  snap.docs.forEach((d) => {
+    const m = d.data();
+    let candidato = null;
+    if (m.tipoMovimiento === 'reposicion' && m.fecha) {
+      candidato = { fecha: m.fecha, vencimiento: m.fechaVencimiento ?? null };
+    } else if (m.tipoMovimiento === 'transferencia' && m.ultimaReposicionFecha) {
+      candidato = { fecha: m.ultimaReposicionFecha, vencimiento: m.ultimaReposicionVencimiento ?? null };
+    }
+    if (candidato && (!mejor || aMillis(candidato.fecha) > aMillis(mejor.fecha))) mejor = candidato;
+  });
+
+  return mejor;
+}
+
 // ─── Transferir stock de un producto entre dos locales ──────────────────────
 // Genera DOS registros de historial (salida en origen, entrada en destino),
 // con el mismo valorUnitario/valorTotal en ambos para trazar el costo.
@@ -173,6 +205,14 @@ export async function transferirProductoEntreLocales(idProducto, localOrigen, lo
   const destinoRef = doc(productosColRef(localDestino), idProducto);
   const usuarioId = extraerUsuarioId(usuario);
   const valorTotal = esVacio(valorUnitario) ? null : Number(valorUnitario) * cant;
+
+  // Fecha (y vencimiento) de la última reposición del local de origen: se copia
+  // a los movimientos de la transferencia para que el destino también la muestre.
+  const ultimaReposicion = await obtenerUltimaReposicionConocida(localOrigen, idProducto);
+  const camposReposicion = {
+    ultimaReposicionFecha: ultimaReposicion?.fecha ?? null,
+    ultimaReposicionVencimiento: ultimaReposicion?.vencimiento ?? null,
+  };
 
   await runTransaction(db, async (tx) => {
     // ── Lecturas primero (regla de las transacciones de Firestore) ──
@@ -220,7 +260,7 @@ export async function transferirProductoEntreLocales(idProducto, localOrigen, lo
       valorUnitario,
       valorTotal,
     });
-    tx.set(doc(historialStockColRef()), histSalida.toFirebase());
+    tx.set(doc(historialStockColRef()), { ...histSalida.toFirebase(), ...camposReposicion });
 
     const histEntrada = new HistorialStockModel({
       fecha: serverTimestamp(),
@@ -235,7 +275,7 @@ export async function transferirProductoEntreLocales(idProducto, localOrigen, lo
       valorUnitario,
       valorTotal,
     });
-    tx.set(doc(historialStockColRef()), histEntrada.toFirebase());
+    tx.set(doc(historialStockColRef()), { ...histEntrada.toFirebase(), ...camposReposicion });
   });
 }
 

@@ -1,11 +1,13 @@
 // screens/inventario/inventarioHelpers.js
 import { HOY_IDX } from './inventarioData';
 
+// Rojo: stockActual <= stockMínimo (hay que reponer ya).
+// Amarillo: stockActual <= 2 × stockMínimo (reponer pronto).
+// Si no, está ok (no se muestra en las alertas).
 export function getLevel(item) {
-  const pct = item.qty / item.min;
-  if (pct <= 0)   return 'out';
-  if (pct <= 0.3) return 'critical';
-  if (pct <= 1)   return 'low';
+  if (item.qty <= 0)          return 'out';
+  if (item.qty <= item.min)   return 'critical';
+  if (item.qty <= item.min*2) return 'low';
   return 'ok';
 }
 
@@ -13,9 +15,10 @@ export function getPct(item) {
   return Math.min(100, Math.round((item.qty / item.max) * 100));
 }
 
+// Rojo: vence en 7 días o menos (o ya venció). Amarillo: vence en 30 días o menos.
 export function getVencLevel(dias) {
-  if (dias <= 1) return 'critical';
-  if (dias <= 3) return 'warning';
+  if (dias <= 7)  return 'critical';
+  if (dias <= 30) return 'warning';
   return 'soon';
 }
 

@@ -11,15 +11,14 @@ import SessionWarningBanner from '../../controllers/SessionWarningBanner';
 import { ModalGestionProveedores, ModalRegistrarProductoGlobal, ModalRecetaGlobal } from './DetalleModals';
 import GestionProductosModal from './GestionProductosModal';
 import GestionRecetasModal from './GestionRecetasModal';
-import ReporteRentabilidad from './ReporteRentabilidad';
-
 
 import { ToggleSwitch, ModoToggleDesktop } from './InventarioShared';
 import { FloatingReporte } from './FloatingSheet';
 import DesktopVentasView from './DesktopVentasView';
 import DesktopInventarioView from './DesktopInventarioView';
-import { STOCK_DATA, VENCIMIENTOS_DATA, LOCAL_LABELS, LOCALES_LIST, HOY_IDX } from './inventarioData';
+import { LOCAL_LABELS, LOCALES_LIST, HOY_IDX } from './inventarioData';
 import { getLevel, getVencLevel } from './inventarioHelpers';
+import { useInventarioAlertas } from './useInventarioAlertas';
 import { LOCAL_ICON_COMPONENTS } from './localIcons';
 
 import '../../css/DesktopLayout.css';
@@ -38,7 +37,6 @@ export default function DesktopLayout({ state, actions }) {
   const [modalRecetasGestion,   setModalRecetasGestion]   = useState(null);
   // Modal de creación de receta global (plantilla única para todo el sistema)
   const [modalRecetaGlobalVisible, setModalRecetaGlobalVisible] = useState(false);
-  const [mostrarReporteRentabilidad, setMostrarReporteRentabilidad] = useState(false);
 
   const {
     activeLocal, modo, proveedores, modalStock, modalVenc, modalProv, modalNuevoProv,
@@ -64,7 +62,6 @@ export default function DesktopLayout({ state, actions }) {
   const SIDEBAR_SUBITEMS = esCajero
     ? [
         { id: 'inventario',  label: 'Inventario',  icon: FiBox },
-        { id: 'recetas',     label: 'Recetas',     icon: FiBookOpen },
         { id: 'proveedores', label: 'Proveedores', icon: FiTruck },
       ]
     : [
@@ -83,9 +80,8 @@ export default function DesktopLayout({ state, actions }) {
     gerente: 'Gerente',
   }[usuario?.rol] ?? (usuario?.rol ?? '');
 
-  // Derivados necesarios para el sidebar y topbar
-  const stockLocal      = STOCK_DATA.filter(i => i.local === activeLocal);
-  const vencLocal       = VENCIMIENTOS_DATA.filter(i => i.local === activeLocal);
+  // Derivados necesarios para el sidebar y topbar — stock/vencimiento en vivo
+  const { stockData: stockLocal, vencimientosData: vencLocal } = useInventarioAlertas(activeLocal);
   const criticos        = stockLocal.filter(i => ['critical', 'out'].includes(getLevel(i)));
   const bajos           = stockLocal.filter(i => getLevel(i) === 'low');
   const porVencer       = vencLocal.filter(i => getVencLevel(i.vence) !== 'soon');
@@ -234,7 +230,7 @@ export default function DesktopLayout({ state, actions }) {
 
           <button type="button" className="dl-sb-bottom-btn" onClick={() => setProveedoresGlobalVisible(true)}>
             <FiUserPlus size={13} />
-            <span>Gestinar proveedores</span>
+            <span>Gestionar proveedores</span>
           </button>
 
           {/* Modo oscuro con toggle */}
@@ -330,32 +326,7 @@ export default function DesktopLayout({ state, actions }) {
         onClose={() => setReporteModal(false)}
         activeLocal={localDelModal}
         localLabels={LOCAL_LABELS}
-        onGenerarReporte={() => {
-          setReporteModal(false);
-        }}
-        onGenerarReporteRentabilidad={() => {
-          setReporteModal(false);
-          setMostrarReporteRentabilidad(true);
-        }}
       />
-
-      {mostrarReporteRentabilidad && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9999,
-            background: '#fff',
-            overflow: 'auto',
-          }}
-        >
-          <ReporteRentabilidad
-            activeLocal={localDelModal}
-            localLabels={LOCAL_LABELS}
-          />
-        </div>
-      )}
-
 
       {modalProductosGestion && (
         <GestionProductosModal

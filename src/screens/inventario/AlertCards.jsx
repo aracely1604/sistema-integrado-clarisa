@@ -59,7 +59,11 @@ export function VencimientoCard({ item, onVerDetalle, compact = false }) {
   const level      = getVencLevel(item.vence);
   const isCritical = level === 'critical';
   const accentColor = isCritical ? '#E24B4A' : level === 'warning' ? '#BA7517' : '#639922';
-  const badgeLabel  = isCritical ? '¡Hoy/Mañana!' : `${item.vence} días`;
+  const badgeLabel  = item.vence < 0
+    ? 'Vencido'
+    : item.vence === 0
+    ? 'Vence hoy'
+    : `${item.vence} ${item.vence === 1 ? 'día' : 'días'}`;
 
   const Icon    = isCritical ? FiAlertOctagon : level === 'warning' ? FiClock : FiCalendar;
   const iconColor = isCritical ? '#791F1F' : level === 'warning' ? '#633806' : '#27500A';
@@ -73,7 +77,8 @@ export function VencimientoCard({ item, onVerDetalle, compact = false }) {
         </span>
         <span className="inv-alert-info-compact">
           <span className="inv-alert-nombre-compact">{item.nombre}</span>
-          <span className="inv-alert-meta-compact">{item.qty} {item.unitQty} · {item.lote}</span>
+          <span className="inv-alert-meta-compact">{item.qty} {item.unitQty} · Últ. reposición: {item.fechaReposicion ?? item.lote}</span>
+          <span className="inv-alert-meta-compact">Vence: {item.fechaVencimiento}</span>
         </span>
         <Badge label={badgeLabel} level={level} />
       </button>
@@ -88,8 +93,9 @@ export function VencimientoCard({ item, onVerDetalle, compact = false }) {
       <span className="inv-alert-info">
         <span className="inv-alert-nombre">{item.nombre}</span>
         <span className="inv-alert-meta">
-          Cantidad: <b>{item.qty} {item.unitQty}</b>{'  ·  '}Lote: {item.lote}
+          Cantidad: <b>{item.qty} {item.unitQty}</b>{'  ·  '}Última fecha de reposición: {item.fechaReposicion ?? item.lote}
         </span>
+        <span className="inv-alert-meta">Fecha de vencimiento: <b>{item.fechaVencimiento}</b></span>
       </span>
       <span className="inv-alert-side">
         <Badge label={badgeLabel} level={level} />

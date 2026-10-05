@@ -92,6 +92,33 @@ export function DetalleContenido({ producto, onEditar, onTransferir, onToggleAct
     ? `${ultimoMovConProveedor.proveedorNombre}${ultimoMovConProveedor.proveedorEmpresa ? ' — ' + ultimoMovConProveedor.proveedorEmpresa : ''}`
     : 'Sin proveedor';
 
+  // Última reposición conocida del producto en este local. Cuenta tanto una
+  // reposición propia como la referencia que trae una transferencia recibida
+  // (copiada desde la última reposición del local de origen). Si hay varias,
+  // gana la reposición con la fecha más reciente.
+  const ultimaReposicion = (() => {
+    const aMillis = (f) => (f && typeof f.toMillis === 'function' ? f.toMillis() : 0);
+    let mejor = null;
+    historial.forEach((m) => {
+      let c = null;
+      if (m.tipoMovimiento === 'reposicion' && m.fecha) {
+        c = { fecha: m.fecha, vencimiento: m.fechaVencimiento };
+      } else if (m.tipoMovimiento === 'transferencia' && m.ultimaReposicionFecha) {
+        c = { fecha: m.ultimaReposicionFecha, vencimiento: m.ultimaReposicionVencimiento };
+      }
+      if (c && (!mejor || aMillis(c.fecha) > aMillis(mejor.fecha))) mejor = c;
+    });
+    return mejor;
+  })();
+  const ultimaActualizacionLabel = cargandoHistorial
+    ? 'Cargando...'
+    : ultimaReposicion
+      ? formatFechaHistorial(ultimaReposicion.fecha)
+      : 'Sin reposiciones';
+  const vencimientoLabel = cargandoHistorial
+    ? 'Cargando...'
+    : ultimaReposicion?.vencimiento || 'Sin fecha de vencimiento';
+
   const stats = [
     { label: `Stock actual (${etiqueta})`, value: stockLabel },
     { label: `Precio (${etiqueta})`, value: formatPrecio(producto.precio, producto.unidad || 'uds') },
@@ -103,7 +130,8 @@ export function DetalleContenido({ producto, onEditar, onTransferir, onToggleAct
     { k: 'Código', v: producto.codigo },
     { k: `Stock mínimo (${etiqueta})`, v: minimoLabel },
     { k: 'Tipo de stock', v: etiqueta },
-    { k: 'Última actualización', v: producto.ultima },
+    { k: 'Última actualización', v: ultimaActualizacionLabel },
+    { k: 'Fecha de vencimiento', v: vencimientoLabel },
   ];
 
   return (
