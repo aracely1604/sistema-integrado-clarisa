@@ -33,10 +33,9 @@ const LOCALES_LIST = ['comidaRapida', 'almacen', 'cafeteria'];
 const ROLES = {
   administrador: { label: 'Administrador', icon: 'crown',   bg: '#EAF3DE', text: '#27500A' },
   cajero:        { label: 'Cajero',         icon: 'receipt', bg: '#E6F1FB', text: '#0C447C' },
-<<<<<<< HEAD
+
   cocinero:      { label: 'Cocinero',       icon: 'hamburger', bg: '#FCE8E6', text: '#9C2C20' },
-=======
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+
   delivery:    { label: 'Delivery',     icon: 'moped',   bg: '#FAEEDA', text: '#633806' },
 };
 
@@ -180,10 +179,10 @@ function validarEmail(email) {
 function RolIcon({ rol, size = 12, color }) {
   if (rol === 'administrador') return <FaCrown size={size} color={color ?? '#27500A'} />;
   if (rol === 'delivery')    return <FaMotorcycle size={size} color={color ?? '#633806'} />;
-<<<<<<< HEAD
+
   if (rol === 'cocinero')    return <FaHamburger size={size} color={color ?? '#9C2C20'} />;
-=======
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+
+
   return <FaReceipt size={size} color={color ?? '#0C447C'} />;
 }
 
@@ -392,13 +391,13 @@ function ModalEmpleado({ empleado, visible, onClose, onGuardar, onDesactivar, es
       } else if (!validarTelefono(form.telefono)) {
         e.telefono = 'Debe comenzar con 9 y tener exactamente 9 dígitos (sin letras)';
       }
-<<<<<<< HEAD
+
       if ((form.rol === 'cajero' || form.rol === 'delivery' || form.rol === 'cocinero') && !localesAsignados(form.localAsignado).length) {
-        e.locales = form.rol === 'delivery' ? 'El delivery debe tener un local' : 'El usuario debe tener un local';
-=======
-      if ((form.rol === 'cajero' || form.rol === 'delivery') && !localesAsignados(form.localAsignado).length) {
-        e.locales = form.rol === 'cajero' ? 'El cajero debe tener un local' : 'El delivery debe tener un local';
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+        e.locales = form.rol === 'cajero'
+          ? 'El cajero debe tener un local'
+          : form.rol === 'delivery'
+            ? 'El delivery debe tener un local'
+            : 'El usuario debe tener un local';
       }
 
       // Verificar duplicados en BD solo si el formato de rut y email es válido
@@ -409,13 +408,13 @@ function ModalEmpleado({ empleado, visible, onClose, onGuardar, onDesactivar, es
       }
     } else {
       // Al editar solo validar locales si es cajero o delivery
-<<<<<<< HEAD
+
       if ((form.rol === 'cajero' || form.rol === 'delivery' || form.rol === 'cocinero') && !localesAsignados(form.localAsignado).length) {
-        e.locales = form.rol === 'delivery' ? 'El delivery debe tener un local' : 'El usuario debe tener un local';
-=======
-      if ((form.rol === 'cajero' || form.rol === 'delivery') && !localesAsignados(form.localAsignado).length) {
-        e.locales = form.rol === 'cajero' ? 'El cajero debe tener un local' : 'El delivery debe tener un local';
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+        e.locales = form.rol === 'cajero'
+          ? 'El cajero debe tener un local'
+          : form.rol === 'delivery'
+            ? 'El delivery debe tener un local'
+            : 'El usuario debe tener un local';
       }
     }
 
@@ -576,17 +575,11 @@ function ModalEmpleado({ empleado, visible, onClose, onGuardar, onDesactivar, es
                   </div>
 
                   {/* Locales */}
-<<<<<<< HEAD
+
                   {(form.rol === 'cajero' || form.rol === 'delivery' || form.rol === 'cocinero' || form.rol === 'administrador') && (
                     <div className="ps-form-group">
                       <label className="ps-form-label" style={{ color: colors.textPrimary }}>
                         {(form.rol === 'cajero' || form.rol === 'delivery' || form.rol === 'cocinero') ? 'Local asignado' : 'Locales asignados'}{' '}
-=======
-                  {(form.rol === 'cajero' || form.rol === 'delivery' || form.rol === 'administrador') && (
-                    <div className="ps-form-group">
-                      <label className="ps-form-label" style={{ color: colors.textPrimary }}>
-                        {(form.rol === 'cajero' || form.rol === 'delivery') ? 'Local asignado' : 'Locales asignados'}{' '}
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
                         <span style={{ color: '#E24B4A' }}>*</span>
                       </label>
                       <div className="ps-row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
@@ -596,11 +589,7 @@ function ModalEmpleado({ empleado, visible, onClose, onGuardar, onDesactivar, es
                           return (
                             <button key={loc} type="button"
                               onClick={() => {
-<<<<<<< HEAD
                                 if (form.rol === 'cajero' || form.rol === 'delivery' || form.rol === 'cocinero') {
-=======
-                                if (form.rol === 'cajero' || form.rol === 'delivery') {
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
                                   set('localAsignado', construirLocalAsignado([loc]));
                                 } else {
                                   const actuales = localesAsignados(form.localAsignado);
@@ -624,11 +613,8 @@ function ModalEmpleado({ empleado, visible, onClose, onGuardar, onDesactivar, es
                   )}
 
                   {/* Turno — solo aplica a cajero/delivery; administrador queda sin turno (null) */}
-<<<<<<< HEAD
+
                   {(form.rol === 'cajero' || form.rol === 'delivery' || form.rol === 'cocinero') && (
-=======
-                  {(form.rol === 'cajero' || form.rol === 'delivery') && (
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
                     <div className="ps-form-group">
                       <label className="ps-form-label" style={{ color: colors.textPrimary }}>Turno</label>
                       <div className="ps-row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -1179,11 +1165,8 @@ function FiltroBar({ filtros, setFiltros, colors }) {
       </div>
 
       {/* Rol */}
-<<<<<<< HEAD
+
       {[{ id: null, label: 'Todos' }, { id: 'cajero', label: 'Cajero' }, { id: 'cocinero', label: 'Cocinero' }, { id: 'delivery', label: 'Delivery' }, { id: 'administrador', label: 'Admin' }].map(r => (
-=======
-      {[{ id: null, label: 'Todos' }, { id: 'cajero', label: 'Cajero' }, { id: 'delivery', label: 'Delivery' }, { id: 'administrador', label: 'Admin' }].map(r => (
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
         <button key={String(r.id)} type="button" onClick={() => setFiltros(p => ({ ...p, rol: r.id }))}
           className="ps-filter-chip"
           style={{

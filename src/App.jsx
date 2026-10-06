@@ -15,6 +15,7 @@ import Almacen from './views/Almacen';
 import Delivery from './views/Delivery';
 import Cafeteria from './views/Cafeteria';
 import ComidaRapida from './views/ComidaRapida';
+import Cocinero from './views/Cocinero';
 import Perfil from './views/Perfil'
 
 import AlertasScreen from './screens/AlertasScreen'
@@ -64,6 +65,7 @@ function AppRoutes({ notify }) {
           <Route path="/admin" element={<Admin notify={notify} />} />
           <Route path="/almacen" element={<Almacen notify={notify} />} />
           <Route path="/delivery" element={<Delivery notify={notify} />} />
+          <Route path="/cocinero" element={<Cocinero notify={notify} />} />
           <Route path="/cafeteria" element={<Cafeteria notify={notify} />} />
           <Route path="/comidaRapida" element={<ComidaRapida notify={notify} />} />
           <Route path="/comida_rapida" element={<ComidaRapida notify={notify} />} />

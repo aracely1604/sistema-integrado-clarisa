@@ -17,6 +17,14 @@ export default function Cocinero({ notify }) {
 
   useEffect(() => onSnapshot(query(collection(db, 'pedidos')), (snapshot) => {
     setPedidos(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      .filter((pedido) => [
+        'recibido',
+        'recibidos',
+        'pendiente',
+        'pendientes',
+        'preparando',
+        'en_preparacion',
+      ].includes(normalizar(pedido.estado)))
       .sort((a, b) => (b.creadoEn?.toDate?.()?.getTime?.() || 0) - (a.creadoEn?.toDate?.()?.getTime?.() || 0)));
   }, (error) => { console.error(error); notify('No se pudieron cargar los pedidos de cocina.', 'error'); }), [notify]);
 

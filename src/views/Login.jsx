@@ -55,7 +55,7 @@ function Login({ navigate, notify }) {
     }
 
     localStorage.setItem('sesion', JSON.stringify(usuario));
-<<<<<<< HEAD
+
     notify('Bienvenido/a ' + (usuario.nombre || usuario.user || usuario.email), 'success');
     navigate(`/${obtenerVistaInicial(usuario)}`, { replace: true });
   };
@@ -64,21 +64,12 @@ function Login({ navigate, notify }) {
     const usuariosRef = collection(db, 'usuarios');
     for (const campo of ['user', 'email', 'correo']) {
       const resultado = await getDocs(query(usuariosRef, where(campo, '==', email), limit(1)));
-      if (!resultado.empty) return { uid, perfilId: resultado.docs[0].id, ...resultado.docs[0].data() };
+      if (!resultado.empty) return { ...resultado.docs[0].data(), uid, perfilId: resultado.docs[0].id };
     }
     const porUid = await getDocs(query(usuariosRef, where('uid', '==', uid), limit(1)));
-    return porUid.empty ? null : { uid, perfilId: porUid.docs[0].id, ...porUid.docs[0].data() };
-=======
-    notify('Bienvenido/a ' + (usuario.nombre || usuario.user), 'success');
-    navigate(obtenerVistaInicial(usuario));
-  };
-
-  const buscarUsuarioFirestore = async (email) => {
-    const usuariosRef = collection(db, 'usuarios');
-    const consulta = query(usuariosRef, where('user', '==', email), limit(1));
-    const resultado = await getDocs(consulta);
-    return resultado.empty ? null : resultado.docs[0].data();
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+    return porUid.empty
+      ? null
+      : { ...porUid.docs[0].data(), uid, perfilId: porUid.docs[0].id };
   };
 
   const activarEscuchaSolicitud = (uid) => {
@@ -105,11 +96,9 @@ function Login({ navigate, notify }) {
         return;
       }
 
-<<<<<<< HEAD
+
       const usuarioPorCorreo = await buscarUsuarioFirestore(email, uid);
-=======
-      const usuarioPorCorreo = await buscarUsuarioFirestore(email);
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+
       if (usuarioPorCorreo) {
         iniciarSesion(usuarioPorCorreo);
         return;

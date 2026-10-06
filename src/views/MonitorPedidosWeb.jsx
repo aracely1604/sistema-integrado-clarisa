@@ -119,11 +119,7 @@ export default function MonitorPedidosWeb({ setMostrarMonitor, notify = () => {}
   );
 }
 
-import React, { useState, useEffect } from 'react';
-import { collection, query, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-
-export default function MonitorPedidosWeb({ setMostrarMonitor }) {
+export function MonitorPedidosWebLegacy({ setMostrarMonitor }) {
   const [pedidos, setPedidos] = useState([]);
   const [clientesMap, setClientesMap] = useState({});
   const [filtro, setFiltro] = useState('todos');
@@ -294,4 +290,3 @@ export default function MonitorPedidosWeb({ setMostrarMonitor }) {
     </div>
   );
 }
-

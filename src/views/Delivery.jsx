@@ -3,9 +3,6 @@ import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, up
 import { useNavigate } from 'react-router-dom';
 import Perfil from './Perfil';
 import Reloj from './Reloj';
-import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { useNavigate } from 'react-router-dom';
-import Perfil from './Perfil';
 import { db } from '../firebase';
 import { cerrarSesion } from '../models/authModel';
 import { useAuth } from '../controllers/AuthContext';
@@ -80,12 +77,13 @@ function Delivery({ notify }) {
   const datosAutoCompletos = Boolean(sesion.patente && sesion.colorAuto && sesion.marcaAuto);
 
   const repartidorId = sesion.uid || sesion.user;
-  const pedidosVisibles = pedidos.filter((pedido) => pedido.repartidorId === repartidorId || !pedido.repartidorId);
-
-  const pedidoEnCurso = pedidos.find((pedido) => normalizarEstado(pedido.estado) === 'en_camino' && pedido.repartidorId === repartidorId);
-  const pedidosVisibles = pedidoEnCurso
-    ? [pedidoEnCurso]
-    : pedidos.filter((pedido) => !pedido.repartidorId);
+  const pedidoEnCurso = pedidos.find((pedido) => (
+    pedido.repartidorId === repartidorId
+    && ['listo_despacho', 'en_camino'].includes(normalizarEstado(pedido.estado))
+  ));
+  const pedidosVisibles = pedidos.filter((pedido) => (
+    pedido.repartidorId === repartidorId || !pedido.repartidorId
+  ));
 
   const datosRepartidor = {
     repartidorId,
@@ -103,7 +101,7 @@ function Delivery({ notify }) {
 
 
       if (pedidoEnCurso) {
-        notify('Ya tienes un pedido en camino. Completa ese antes de tomar otro.', 'info');
+        notify('Ya tienes un pedido asignado. Completa ese antes de tomar otro.', 'info');
         return;
       }
 
@@ -114,6 +112,9 @@ function Delivery({ notify }) {
         if (!captura.exists()) throw new Error('El pedido ya no existe.');
 
         const pedidoActual = captura.data();
+        if (!esPedidoPendiente(pedidoActual.estado)) {
+          throw new Error('Este pedido ya no está pendiente.');
+        }
         if (pedidoActual.repartidorId && pedidoActual.repartidorId !== repartidorId) {
           throw new Error('Otro repartidor ya tomó este pedido.');
         }
@@ -122,17 +123,12 @@ function Delivery({ notify }) {
         transaccion.update(referencia, {
           estado: 'listo_despacho',
           tomadoEn: serverTimestamp(),
-
-
-        transaccion.update(referencia, {
-          estado: 'en_camino',
-
           actualizadoEn: serverTimestamp(),
           ...datosRepartidor,
         });
       });
 
-      notify('Pedido tomado. El cliente verá que va en camino.', 'success');
+      notify('Pedido tomado. Márcalo En camino cuando inicies el despacho.', 'success');
     } catch (error) {
       console.error('No se pudo actualizar pedido:', error);
       notify(error.message || 'No se pudo tomar el pedido en Firebase.', 'error');
@@ -181,8 +177,7 @@ function Delivery({ notify }) {
     } finally { setActualizandoId(''); }
   };
 
-=======
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+
   const completarPedido = async (pedido) => {
     const codigoIngresado = String(codigosFinales[pedido.id] || '').trim();
 
@@ -226,7 +221,7 @@ function Delivery({ notify }) {
     <main className="dashboard-page">
       <header className="dashboard-topbar">
         <div>
-<<<<<<< HEAD
+
           <p className="eyebrow">Delivery: {sesion.nombre || sesion.user || sesion.email}</p>
           <h1>Panel de repartos</h1>
           <Reloj />
@@ -235,19 +230,11 @@ function Delivery({ notify }) {
           {sesion.rol === 'admin' && <button className="btn btn-secondary" onClick={() => navigate('/admin')}>Volver a administración</button>}
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
-=======
-          <p className="eyebrow">delivery</p>
-          <h1>Panel de repartos</h1>
-        </div>
-        <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>
-          Cerrar sesión
-        </button>
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
       </header>
 
       <Perfil notify={notify} />
 
-<<<<<<< HEAD
+
       {datosAutoCompletos && <section className="work-panel vehicle-panel">
         <div><h2>Vehículo de reparto</h2><p className="muted">{sesion.marcaAuto} · {sesion.colorAuto} · {sesion.patente}</p></div>
         <button className="btn btn-secondary" type="button" onClick={() => { setVehiculo({ patente: sesion.patente || '', marcaAuto: sesion.marcaAuto || '', colorAuto: sesion.colorAuto || '' }); setVehiculoAbierto(!vehiculoAbierto); }}>Editar vehículo</button>
@@ -261,8 +248,7 @@ function Delivery({ notify }) {
         </form>
       </section>}
 
-=======
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+
       <section className="work-panel delivery-panel">
         <div className="delivery-panel-head">
           <div>
@@ -271,11 +257,7 @@ function Delivery({ notify }) {
             <p className="muted">
               {datosAutoCompletos
                 ? 'Actualiza el estado para que el cliente lo vea al instante en seguimiento.'
-<<<<<<< HEAD
                 : 'Los pedidos están visibles. Completa el vehículo al intentar tomar tu primer pedido.'}
-=======
-                : 'Los pedidos están visibles. Completa los datos del vehículo en tu perfil antes de tomar uno.'}
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
             </p>
           </div>
           <strong>{pedidosVisibles.length} pedido(s)</strong>
@@ -294,12 +276,10 @@ function Delivery({ notify }) {
               ].filter(Boolean).join(' ') || (typeof pedido.cliente === 'string' ? pedido.cliente : 'Cliente');
               const direccionCliente = cliente.direccion || pedido.direccion || pedido.domicilio || 'Dirección no registrada';
               const telefonoCliente = cliente.telefono || pedido.telefono || '-';
-<<<<<<< HEAD
+
               const asignadoAMi = pedido.repartidorId === repartidorId;
               const esPedidoEnCurso = normalizarEstado(pedido.estado) === 'en_camino' && asignadoAMi;
-=======
-              const esPedidoEnCurso = normalizarEstado(pedido.estado) === 'en_camino' && pedido.repartidorId === repartidorId;
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+
 
               return (
                 <article className="delivery-order" key={pedido.id}>
@@ -319,20 +299,13 @@ function Delivery({ notify }) {
                   </div>
 
                   <div className="delivery-state">
-<<<<<<< HEAD
                     <span className={esPedidoPendiente(pedido.estado) ? 'delivery-pending-state' : ''}>{esPedidoPendiente(pedido.estado) ? 'Pendiente' : estadosPedido[indiceEstado]?.nombre || 'Pendiente'}</span>
                     <strong>${Number(pedido.total || 0).toLocaleString('es-CL')}</strong>
                     {asignadoAMi ? (
                       <>
                         {normalizarEstado(pedido.estado) === 'listo_despacho' && <button className="btn btn-secondary" disabled={actualizandoId === pedido.id} onClick={() => iniciarDespacho(pedido)}>En camino</button>}
-                        {esPedidoEnCurso && <><input
-=======
-                    <span>{estadosPedido[indiceEstado]?.nombre || 'Recibido'}</span>
-                    <strong>${Number(pedido.total || 0).toLocaleString('es-CL')}</strong>
-                    {esPedidoEnCurso ? (
-                      <>
-                        <input
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
+                        {esPedidoEnCurso && <>
+                          <input
                           className="field delivery-code-field"
                           inputMode="numeric"
                           maxLength="4"
@@ -342,24 +315,20 @@ function Delivery({ notify }) {
                             ...codigosFinales,
                             [pedido.id]: evento.target.value.replace(/\D/g, '').slice(0, 4),
                           })}
-                        />
-                        <button
-                          className="btn btn-primary"
-                          disabled={actualizandoId === pedido.id}
-                          onClick={() => completarPedido(pedido)}
-                        >
-                          Completar entrega
-                        </button>
-<<<<<<< HEAD
+                          />
+                          <button
+                            className="btn btn-primary"
+                            disabled={actualizandoId === pedido.id}
+                            onClick={() => completarPedido(pedido)}
+                          >
+                            Completar entrega
+                          </button>
                         </>}
-=======
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
                       </>
                     ) : (
                       <button
                         className="btn btn-primary"
-<<<<<<< HEAD
-                        disabled={actualizandoId === pedido.id || Boolean(pedido.repartidorId)}
+                        disabled={actualizandoId === pedido.id || Boolean(pedidoEnCurso)}
                         onClick={() => {
                           if (!datosAutoCompletos) {
                             setVehiculo({ patente: '', marcaAuto: '', colorAuto: '' });
@@ -368,12 +337,8 @@ function Delivery({ notify }) {
                           }
                           tomarPedido(pedido);
                         }}
-=======
-                        disabled={actualizandoId === pedido.id || Boolean(pedidoEnCurso) || !datosAutoCompletos}
-                        onClick={() => tomarPedido(pedido)}
->>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
                       >
-                        {datosAutoCompletos ? 'Tomar pedido' : 'Completa tu vehículo'}
+                        {pedidoEnCurso ? 'Completa el pedido en curso' : datosAutoCompletos ? 'Tomar pedido' : 'Completa tu vehículo'}
                       </button>
                     )}
                   </div>
