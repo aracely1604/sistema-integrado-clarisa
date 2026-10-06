@@ -1,0 +1,9 @@
+.cook-order-grid { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+.cook-order-card { padding: 20px; }
+.cook-order-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.cook-order-head h2 { margin: 5px 0 0; }
+.cook-state { padding: 6px 10px; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-weight: 800; font-size: 13px; }
+.cook-order-card ul { margin: 18px 0; padding-left: 20px; color: #475569; }
+.cook-order-card li { padding: 5px 0; }
+.cook-order-actions { display: flex; justify-content: flex-end; }
+@media (max-width: 600px) { .cook-order-head { flex-direction: column; } .cook-order-actions .btn { width: 100%; } }
