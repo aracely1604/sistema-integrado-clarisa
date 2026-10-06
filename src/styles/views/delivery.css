@@ -3,6 +3,7 @@
   margin: 0 auto;
 }
 
+<<<<<<< HEAD
 .vehicle-panel {
   max-width: 1120px;
   margin: 0 auto 18px;
@@ -23,6 +24,8 @@
   gap: 10px;
 }
 
+=======
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
 .delivery-panel {
   display: grid;
   gap: 18px;
@@ -88,6 +91,7 @@
   overflow-wrap: anywhere;
 }
 
+<<<<<<< HEAD
 .delivery-state .delivery-pending-state {
   display: inline-block;
   padding: 6px 10px;
@@ -97,6 +101,8 @@
   border-radius: 999px;
 }
 
+=======
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
 .delivery-products {
   font-size: 13px;
 }
@@ -126,9 +132,12 @@
     display: grid;
   }
 
+<<<<<<< HEAD
   .vehicle-panel,
   .vehicle-form { grid-template-columns: 1fr; }
 
+=======
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
   .delivery-state {
     justify-items: stretch;
     text-align: left;

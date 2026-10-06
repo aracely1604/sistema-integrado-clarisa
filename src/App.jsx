@@ -13,7 +13,6 @@ import Portal from './views/Portal';
 import Admin from './views/Admin';
 import Almacen from './views/Almacen';
 import Delivery from './views/Delivery';
-import Cocinero from './views/Cocinero';
 import Cafeteria from './views/Cafeteria';
 import ComidaRapida from './views/ComidaRapida';
 import Perfil from './views/Perfil'
@@ -22,7 +21,6 @@ import AlertasScreen from './screens/AlertasScreen'
 
 import { AuthProvider, useAuth } from './controllers/AuthContext';
 import { asegurarAdminInicial, crearToast } from './controllers/appController';
-import { obtenerVistaInicial } from './models/authModel';
 
 import './styles/App.css';
 
@@ -60,19 +58,17 @@ function AppRoutes({ notify }) {
         </>
       ) : (
         <>
-          <Route path="/login" element={<Navigate to={`/${obtenerVistaInicial(usuario)}`} replace />} />
           <Route path="/alertas" element={<AlertasScreen notify={notify} />} />
 
           <Route path="/portal" element={<Portal navigate={navegarVista} notify={notify} />} />
           <Route path="/admin" element={<Admin notify={notify} />} />
           <Route path="/almacen" element={<Almacen notify={notify} />} />
           <Route path="/delivery" element={<Delivery notify={notify} />} />
-          <Route path="/cocinero" element={<Cocinero notify={notify} />} />
           <Route path="/cafeteria" element={<Cafeteria notify={notify} />} />
           <Route path="/comidaRapida" element={<ComidaRapida notify={notify} />} />
           <Route path="/comida_rapida" element={<ComidaRapida notify={notify} />} />
           <Route path="/perfil" element={<Perfil notify={notify} />} />
-          <Route path="*" element={<Navigate to={`/${obtenerVistaInicial(usuario)}`} replace />} />
+          <Route path="*" element={<Navigate to="/portal" replace />} />
         </>
       )}
     </Routes>

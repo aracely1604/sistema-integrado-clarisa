@@ -18,7 +18,11 @@ function Cafeteria({ notify }) {
     return null;
   }
 
+<<<<<<< HEAD
   const usuario = sesion.nombre || sesion.user || sesion.email || 'cajero';
+=======
+  const usuario = sesion.user || "cajero";
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
   const productos = obtenerProductosLocal('cafeteria');
 
   return (

@@ -3,6 +3,9 @@ import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, up
 import { useNavigate } from 'react-router-dom';
 import Perfil from './Perfil';
 import Reloj from './Reloj';
+import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { useNavigate } from 'react-router-dom';
+import Perfil from './Perfil';
 import { db } from '../firebase';
 import { cerrarSesion } from '../models/authModel';
 import { useAuth } from '../controllers/AuthContext';
@@ -38,7 +41,6 @@ const fechaPedido = (pedido) => {
 };
 
 const esPedidoPendiente = (estado) => ['recibido', 'recibidos', 'pendiente', 'pendientes'].includes(normalizarEstado(estado));
-
 function Delivery({ notify }) {
   const navigate = useNavigate();
   const { usuario: sesion } = useAuth();
@@ -80,6 +82,11 @@ function Delivery({ notify }) {
   const repartidorId = sesion.uid || sesion.user;
   const pedidosVisibles = pedidos.filter((pedido) => pedido.repartidorId === repartidorId || !pedido.repartidorId);
 
+  const pedidoEnCurso = pedidos.find((pedido) => normalizarEstado(pedido.estado) === 'en_camino' && pedido.repartidorId === repartidorId);
+  const pedidosVisibles = pedidoEnCurso
+    ? [pedidoEnCurso]
+    : pedidos.filter((pedido) => !pedido.repartidorId);
+
   const datosRepartidor = {
     repartidorId,
     repartidorNombre: [sesion.nombre, sesion.apellido].filter(Boolean).join(' ') || sesion.user,
@@ -93,6 +100,13 @@ function Delivery({ notify }) {
   const tomarPedido = async (pedido) => {
     setActualizandoId(pedido.id);
     try {
+
+
+      if (pedidoEnCurso) {
+        notify('Ya tienes un pedido en camino. Completa ese antes de tomar otro.', 'info');
+        return;
+      }
+
       await runTransaction(db, async (transaccion) => {
         const referencia = doc(db, 'pedidos', pedido.id);
         const captura = await transaccion.get(referencia);
@@ -108,6 +122,11 @@ function Delivery({ notify }) {
         transaccion.update(referencia, {
           estado: 'listo_despacho',
           tomadoEn: serverTimestamp(),
+
+
+        transaccion.update(referencia, {
+          estado: 'en_camino',
+
           actualizadoEn: serverTimestamp(),
           ...datosRepartidor,
         });
@@ -121,6 +140,7 @@ function Delivery({ notify }) {
       setActualizandoId('');
     }
   };
+
 
   const guardarVehiculo = async (evento) => {
     evento.preventDefault();
@@ -161,6 +181,8 @@ function Delivery({ notify }) {
     } finally { setActualizandoId(''); }
   };
 
+=======
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
   const completarPedido = async (pedido) => {
     const codigoIngresado = String(codigosFinales[pedido.id] || '').trim();
 
@@ -204,6 +226,7 @@ function Delivery({ notify }) {
     <main className="dashboard-page">
       <header className="dashboard-topbar">
         <div>
+<<<<<<< HEAD
           <p className="eyebrow">Delivery: {sesion.nombre || sesion.user || sesion.email}</p>
           <h1>Panel de repartos</h1>
           <Reloj />
@@ -212,10 +235,19 @@ function Delivery({ notify }) {
           {sesion.rol === 'admin' && <button className="btn btn-secondary" onClick={() => navigate('/admin')}>Volver a administración</button>}
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
+=======
+          <p className="eyebrow">delivery</p>
+          <h1>Panel de repartos</h1>
+        </div>
+        <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>
+          Cerrar sesión
+        </button>
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
       </header>
 
       <Perfil notify={notify} />
 
+<<<<<<< HEAD
       {datosAutoCompletos && <section className="work-panel vehicle-panel">
         <div><h2>Vehículo de reparto</h2><p className="muted">{sesion.marcaAuto} · {sesion.colorAuto} · {sesion.patente}</p></div>
         <button className="btn btn-secondary" type="button" onClick={() => { setVehiculo({ patente: sesion.patente || '', marcaAuto: sesion.marcaAuto || '', colorAuto: sesion.colorAuto || '' }); setVehiculoAbierto(!vehiculoAbierto); }}>Editar vehículo</button>
@@ -229,6 +261,8 @@ function Delivery({ notify }) {
         </form>
       </section>}
 
+=======
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
       <section className="work-panel delivery-panel">
         <div className="delivery-panel-head">
           <div>
@@ -237,7 +271,11 @@ function Delivery({ notify }) {
             <p className="muted">
               {datosAutoCompletos
                 ? 'Actualiza el estado para que el cliente lo vea al instante en seguimiento.'
+<<<<<<< HEAD
                 : 'Los pedidos están visibles. Completa el vehículo al intentar tomar tu primer pedido.'}
+=======
+                : 'Los pedidos están visibles. Completa los datos del vehículo en tu perfil antes de tomar uno.'}
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
             </p>
           </div>
           <strong>{pedidosVisibles.length} pedido(s)</strong>
@@ -256,8 +294,12 @@ function Delivery({ notify }) {
               ].filter(Boolean).join(' ') || (typeof pedido.cliente === 'string' ? pedido.cliente : 'Cliente');
               const direccionCliente = cliente.direccion || pedido.direccion || pedido.domicilio || 'Dirección no registrada';
               const telefonoCliente = cliente.telefono || pedido.telefono || '-';
+<<<<<<< HEAD
               const asignadoAMi = pedido.repartidorId === repartidorId;
               const esPedidoEnCurso = normalizarEstado(pedido.estado) === 'en_camino' && asignadoAMi;
+=======
+              const esPedidoEnCurso = normalizarEstado(pedido.estado) === 'en_camino' && pedido.repartidorId === repartidorId;
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
 
               return (
                 <article className="delivery-order" key={pedido.id}>
@@ -277,12 +319,20 @@ function Delivery({ notify }) {
                   </div>
 
                   <div className="delivery-state">
+<<<<<<< HEAD
                     <span className={esPedidoPendiente(pedido.estado) ? 'delivery-pending-state' : ''}>{esPedidoPendiente(pedido.estado) ? 'Pendiente' : estadosPedido[indiceEstado]?.nombre || 'Pendiente'}</span>
                     <strong>${Number(pedido.total || 0).toLocaleString('es-CL')}</strong>
                     {asignadoAMi ? (
                       <>
                         {normalizarEstado(pedido.estado) === 'listo_despacho' && <button className="btn btn-secondary" disabled={actualizandoId === pedido.id} onClick={() => iniciarDespacho(pedido)}>En camino</button>}
                         {esPedidoEnCurso && <><input
+=======
+                    <span>{estadosPedido[indiceEstado]?.nombre || 'Recibido'}</span>
+                    <strong>${Number(pedido.total || 0).toLocaleString('es-CL')}</strong>
+                    {esPedidoEnCurso ? (
+                      <>
+                        <input
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
                           className="field delivery-code-field"
                           inputMode="numeric"
                           maxLength="4"
@@ -300,11 +350,15 @@ function Delivery({ notify }) {
                         >
                           Completar entrega
                         </button>
+<<<<<<< HEAD
                         </>}
+=======
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
                       </>
                     ) : (
                       <button
                         className="btn btn-primary"
+<<<<<<< HEAD
                         disabled={actualizandoId === pedido.id || Boolean(pedido.repartidorId)}
                         onClick={() => {
                           if (!datosAutoCompletos) {
@@ -314,6 +368,10 @@ function Delivery({ notify }) {
                           }
                           tomarPedido(pedido);
                         }}
+=======
+                        disabled={actualizandoId === pedido.id || Boolean(pedidoEnCurso) || !datosAutoCompletos}
+                        onClick={() => tomarPedido(pedido)}
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
                       >
                         {datosAutoCompletos ? 'Tomar pedido' : 'Completa tu vehículo'}
                       </button>

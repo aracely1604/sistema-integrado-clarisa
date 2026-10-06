@@ -21,14 +21,22 @@ function Almacen({ notify }) {
     return null;
   }
 
+<<<<<<< HEAD
   const usuario = sesion.nombre || sesion.user || sesion.email || 'cajero';
+=======
+  const usuario = sesion.nombre || "cajero"; //ideal no usar esto, limitas a una sola la informacion del usuario} 
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
   const productos = obtenerProductosLocal('almacen');
 
   return (
     <main className="dashboard-page">
       <header className="dashboard-topbar">
         <div>
+<<<<<<< HEAD
           <p className="eyebrow">Cajero almacén: {usuario}</p>
+=======
+          <p className="eyebrow">Cajero: {usuario}</p> 
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
           <h1>Punto de Venta Almacén</h1>
           <Reloj />
         </div>

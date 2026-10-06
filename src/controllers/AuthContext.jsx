@@ -2,7 +2,11 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
+<<<<<<< HEAD
 import { collection, doc, getDoc, onSnapshot, query, where, limit, getDocs } from 'firebase/firestore';
+=======
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
 import { auth, db } from '../firebase';
 import { logoutEmpleado, actualizarPresencia } from './AuthControl';
 import { obtenerHorarioLocal, LOCAL_POR_DEFECTO } from '../controllers/LocalControl'; // TODO: ajustar la ruta según donde guardes LocalControl.jsx
@@ -40,10 +44,13 @@ function esAdministrador(datos) {
   return datos?.rol === 'admin' || datos?.rol === 'administrador';
 }
 
+<<<<<<< HEAD
 function esRepartidor(datos) {
   return String(datos?.rol || '').trim().toLowerCase() === 'delivery';
 }
 
+=======
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
 /**
 
  * @param {object} localAsignado
@@ -125,6 +132,7 @@ export function AuthProvider({ children }) {
         return;
       }
 
+<<<<<<< HEAD
       let usuarioRef = doc(db, NODO, firebaseUser.uid);
       let snap = await getDoc(usuarioRef);
 
@@ -143,13 +151,21 @@ export function AuthProvider({ children }) {
           }
         }
       }
+=======
+      const usuarioRef = doc(db, NODO, firebaseUser.uid);
+      const snap = await getDoc(usuarioRef);
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
 
       if (snap.exists()) {
         const datos = snap.data();
 
+<<<<<<< HEAD
         // El horario del local asignado no debe bloquear la consola de reparto:
         // perfiles Delivery suelen tener una asignación de caja heredada.
         if (datos.restriccionHorario && !esAdministrador(datos) && !esRepartidor(datos)) {
+=======
+        if (datos.restriccionHorario && !esAdministrador(datos)) {
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
           const nombreLocal = localesAsignados(datos.localAsignado)[0] ?? LOCAL_POR_DEFECTO;
           const horario = await obtenerHorarioLocal(nombreLocal);
           if (!estaDentroDelTurno(datos.turno, horario)) {
@@ -166,17 +182,26 @@ export function AuthProvider({ children }) {
             const esAdmin = esAdministrador(datos);
 
             let horarioLocal = null;
+<<<<<<< HEAD
             if (datos.restriccionHorario && !esAdmin && !esRepartidor(datos)) {
+=======
+            if (datos.restriccionHorario && !esAdmin) {
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
               const nombreLocal = localesAsignados(datos.localAsignado)[0] ?? LOCAL_POR_DEFECTO;
               horarioLocal = await obtenerHorarioLocal(nombreLocal);
             }
 
             const nuevoUsuario = {
               uid:   firebaseUser.uid,
+<<<<<<< HEAD
               perfilId: usuarioRef.id,
               email: firebaseUser.email,
               ...datos,
               rol: String(datos.rol || '').trim().toLowerCase(),
+=======
+              email: firebaseUser.email,
+              ...datos,
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
               esAdmin,
               horarioLocal,
             };
@@ -225,7 +250,11 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     limpiarTimers();
 
+<<<<<<< HEAD
     if (!usuario || usuario.esAdmin || esRepartidor(usuario) || !usuario.restriccionHorario || !usuario.turno) return;
+=======
+    if (!usuario || usuario.esAdmin || !usuario.restriccionHorario || !usuario.turno) return;
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
 
     const minsRestantes = minutosHastaFinTurno(usuario.turno, usuario.horarioLocal);
     if (!minsRestantes) {

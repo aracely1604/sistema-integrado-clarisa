@@ -35,7 +35,11 @@ function ComidaRapida({ notify }) {
         <div className="admin-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           {/* 4. Agregamos el botón junto a los otros botones de arriba */}
           <button className="btn btn-primary" onClick={() => setMostrarMonitor(true)}>Ver Pedidos Online</button>
+<<<<<<< HEAD
           <button className="btn btn-secondary" onClick={() => navigate('/admin')}>Volver a administración</button>
+=======
+          <button className="btn btn-secondary" onClick={() => navigate('/portal')}>Volver al panel</button>
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
       </header>
@@ -46,13 +50,48 @@ function ComidaRapida({ notify }) {
 
       {/* 5. Agregamos el modal al final de la página (antes de cerrar el main) */}
       {mostrarMonitor && (
+<<<<<<< HEAD
         <div className="modal-backdrop online-monitor-backdrop">
           <div className="modal-card online-monitor-modal">
             <MonitorPedidosWeb setMostrarMonitor={setMostrarMonitor} notify={notify} />
+=======
+        <div className="modal-monitor-fondo" style={estilosModalFondo}>
+          <div className="modal-monitor-contenido" style={estilosModalContenido}>
+            {/* Debes agregar setMostrarMonitor={setMostrarMonitor} */}
+            <MonitorPedidosWeb setMostrarMonitor={setMostrarMonitor} />
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
           </div>
         </div>
       )}
     </main>
   );
 }
+<<<<<<< HEAD
+=======
+// Estilos rápidos en línea (puedes moverlos a tu archivo CSS después)
+const estilosModalFondo = {
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  width: '100vw',
+  height: '100vh',
+  backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  zIndex: 9999
+};
+
+const estilosModalContenido = {
+  backgroundColor: '#fff',
+  padding: '20px',
+  borderRadius: '8px',
+  width: '80%',
+  maxWidth: '900px',
+  maxHeight: '90vh',
+  overflowY: 'auto',
+  color: '#000'
+};
+
+>>>>>>> d4907a47cc4937a96fcc06b7080c8306f41561b5
 export default ComidaRapida;
