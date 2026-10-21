@@ -4,7 +4,7 @@
 // a Firestore, siguiendo el mismo patrón que ProveedorControl/ProductoControl.
 
 import {
-  collection, addDoc, getDocs, getDoc, doc,
+  collection, setDoc, getDocs, getDoc, doc,
   updateDoc, deleteDoc, query,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -12,6 +12,8 @@ import {
   validarReceta, validarIngrediente, esRecetaValida,
   generarIdIngrediente, normalizarTexto,
 } from '../models/RecetaModel';
+
+import { subirImagen, eliminarImagen, exigirImagenValida } from './ImagenControl';
 
 const RECETAS_COLLECTION = 'recetas';
 
@@ -43,7 +45,10 @@ function prepararIngredientes(ingredientes) {
 
 // ─── Creación ────────────────────────────────────────────────────────────────
 // datosFormulario: { nombre, ingredientes: [{ nombre, cantidad, unidadMedida, equivalencia }] }
-export async function crearRecetaGlobal(datosFormulario) {
+// archivoImagen (opcional): File elegido en el formulario. Se sube a Storage
+// y en Firestore se guardan imagenUrl + imagenPath junto a los datos.
+export async function crearRecetaGlobal(datosFormulario, archivoImagen = null) {
+  exigirImagenValida(archivoImagen);
   const recetasExistentes = await obtenerRecetasGlobales();
 
   const errores = validarReceta(datosFormulario, recetasExistentes);
@@ -58,12 +63,29 @@ export async function crearRecetaGlobal(datosFormulario) {
     ingredientes: prepararIngredientes(datosFormulario.ingredientes),
   };
 
-  const docRef = await addDoc(collection(db, RECETAS_COLLECTION), payload);
-  return { id: docRef.id, ...payload };
+  // Se reserva el id primero para poder usarlo en la ruta de Storage.
+  const docRef = doc(collection(db, RECETAS_COLLECTION));
+
+  let imagen = { imagenUrl: '', imagenPath: '' };
+  if (archivoImagen) imagen = await subirImagen('recetas', docRef.id, archivoImagen);
+
+  const completo = { ...payload, ...imagen };
+  try {
+    await setDoc(docRef, completo);
+  } catch (err) {
+    await eliminarImagen(imagen.imagenPath); // no dejar archivos huérfanos
+    throw err;
+  }
+  return { id: docRef.id, ...completo };
 }
 
 // ─── Edición ─────────────────────────────────────────────────────────────────
-export async function actualizarRecetaGlobal(idReceta, datosFormulario) {
+// archivoImagen (opcional): si viene, reemplaza la imagen actual.
+// imagenPathAnterior: ruta de la imagen vigente, para borrarla al terminar.
+export async function actualizarRecetaGlobal(
+  idReceta, datosFormulario, archivoImagen = null, imagenPathAnterior = '',
+) {
+  exigirImagenValida(archivoImagen);
   const recetasExistentes = await obtenerRecetasGlobales();
 
   const errores = validarReceta(datosFormulario, recetasExistentes, idReceta);
@@ -78,15 +100,33 @@ export async function actualizarRecetaGlobal(idReceta, datosFormulario) {
     ingredientes: prepararIngredientes(datosFormulario.ingredientes),
   };
 
+  let nueva = null;
+  if (archivoImagen) {
+    nueva = await subirImagen('recetas', idReceta, archivoImagen);
+    payload.imagenUrl  = nueva.imagenUrl;
+    payload.imagenPath = nueva.imagenPath;
+  }
+
   const ref = doc(db, RECETAS_COLLECTION, idReceta);
-  await updateDoc(ref, payload);
+  try {
+    await updateDoc(ref, payload);
+  } catch (err) {
+    await eliminarImagen(nueva?.imagenPath);
+    throw err;
+  }
+
+  if (nueva) await eliminarImagen(imagenPathAnterior);
   return { id: idReceta, ...payload };
 }
 
 // ─── Eliminación ─────────────────────────────────────────────────────────────
+// Si la receta tenía imagen, también se borra de Storage.
 export async function eliminarRecetaGlobal(idReceta) {
   const ref = doc(db, RECETAS_COLLECTION, idReceta);
+  const snap = await getDoc(ref);
+  const imagenPath = snap.exists() ? snap.data().imagenPath : '';
   await deleteDoc(ref);
+  await eliminarImagen(imagenPath);
 }
 
 // ─── Validación en vivo de un ingrediente (para feedback inmediato en UI) ───

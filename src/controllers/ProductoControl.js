@@ -8,11 +8,12 @@
 // producto acá NO lo asigna automáticamente a ningún local.
 
 import {
-  collection, doc, addDoc, updateDoc,
+  collection, doc, setDoc, updateDoc,
   getDocs, query, where, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ProductoModel } from '../models/ProductoModel';
+import { subirImagen, eliminarImagen, exigirImagenValida } from './ImagenControl';
 
 const COLECCION = 'productos';
 
@@ -47,8 +48,12 @@ export async function obtenerProductoPorCodigoBarra(codigoBarra) {
 }
 
 // ─── Crear producto global ───────────────────────────────────────────────────
-export async function crearProductoGlobal(form) {
+// archivoImagen (opcional): File elegido en el formulario. Se sube a Storage
+// ANTES de escribir el documento; si Firestore falla, se borra la imagen
+// para no dejar archivos huérfanos.
+export async function crearProductoGlobal(form, archivoImagen = null) {
   validarProducto(form);
+  exigirImagenValida(archivoImagen);
 
   const existente = await obtenerProductoPorCodigoBarra(form.codigoBarra);
   if (existente) {
@@ -57,23 +62,55 @@ export async function crearProductoGlobal(form) {
     throw err;
   }
 
-  const producto = new ProductoModel(form);
-  const ref = await addDoc(collection(db, COLECCION), producto.toFirebase());
+  // Se reserva el id primero para poder usarlo en la ruta de Storage.
+  const ref = doc(collection(db, COLECCION));
+
+  let imagen = { imagenUrl: '', imagenPath: '' };
+  if (archivoImagen) imagen = await subirImagen('productos', ref.id, archivoImagen);
+
+  const producto = new ProductoModel({ ...form, ...imagen });
+  try {
+    await setDoc(ref, producto.toFirebase());
+  } catch (err) {
+    await eliminarImagen(imagen.imagenPath);
+    throw err;
+  }
   return ProductoModel.fromFirebase(ref.id, producto.toFirebase());
 }
 
 // ─── Actualizar datos base de un producto global ────────────────────────────
-export async function actualizarProductoGlobal(idProducto, cambios) {
+// archivoImagen (opcional): si viene, reemplaza la imagen actual.
+// imagenPathAnterior: ruta de la imagen vigente, para borrarla de Storage
+// una vez que la nueva quedó guardada.
+export async function actualizarProductoGlobal(
+  idProducto, cambios, archivoImagen = null, imagenPathAnterior = '',
+) {
   validarProducto(cambios);
+  exigirImagenValida(archivoImagen);
 
-  const ref = doc(db, COLECCION, idProducto);
-  await updateDoc(ref, {
+  const datos = {
     nombre:        cambios.nombre.trim(),
     categoria:     cambios.categoria,
     codigoBarra:   cambios.codigoBarra.trim(),
     unidadMedida:  cambios.unidadMedida,
     actualizadoEn: new Date().toISOString(),
-  });
+  };
+
+  let nueva = null;
+  if (archivoImagen) {
+    nueva = await subirImagen('productos', idProducto, archivoImagen);
+    datos.imagenUrl  = nueva.imagenUrl;
+    datos.imagenPath = nueva.imagenPath;
+  }
+
+  try {
+    await updateDoc(doc(db, COLECCION, idProducto), datos);
+  } catch (err) {
+    await eliminarImagen(nueva?.imagenPath);
+    throw err;
+  }
+
+  if (nueva) await eliminarImagen(imagenPathAnterior);
 }
 
 // ─── Traer todos los productos globales de una vez (para "joins" puntuales,

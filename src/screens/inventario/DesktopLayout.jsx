@@ -13,13 +13,15 @@ import GestionProductosModal from './GestionProductosModal';
 import GestionRecetasModal from './GestionRecetasModal';
 
 import { ToggleSwitch, ModoToggleDesktop } from './InventarioShared';
-import { FloatingReporte } from './FloatingSheet';
+import { FloatingReporte, FloatingSheet } from './FloatingSheet';
 import DesktopVentasView from './DesktopVentasView';
 import DesktopInventarioView from './DesktopInventarioView';
 import { LOCAL_LABELS, LOCALES_LIST, HOY_IDX } from './inventarioData';
 import { getLevel, getVencLevel } from './inventarioHelpers';
 import { useInventarioAlertas } from './useInventarioAlertas';
 import { LOCAL_ICON_COMPONENTS } from './localIcons';
+
+import ReporteRentabilidad from './ReporteRentabilidad';  
 
 import '../../css/DesktopLayout.css';
 
@@ -37,6 +39,8 @@ export default function DesktopLayout({ state, actions }) {
   const [modalRecetasGestion,   setModalRecetasGestion]   = useState(null);
   // Modal de creación de receta global (plantilla única para todo el sistema)
   const [modalRecetaGlobalVisible, setModalRecetaGlobalVisible] = useState(false);
+
+  const [reporteRentabilidadVisible, setReporteRentabilidadVisible] = useState(false);
 
   const {
     activeLocal, modo, proveedores, modalStock, modalVenc, modalProv, modalNuevoProv,
@@ -326,7 +330,24 @@ export default function DesktopLayout({ state, actions }) {
         onClose={() => setReporteModal(false)}
         activeLocal={localDelModal}
         localLabels={LOCAL_LABELS}
+        onGenerarReporteRentabilidad={() => {
+          setReporteModal(false);               // cierra el sheet de reporte
+          setReporteRentabilidadVisible(true);  // abre rentabilidad
+        }}
       />
+
+      {reporteRentabilidadVisible && (
+        <FloatingSheet
+          visible={reporteRentabilidadVisible}
+          onClose={() => setReporteRentabilidadVisible(false)}
+          title="Reporte de rentabilidad"
+        >
+          <ReporteRentabilidad
+            activeLocal={localDelModal}
+            localLabels={LOCAL_LABELS}
+          />
+        </FloatingSheet>
+      )}
 
       {modalProductosGestion && (
         <GestionProductosModal

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import '../../css/Reportes.css';
+import { FiDownload } from 'react-icons/fi';
 
 import {
   BarChart,
@@ -702,7 +703,7 @@ const descargarReporte = () => {
         className="btn-descargar"
         onClick={descargarReporte}
       >
-        <fitDowloand />
+        <FiDownload  />
         Descargar Reporte
       </button>
 

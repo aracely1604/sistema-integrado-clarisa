@@ -21,7 +21,7 @@ function ComidaRapida({ notify }) {
   }
 
   const usuario = sesion.nombre || "cajero";
-  const productos = obtenerProductosLocal('comida_rapida');
+  const productos = obtenerProductosLocal('comidaRapida');
 
   return (
     <main className="dashboard-page">
@@ -42,7 +42,7 @@ function ComidaRapida({ notify }) {
 
       <Perfil notify={notify} />
 
-      <PuntoVenta localId="comida_rapida" localNombre="Comida Rápida" productos={productos} usuario={usuario} notify={notify} />
+      <PuntoVenta localId="comidaRapida" localNombre="Comida Rápida" productos={productos} usuario={usuario} notify={notify} />
 
       {mostrarMonitor && (
           <div className="modal-backdrop online-monitor-backdrop">

@@ -56,13 +56,9 @@ export function FloatingReporte({
   activeLocal,
   localLabels,
   onGenerarReporte,
-  onGenerarReporteRentabilidad
+  onGenerarReporteRentabilidad,
 }) {
-  const [periodo, setPeriodo] = useState('diario');
-  console.log('FloatingReporte props:', {
-  visible,
-  onGenerarReporteRentabilidad
-});
+  const [periodo, setPeriodo] = useState('diario');   // ← hooks SIEMPRE antes del return
 
   if (!visible) return null;
 
@@ -76,9 +72,7 @@ export function FloatingReporte({
         Local: {localLabels?.[activeLocal]}
       </p>
 
-      <p className="inv-fl-section-label">
-        PERIODO
-      </p>
+      <p className="inv-fl-section-label">PERIODO</p>
 
       <div className="inv-rep-pills">
         {['diario', 'semanal', 'mensual'].map(p => (
@@ -86,9 +80,7 @@ export function FloatingReporte({
             type="button"
             key={p}
             onClick={() => setPeriodo(p)}
-            className={`inv-rep-pill ${
-              periodo === p ? 'inv-rep-pill-active' : ''
-            }`}
+            className={`inv-rep-pill ${periodo === p ? 'inv-rep-pill-active' : ''}`}
           >
             {p.charAt(0).toUpperCase() + p.slice(1)}
           </button>
@@ -97,24 +89,14 @@ export function FloatingReporte({
 
       <div className="inv-rep-infobox">
         <FiInfo size={14} />
-
         <span>
-          {periodo === 'diario' &&
-            'Reporte de movimientos del día de hoy.'}
-
-          {periodo === 'semanal' &&
-            'Reporte de los últimos 7 días de inventario.'}
-
-          {periodo === 'mensual' &&
-            'Reporte del mes actual con resumen de ingresos.'}
+          {periodo === 'diario' && 'Reporte de movimientos del día de hoy.'}
+          {periodo === 'semanal' && 'Reporte de los últimos 7 días de inventario.'}
+          {periodo === 'mensual' && 'Reporte del mes actual con resumen de ingresos.'}
         </span>
       </div>
 
-      <button
-        type="button"
-        className="inv-rep-genbtn"
-        onClick={onGenerarReporte}
-      >
+      <button type="button" className="inv-rep-genbtn" onClick={onGenerarReporte}>
         <FiDownload size={15} />
         Generar reporte {periodo}
       </button>
@@ -122,17 +104,7 @@ export function FloatingReporte({
       <button
         type="button"
         className="inv-rep-rentabilidad-btn"
-      onClick={() => {
-        console.log('CLICK RENTABILIDAD');
-        console.log('FUNCIÓN RECIBIDA:', onGenerarReporteRentabilidad);
-
-        if (typeof onGenerarReporteRentabilidad === 'function') {
-          onGenerarReporteRentabilidad();
-        } else {
-          alert('La función de rentabilidad no está llegando a FloatingReporte');
-        }
-      }}
-              
+        onClick={onGenerarReporteRentabilidad}
       >
         Ver reporte de rentabilidad
       </button>

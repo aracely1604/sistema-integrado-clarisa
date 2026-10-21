@@ -8,7 +8,7 @@ import '../styles/views/admin.css';
 const locales = [
   { id: 'almacen', nombre: 'Almacén' },
   { id: 'cafeteria', nombre: 'Cafetería' },
-  { id: 'comida_rapida', nombre: 'Comida Rápida' },
+  { id: 'comidaRapida', nombre: 'Comida Rápida' },
 ];
 
 const opcionesLocales = [{ id: 'general', nombre: 'General' }, ...locales];
@@ -25,7 +25,7 @@ const metodosPago = [
 const normalizarLocal = (venta) => {
   const valor = String(venta.local || venta.modulo || venta.sucursal || '').toLowerCase();
   if (valor.includes('caf')) return 'cafeteria';
-  if (valor.includes('comida') || valor.includes('rapida') || valor.includes('rapido')) return 'comida_rapida';
+  if (valor.includes('comida') || valor.includes('rapida') || valor.includes('rapido')) return 'comidaRapida';
   return 'almacen';
 };
 
@@ -95,7 +95,7 @@ const prepararSeries = (ventas, periodo) => {
       etiqueta: formatearPeriodo(fecha, periodo),
       almacen: 0,
       cafeteria: 0,
-      comida_rapida: 0,
+      comidaRapida: 0,
       total: 0,
     };
     const local = normalizarLocal(venta);

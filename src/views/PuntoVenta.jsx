@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { collection, doc, getDoc, getDocs, limit, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../controllers/AuthContext';
+import { suscribirProductosVenta, registrarVentaConStock } from '../controllers/VentaControl,jsx';
 import '../styles/views/pointOfSale.css';
 
 const metodosBase = ['Débito', 'Efectivo', 'Transferencia'];
@@ -13,7 +14,9 @@ const formatearFechaHora = (fecha) => {
   });
 };
 
-function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosPago = metodosBase }) {
+function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metodosBase }) {
+  const [productos, setProductos] = useState([]);
+  const [guardandoVenta, setGuardandoVenta] = useState(false);
   const [carrito, setCarrito] = useState([]);
   const [cajaAbierta, setCajaAbierta] = useState(false);
   const [cajaActual, setCajaActual] = useState(null);
@@ -41,6 +44,14 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
     const reloj = setInterval(() => setAhora(new Date()), 1000);
     return () => clearInterval(reloj);
   }, []);
+
+  // Productos activos del local (nombre desde el nodo global, precio y stock
+  // desde locales/{local}/productos). Se actualiza en vivo.
+  useEffect(() => {
+    setProductos([]);
+    const desuscribir = suscribirProductosVenta(localId, setProductos);
+    return desuscribir;
+  }, [localId]);
 
   useEffect(() => {
     const sincronizarCaja = async () => {
@@ -109,7 +120,7 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
     }
   }, [cajaAbierta, cajaSincronizada, alertaInicialMostrada]);
 
-  const esComidaRapida = localId === 'comida_rapida';
+  const esComidaRapida = localId === 'comidaRapida';
   const total = carrito.reduce((suma, producto) => suma + producto.precio * (producto.cantidad || 1), 0);
   const montoPagado = Number(montoEfectivo);
   const vuelto = metodoPago === 'Efectivo' && montoPagado >= total ? montoPagado - total : 0;
@@ -347,15 +358,22 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       return;
     }
 
-    if (!esComidaRapida) {
-      setCarrito((actual) => [...actual, producto]);
+    // Cuántas unidades de este producto ya hay en el carrito (sumando todas
+    // sus líneas, porque en comida rápida puede haber varias con distintos
+    // ingredientes) vs. el stock que hay en el local.
+    const enCarrito = carrito
+      .filter((item) => item.id === producto.id)
+      .reduce((suma, item) => suma + (item.cantidad || 1), 0);
+
+    if (enCarrito >= producto.stockActual) {
+      notify(`Stock insuficiente de ${producto.nombre} (disponible: ${producto.stockActual}).`, 'error');
       return;
     }
 
     const ingredientesBase = producto.ingredientes || [];
     setCarrito((actual) => {
       const indiceExistente = actual.findIndex((item) => (
-        item.nombre === producto.nombre
+        item.id === producto.id
         && (item.ingredientes || []).join('|') === ingredientesBase.join('|')
       ));
 
@@ -374,10 +392,29 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
     });
   };
 
+  // Botón "+" de una línea del carrito: reutiliza la validación de stock
+  // contra el stock en vivo del producto.
+  const sumarUno = (indexProducto) => {
+    const item = carrito[indexProducto];
+    const productoVivo = productos.find((producto) => producto.id === item.id);
+    const enCarrito = carrito
+      .filter((linea) => linea.id === item.id)
+      .reduce((suma, linea) => suma + (linea.cantidad || 1), 0);
+
+    if (!productoVivo || enCarrito >= productoVivo.stockActual) {
+      notify(`Stock insuficiente de ${item.nombre} (disponible: ${productoVivo?.stockActual ?? 0}).`, 'error');
+      return;
+    }
+
+    setCarrito((actual) => actual.map((linea, index) => (
+      index === indexProducto ? { ...linea, cantidad: linea.cantidad + 1 } : linea
+    )));
+  };
+
   const eliminarProducto = (indexProducto) => {
     setCarrito((actual) => {
       const producto = actual[indexProducto];
-      if (esComidaRapida && producto.cantidad > 1) {
+      if (producto.cantidad > 1) {
         return actual.map((item, index) => (
           index === indexProducto ? { ...item, cantidad: item.cantidad - 1 } : item
         ));
@@ -415,7 +452,6 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       return;
     }
 
-    const ventas = JSON.parse(localStorage.getItem('ventas')) || [];
     const nuevaVenta = {
       id: `${localId}-${Date.now()}`,
       cajaId: cajaActual?.id || null,
@@ -425,7 +461,14 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       usuarioNombre: `${nombre} ${apellido}`.trim(),
       nombreUsuario: nombre,
       apellidoUsuario: apellido,
-      productos: carrito.map(({ ingredientesBase, ...producto }) => producto),
+      productos: carrito.map((item) => ({
+        id: item.id,
+        nombre: item.nombre,
+        precio: item.precio,                       // precio unitario
+        cantidad: item.cantidad || 1,
+        subtotal: item.precio * (item.cantidad || 1),
+        ingredientes: item.ingredientes || [],
+      })),
       total,
       metodoPago,
       montoPagado: metodoPago === 'Efectivo' ? montoPagado : total,
@@ -433,17 +476,31 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
       fecha: new Date().toISOString(),
     };
 
+    setGuardandoVenta(true);
+    try {
+      // Guarda la venta y descuenta el stock en una sola transacción.
+      // Si falta stock en cualquier producto, no se guarda nada.
+      await registrarVentaConStock(localId, nuevaVenta);
+
+      const ventas = JSON.parse(localStorage.getItem('ventas')) || [];
       localStorage.setItem('ventas', JSON.stringify([...ventas, nuevaVenta]));
       window.dispatchEvent(new Event('ventas-actualizadas'));
 
-    try {
-      await setDoc(doc(db, 'ventas', nuevaVenta.id), nuevaVenta);
       setCarrito([]);
       setMontoEfectivo('');
       notify(`Venta registrada con ${metodoPago} por $${total.toLocaleString('es-CL')}.`, 'success');
     } catch (error) {
-      console.error('Error al guardar venta en Firebase:', error);
-      notify('Venta guardada localmente, pero no se pudo guardar en Firebase.', 'error');
+      if (error.faltantes) {
+        const detalle = error.faltantes
+          .map((f) => `${f.nombre} (disponible: ${f.disponible}, pedido: ${f.pedido})`)
+          .join(', ');
+        notify(`Stock insuficiente: ${detalle}. Ajusta el carrito.`, 'error');
+      } else {
+        console.error('Error al registrar la venta:', error);
+        notify('No se pudo registrar la venta. Revisa la conexión e inténtalo de nuevo.', 'error');
+      }
+    } finally {
+      setGuardandoVenta(false);
     }
   };
 
@@ -567,13 +624,19 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
               <button
                 className="product-button"
                 onClick={() => agregarProducto(producto)}
-                disabled={!cajaAbierta}
-                key={producto.nombre}
+                disabled={!cajaAbierta || producto.stockActual <= 0}
+                key={producto.id}
               >
                 <span>{producto.nombre}</span>
                 <strong>${producto.precio.toLocaleString('es-CL')}</strong>
+                <small className="product-stock">
+                  {producto.stockActual <= 0
+                    ? 'Sin stock'
+                    : `Stock: ${producto.stockActual}${producto.stockActual <= producto.stockMinimo ? ' ⚠' : ''}`}
+                </small>
               </button>
             ))}
+            {productos.length === 0 && <p className="muted">No hay productos activos en este local.</p>}
           </div>
         </div>
 
@@ -588,11 +651,12 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
               <p className="muted">Aún no hay productos agregados.</p>
             ) : (
               carrito.map((item, index) => (
-                <div className="cart-row" key={`${item.nombre}-${index}`}>
+                <div className="cart-row" key={`${item.id}-${index}`}>
                   <div className="cart-item-detail">
-                    <span className="cart-item-name">
-                      {item.nombre}{item.cantidad > 1 ? ` ×${item.cantidad}` : ''}
-                    </span>
+                    <span className="cart-item-name">{item.nombre}</span>
+                    <small className="cart-item-unit">
+                      ${item.precio.toLocaleString('es-CL')} c/u × {item.cantidad || 1}
+                    </small>
                     {esComidaRapida && item.ingredientesBase?.length > 0 && (
                       <>
                         {item.ingredientes.length > 0 && (
@@ -620,6 +684,9 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
                     )}
                   </div>
                   <strong>${(item.precio * (item.cantidad || 1)).toLocaleString('es-CL')}</strong>
+                  <button className="btn btn-secondary btn-small" onClick={() => sumarUno(index)} title="Sumar uno">
+                    +
+                  </button>
                   <button className="btn btn-danger btn-small" onClick={() => eliminarProducto(index)}>
                     {item.cantidad > 1 ? 'Quitar uno' : 'Eliminar'}
                   </button>
@@ -669,8 +736,8 @@ function PuntoVenta({ localId, localNombre, productos, usuario, notify, metodosP
               </label>
             )}
 
-            <button className="btn btn-primary btn-full" onClick={registrarPago} disabled={!cajaAbierta || carrito.length === 0}>
-              Registrar pago
+            <button className="btn btn-primary btn-full" onClick={registrarPago} disabled={!cajaAbierta || carrito.length === 0 || guardandoVenta}>
+              {guardandoVenta ? 'Registrando...' : 'Registrar pago'}
             </button>
           </div>
         </aside>

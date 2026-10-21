@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   FiX, FiAlertOctagon, FiClock, FiCalendar, FiClipboard,
   FiCheckCircle, FiAlertTriangle, FiArrowDown, FiChevronLeft,
-  FiChevronRight, FiUsers, FiUserPlus, FiPlusCircle,
+  FiChevronRight, FiUsers, FiUserPlus, FiPlusCircle, FiImage,
 } from 'react-icons/fi';
 import { Badge, LocalChip, ToggleSwitch } from './InventarioShared';
 import { STOCK_DATA, LOCAL_LABELS, LOCAL_COLORS, DIAS, DIAS_SEMANA, HOY_IDX } from './inventarioData';
@@ -25,6 +25,7 @@ import {
   UNIDADES_MEDIDA_RECETA, crearIngredienteVacio, normalizarTexto,
   validarReceta, esRecetaValida,
 } from '../../models/RecetaModel';
+import { validarImagen, TAMANO_MAX_MB } from '../../controllers/ImagenControl';
 import { CATEGORIAS, UNIDADES_MEDIDA } from './gestionProductosData';
 import '../../css/DetalleModals.css';
 
@@ -63,6 +64,93 @@ function MensajeExito({ texto }) {
     >
       <FiCheckCircle size={16} />
       <span>{texto}</span>
+    </div>
+  );
+}
+
+// ─── Selector de imagen reutilizable (productos y recetas) ─────────────────
+// archivo:   File recién elegido (aún sin subir) → se muestra su vista previa.
+// urlActual: imagen ya guardada en Storage (al editar) → se muestra si no hay archivo nuevo.
+// onChange:  recibe el File elegido, o null al descartar la selección.
+// La subida a Storage la hace el controller al guardar el formulario.
+function SelectorImagen({ archivo, urlActual = '', onChange, error = '', disabled = false }) {
+  const inputRef = useRef(null);
+  const [preview, setPreview]       = useState('');
+  const [errorLocal, setErrorLocal] = useState('');
+
+  useEffect(() => {
+    if (!archivo) { setPreview(''); return undefined; }
+    const url = URL.createObjectURL(archivo);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [archivo]);
+
+  function handleSeleccion(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite volver a elegir el mismo archivo
+    if (!file) return;
+    const mensaje = validarImagen(file);
+    if (mensaje) { setErrorLocal(mensaje); return; }
+    setErrorLocal('');
+    onChange(file);
+  }
+
+  const src = preview || urlActual;
+  const mensajeError = errorLocal || error;
+
+  return (
+    <div>
+      <div className="inv-modal-row" style={{ gap: 12 }}>
+        <div
+          style={{
+            width: 72, height: 72, flexShrink: 0, borderRadius: 12, overflow: 'hidden',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: `1.5px ${src ? 'solid' : 'dashed'} ${mensajeError ? '#E24B4A' : 'var(--c-border, #E4E2DD)'}`,
+            background: 'var(--c-surface2, transparent)',
+            color: 'var(--c-textSecondary, #7F8C8D)',
+          }}
+        >
+          {src
+            ? <img src={src} alt="Vista previa" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <FiImage size={24} />}
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handleSeleccion}
+            style={{ display: 'none' }}
+          />
+          <div className="inv-modal-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="inv-modal-btn inv-modal-btn-secondary"
+              style={{ padding: '6px 12px', fontSize: 12.5 }}
+              disabled={disabled}
+              onClick={() => inputRef.current?.click()}
+            >
+              {src ? 'Cambiar imagen' : 'Elegir imagen'}
+            </button>
+            {archivo && (
+              <button
+                type="button"
+                className="inv-modal-btn inv-modal-btn-secondary"
+                style={{ padding: '6px 12px', fontSize: 12.5 }}
+                disabled={disabled}
+                onClick={() => { setErrorLocal(''); onChange(null); }}
+              >
+                Quitar
+              </button>
+            )}
+          </div>
+          <p className="inv-modal-hint-inline" style={{ marginTop: 6, display: 'block' }}>
+            JPG, PNG o WebP · máx. {TAMANO_MAX_MB} MB
+          </p>
+        </div>
+      </div>
+      {mensajeError && <p className="inv-modal-errortext">{mensajeError}</p>}
     </div>
   );
 }
@@ -1074,6 +1162,10 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   const [editGuardando, setEditGuardando]     = useState(false);
   const [busquedaCodigo, setBusquedaCodigo]   = useState('');
 
+  // Imágenes elegidas (File) todavía sin subir; se suben al guardar.
+  const [imagenNueva, setImagenNueva] = useState(null);
+  const [editImagen, setEditImagen]   = useState(null);
+
   // Se suscribe a TODOS los productos globales mientras el modal esté abierto.
   useEffect(() => {
     if (!visible) return undefined;
@@ -1103,6 +1195,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     setErrorCodigo('');
     setProductoExistente(null);
     setForm(FORM_INIT);
+    setImagenNueva(null);
     setErrors({});
     onClose();
   }
@@ -1155,9 +1248,10 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     setErrors({});
     setGuardando(true);
     try {
-      const creado = await crearProductoGlobal(form);
+      const creado = await crearProductoGlobal(form, imagenNueva);
       onGuardado?.(creado);
       setForm(FORM_INIT);
+      setImagenNueva(null);
       setCodigoInput('');
       setProductoExistente(null);
       setPaso('codigo');
@@ -1178,6 +1272,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
 
   function handleVolverALista() {
     setProductoEditId(null);
+    setEditImagen(null);
     setEditForm({ nombre: '', categoria: CATEGORIAS[0] });
     setEditErrors({});
   }
@@ -1195,7 +1290,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
         categoria:    editForm.categoria,
         codigoBarra:  productoSeleccionado.codigoBarra,
         unidadMedida: productoSeleccionado.unidadMedida,
-      });
+      }, editImagen, productoSeleccionado.imagenPath);
       handleVolverALista();
       mostrarExito('Producto actualizado correctamente');
     } catch (err) {
@@ -1221,6 +1316,10 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     border: '1px solid var(--c-border, #E4E2DD)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
   });
+
+  const etiquetaOpcional = (
+    <span style={{ color: 'var(--c-textSecondary, #7F8C8D)', fontWeight: 400 }}> (opcional)</span>
+  );
 
   if (!visible) return null;
 
@@ -1401,6 +1500,16 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
               {errors.unidadMedida && <p className="inv-modal-errortext">{errors.unidadMedida}</p>}
             </div>
 
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">Imagen del producto{etiquetaOpcional}</label>
+              <SelectorImagen
+                archivo={imagenNueva}
+                onChange={setImagenNueva}
+                error={errors.imagen}
+                disabled={guardando}
+              />
+            </div>
+
             <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
               <button type="button" className="inv-modal-btn inv-modal-btn-secondary" onClick={handleClose}>
                 Cancelar
@@ -1554,6 +1663,17 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
               />
             </div>
 
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">Imagen del producto{etiquetaOpcional}</label>
+              <SelectorImagen
+                archivo={editImagen}
+                urlActual={productoSeleccionado.imagenUrl}
+                onChange={setEditImagen}
+                error={editErrors.imagen}
+                disabled={editGuardando}
+              />
+            </div>
+
             <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
               <button type="button" className="inv-modal-btn inv-modal-btn-secondary" onClick={handleVolverALista}>
                 Cancelar
@@ -1609,6 +1729,10 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
   const [editErrors, setEditErrors]       = useState({});
   const [editGuardando, setEditGuardando] = useState(false);
   const [busquedaNombre, setBusquedaNombre] = useState('');
+
+  // Imágenes elegidas (File) todavía sin subir; se suben al guardar.
+  const [imagenNueva, setImagenNueva] = useState(null);
+  const [editImagen, setEditImagen]   = useState(null);
 
   const cargarRecetas = useCallback(async () => {
     try {
@@ -1681,9 +1805,10 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
     setErrors({});
     setGuardando(true);
     try {
-      const creada = await crearRecetaGlobal(form);
+      const creada = await crearRecetaGlobal(form, imagenNueva);
       onGuardado?.(creada);
       setForm({ nombre: '', ingredientes: [crearIngredienteVacio()] });
+      setImagenNueva(null);
       await cargarRecetas();
       mostrarExito('Receta creada correctamente');
     } catch (err) {
@@ -1709,6 +1834,7 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
 
   function handleVolverALista() {
     setRecetaEditId(null);
+    setEditImagen(null);
     setEditForm(EDIT_FORM_INIT);
     setEditErrors({});
   }
@@ -1740,7 +1866,9 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
 
     setEditGuardando(true);
     try {
-      const actualizada = await actualizarRecetaGlobal(recetaEditId, editForm);
+      const actualizada = await actualizarRecetaGlobal(
+        recetaEditId, editForm, editImagen, recetaSeleccionada?.imagenPath,
+      );
       onGuardado?.(actualizada);
       await cargarRecetas();
       handleVolverALista();
@@ -1758,6 +1886,7 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
     setForm(FORM_INIT);
     setErrors({});
     setConfirmarCreacion(false);
+    setImagenNueva(null);
     setBusquedaNombre('');
     ocultarExito();
     handleVolverALista();
@@ -1845,6 +1974,16 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
                 onChange={(e) => handleNombreChange(e.target.value)}
               />
               {errors.nombre && <p className="inv-modal-errortext">{errors.nombre}</p>}
+            </div>
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">Imagen de la receta{etiquetaOpcional}</label>
+              <SelectorImagen
+                archivo={imagenNueva}
+                onChange={setImagenNueva}
+                error={errors.imagen}
+                disabled={guardando}
+              />
             </div>
 
             <div className="inv-modal-row-between" style={{ marginTop: 10, marginBottom: 8 }}>
@@ -2047,6 +2186,17 @@ export function ModalRecetaGlobal({ visible, onClose, onGuardado }) {
                 onChange={(e) => handleEditNombreChange(e.target.value)}
               />
               {editErrors.nombre && <p className="inv-modal-errortext">{editErrors.nombre}</p>}
+            </div>
+
+            <div className="inv-modal-formgroup">
+              <label className="inv-modal-formlabel">Imagen de la receta{etiquetaOpcional}</label>
+              <SelectorImagen
+                archivo={editImagen}
+                urlActual={recetaSeleccionada.imagenUrl}
+                onChange={setEditImagen}
+                error={editErrors.imagen}
+                disabled={editGuardando}
+              />
             </div>
 
             <label className="inv-modal-formlabel" style={{ marginTop: 10 }}>Ingredientes</label>
