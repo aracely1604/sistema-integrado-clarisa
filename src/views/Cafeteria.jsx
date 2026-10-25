@@ -2,6 +2,7 @@ import React from 'react';
 import Perfil from './Perfil';
 import PuntoVenta from './PuntoVenta';
 import Reloj from './Reloj';
+import CashierInventoryButton from '../components/CashierInventoryButton';
 import { cerrarSesion } from '../models/authModel';
 import { obtenerMetodosPagoLocal, obtenerProductosLocal } from '../models/productModel';
 
@@ -32,14 +33,14 @@ function Cafeteria({ notify }) {
           <Reloj />
         </div>
         <div className="admin-actions">
+          <CashierInventoryButton />
           <button className="btn btn-secondary" onClick={() => navigate(rutaVolver)}>
             {rutaVolver === '/admin' ? 'Volver a administración' : 'Volver al panel'}
           </button>
+          <Perfil notify={notify} compact />
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
       </header>
-
-      <Perfil notify={notify} />
 
       <PuntoVenta
         localId="cafeteria"

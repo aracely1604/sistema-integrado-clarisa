@@ -2,7 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { collection, doc, getDoc, getDocs, limit, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../controllers/AuthContext';
-import { suscribirProductosVenta, registrarVentaConStock } from '../controllers/VentaControl,jsx';
+import { suscribirProductosVenta, registrarVentaConStock, registrarAutoconsumoConStock } from '../controllers/VentaControl,jsx';
+import { crearProductoGlobal, obtenerProductoPorCodigoBarra } from '../controllers/ProductoControl';
+import { ajustarStockLocal, actualizarProductoLocal, cambiarEstadoProductoLocal, crearProductoEnLocal, obtenerProductoLocal } from '../controllers/LocalProductoControl';
+import BarcodeScanner from '../components/BarcodeScanner';
+import { CATEGORIAS, UNIDADES_MEDIDA, convertirACantidadBase, unidadBaseDesdeUnidadMedida } from '../screens/inventario/gestionProductosData';
 import '../styles/views/pointOfSale.css';
 
 const metodosBase = ['Débito', 'Efectivo', 'Transferencia'];
@@ -28,6 +32,13 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
   const [alertaInicialMostrada, setAlertaInicialMostrada] = useState(false);
   const [mostrarAutoconsumo, setMostrarAutoconsumo] = useState(false);
   const [mostrarFirma, setMostrarFirma] = useState(false);
+  const [codigoNuevoPendiente, setCodigoNuevoPendiente] = useState('');
+  const [destinoProductoNuevo, setDestinoProductoNuevo] = useState('venta');
+  const [mostrarFormularioProductoNuevo, setMostrarFormularioProductoNuevo] = useState(false);
+  const [guardandoProductoNuevo, setGuardandoProductoNuevo] = useState(false);
+  const [formProductoNuevo, setFormProductoNuevo] = useState({
+    nombre: '', categoria: '', unidadMedida: 'unidad', precioVenta: '', stockInicial: '1',
+  });
   const [autoconsumo, setAutoconsumo] = useState([]);
   const [aceptaFirma, setAceptaFirma] = useState(false);
   const [firmaDibujada, setFirmaDibujada] = useState(false);
@@ -219,19 +230,30 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
       localNombre,
       productos: autoconsumo,
       total: totalAutoconsumo,
+      usuario: identificadorTrabajador,
       credencial: 'rut',
       codigoCredencial: trabajador.rut,
       fecha: new Date().toISOString(),
       firmaEstado: 'pendiente',
     };
+    try {
+      await registrarAutoconsumoConStock(localId, registro);
+    } catch (error) {
+      if (error.faltantes) {
+        const detalle = error.faltantes
+          .map((f) => `${f.nombre} (disponible: ${f.disponible}, solicitado: ${f.pedido})`)
+          .join(', ');
+        notify(`Stock insuficiente para el autoconsumo: ${detalle}.`, 'error');
+      } else {
+        console.error('No se pudo registrar el autoconsumo ni descontar stock:', error);
+        notify('No se pudo registrar el autoconsumo. No se descontó stock; inténtalo nuevamente.', 'error');
+      }
+      return;
+    }
+
     const registros = JSON.parse(localStorage.getItem('autoconsumos')) || [];
     localStorage.setItem('autoconsumos', JSON.stringify([...registros, registro]));
     window.dispatchEvent(new Event('autoconsumos-actualizados'));
-    try {
-      await setDoc(doc(db, 'autoconsumos', registro.id), registro);
-    } catch (error) {
-      console.error('No se pudo guardar el autoconsumo en Firebase:', error);
-    }
     setAutoconsumo([]);
     setMostrarAutoconsumo(false);
     notify('Autoconsumo registrado. Quedará pendiente de tu firma diaria.', 'success');
@@ -392,6 +414,107 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
     });
   };
 
+  // La pistola envía el código como teclado y termina con Enter. El catálogo
+  // de ventas ya incluye codigoBarra, por lo que se puede resolver localmente.
+  const manejarCodigoEscaneado = (codigo) => {
+    const codigoBuscado = codigo.trim();
+    const producto = productos.find(
+      (item) => String(item.codigoBarra ?? '').trim() === codigoBuscado,
+    );
+
+    if (!producto) {
+      setCodigoNuevoPendiente(codigoBuscado);
+      setDestinoProductoNuevo(mostrarAutoconsumo ? 'autoconsumo' : 'venta');
+      setFormProductoNuevo({ nombre: '', categoria: '', unidadMedida: 'unidad', precioVenta: '', stockInicial: '1' });
+      return;
+    }
+
+    if (mostrarAutoconsumo) {
+      agregarAutoconsumo(producto);
+      return;
+    }
+
+    if (!cajaAbierta) {
+      notify('Debes abrir caja antes de agregar productos.', 'error');
+      return;
+    }
+
+    if (producto.stockActual <= 0) {
+      notify(`${producto.nombre} no tiene stock disponible.`, 'error');
+      return;
+    }
+
+    agregarProducto(producto);
+  };
+
+  const cancelarAltaProductoNuevo = () => {
+    setCodigoNuevoPendiente('');
+    setMostrarFormularioProductoNuevo(false);
+  };
+
+  const guardarProductoNuevoDesdeVenta = async (event) => {
+    event.preventDefault();
+    if (destinoProductoNuevo === 'venta' && !cajaAbierta) {
+      notify('Debes abrir caja antes de agregar productos.', 'error');
+      cancelarAltaProductoNuevo();
+      return;
+    }
+
+    const stockInicial = Number(formProductoNuevo.stockInicial);
+    const precioVenta = Number(formProductoNuevo.precioVenta);
+    if (!formProductoNuevo.nombre.trim() || !formProductoNuevo.categoria || !precioVenta || stockInicial < 1) {
+      notify('Completa el nombre, la categoría, un precio válido y un stock inicial de al menos 1.', 'error');
+      return;
+    }
+
+    setGuardandoProductoNuevo(true);
+    try {
+      // Si el alta global se completó antes de un error de red, reaprovecha
+      // ese registro al reintentar en vez de crear un duplicado.
+      const productoGlobalExistente = await obtenerProductoPorCodigoBarra(codigoNuevoPendiente);
+      const productoGlobal = productoGlobalExistente || await crearProductoGlobal({
+        nombre: formProductoNuevo.nombre.trim(),
+        categoria: formProductoNuevo.categoria,
+        codigoBarra: codigoNuevoPendiente,
+        unidadMedida: formProductoNuevo.unidadMedida,
+      });
+      const unidadBase = unidadBaseDesdeUnidadMedida(formProductoNuevo.unidadMedida);
+      const cantidadInicialBase = convertirACantidadBase(stockInicial, unidadBase);
+      const productoLocalExistente = await obtenerProductoLocal(localId, productoGlobal.id);
+      if (productoLocalExistente) {
+        await actualizarProductoLocal(localId, productoGlobal.id, { stockMinimo: 0, precioVenta });
+        await cambiarEstadoProductoLocal(localId, productoGlobal.id, true);
+      } else {
+        await crearProductoEnLocal(localId, productoGlobal.id, { stockMinimo: 0, precioVenta });
+      }
+      // Un reintento después de un corte de red no debe duplicar el stock.
+      const stockTotalBase = productoLocalExistente
+        ? (productoLocalExistente.stockActual || cantidadInicialBase)
+        : cantidadInicialBase;
+      await ajustarStockLocal(localId, productoGlobal.id, stockTotalBase);
+
+      const productoVenta = {
+        ...productoGlobal,
+        precio: precioVenta,
+        stockActual: stockTotalBase,
+        stockMinimo: 0,
+      };
+      if (destinoProductoNuevo === 'autoconsumo') {
+        agregarAutoconsumo(productoVenta);
+        notify(`${productoGlobal.nombre} se agregó al inventario y al autoconsumo.`, 'success');
+      } else {
+        agregarProducto(productoVenta);
+        notify(`${productoGlobal.nombre} se agregó al inventario y al carrito.`, 'success');
+      }
+      cancelarAltaProductoNuevo();
+    } catch (error) {
+      console.error('No se pudo crear el producto escaneado:', error);
+      notify(error?.message || 'No se pudo agregar el producto al inventario.', 'error');
+    } finally {
+      setGuardandoProductoNuevo(false);
+    }
+  };
+
   // Botón "+" de una línea del carrito: reutiliza la validación de stock
   // contra el stock en vivo del producto.
   const sumarUno = (indexProducto) => {
@@ -506,6 +629,51 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
 
   return (
     <>
+      <BarcodeScanner onScan={manejarCodigoEscaneado} enabled={!codigoNuevoPendiente} />
+      {codigoNuevoPendiente && !mostrarFormularioProductoNuevo && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="producto-nuevo-pregunta">
+            <h2 id="producto-nuevo-pregunta">Producto no encontrado</h2>
+            <p>El código <strong>{codigoNuevoPendiente}</strong> no está registrado. ¿Quieres agregar este producto al inventario y al {destinoProductoNuevo === 'autoconsumo' ? 'autoconsumo' : 'carrito'}?</p>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-secondary" onClick={cancelarAltaProductoNuevo}>No, cancelar</button>
+              <button type="button" className="btn btn-primary" onClick={() => setMostrarFormularioProductoNuevo(true)}>Sí, agregar</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {codigoNuevoPendiente && mostrarFormularioProductoNuevo && (
+        <div className="modal-backdrop" role="presentation">
+          <form className="modal-card" role="dialog" aria-modal="true" aria-labelledby="producto-nuevo-titulo" onSubmit={guardarProductoNuevoDesdeVenta}>
+            <h2 id="producto-nuevo-titulo">Datos del producto</h2>
+            <p>Código escaneado: <strong>{codigoNuevoPendiente}</strong></p>
+            <label className="cash-opening-field">Nombre
+              <input className="field" required value={formProductoNuevo.nombre} onChange={(e) => setFormProductoNuevo((actual) => ({ ...actual, nombre: e.target.value }))} autoFocus />
+            </label>
+            <label className="cash-opening-field">Categoría
+              <select className="field" required value={formProductoNuevo.categoria} onChange={(e) => setFormProductoNuevo((actual) => ({ ...actual, categoria: e.target.value }))}>
+                <option value="">Selecciona una categoría</option>
+                {CATEGORIAS.map((categoria) => <option key={categoria} value={categoria}>{categoria}</option>)}
+              </select>
+            </label>
+            <label className="cash-opening-field">Unidad de medida
+              <select className="field" value={formProductoNuevo.unidadMedida} onChange={(e) => setFormProductoNuevo((actual) => ({ ...actual, unidadMedida: e.target.value }))}>
+                {UNIDADES_MEDIDA.map((unidad) => <option key={unidad.value} value={unidad.value}>{unidad.label}</option>)}
+              </select>
+            </label>
+            <label className="cash-opening-field">Precio de venta
+              <input className="field" type="number" min="1" step="1" required value={formProductoNuevo.precioVenta} onChange={(e) => setFormProductoNuevo((actual) => ({ ...actual, precioVenta: e.target.value }))} />
+            </label>
+            <label className="cash-opening-field">Stock inicial ({UNIDADES_MEDIDA.find((unidad) => unidad.value === formProductoNuevo.unidadMedida)?.label.toLowerCase()})
+              <input className="field" type="number" min="1" step="any" required value={formProductoNuevo.stockInicial} onChange={(e) => setFormProductoNuevo((actual) => ({ ...actual, stockInicial: e.target.value }))} />
+            </label>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-secondary" onClick={cancelarAltaProductoNuevo} disabled={guardandoProductoNuevo}>Cancelar</button>
+              <button type="submit" className="btn btn-primary" disabled={guardandoProductoNuevo}>{guardandoProductoNuevo ? 'Guardando…' : `Crear y agregar al ${destinoProductoNuevo === 'autoconsumo' ? 'autoconsumo' : 'carrito'}`}</button>
+            </div>
+          </form>
+        </div>
+      )}
       {mostrarAlertaInicio && (
         <div className="modal-backdrop" role="presentation">
           <section className="modal-card cash-opening-modal" role="dialog" aria-modal="true" aria-labelledby="inicio-caja-titulo">
@@ -584,7 +752,6 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
         <div>
           <p className="eyebrow">Caja</p>
           <h2>{cajaAbierta ? 'Caja abierta' : 'Caja cerrada'}</h2>
-          <p className="muted">{localNombre} - {nombre} {apellido}</p>
           {cajaAbierta ? (
             <p className="cash-opening-amount">
               Efectivo inicial: ${Number(cajaActual?.efectivoInicial || 0).toLocaleString('es-CL')}

@@ -2,6 +2,7 @@ import React from 'react';
 import Perfil from './Perfil';
 import PuntoVenta from './PuntoVenta';
 import Reloj from './Reloj';
+import CashierInventoryButton from '../components/CashierInventoryButton';
 import { cerrarSesion } from '../models/authModel';
 import { obtenerProductosLocal } from '../models/productModel';
 
@@ -34,16 +35,16 @@ function Almacen({ notify }) {
           <Reloj />
         </div>
         <div className="admin-actions">
+          <CashierInventoryButton />
           <button onClick={() => navigate(rutaVolver)} className="btn btn-secondary">
             {rutaVolver === '/admin' ? 'Volver a administración' : 'Volver al panel'}
           </button>
+          <Perfil notify={notify} compact />
           <button onClick={() => cerrarSesion(navigate)} className="btn btn-danger">
             Cerrar sesión
           </button>
         </div>
       </header>
-
-      <Perfil notify={notify} />
 
       <PuntoVenta localId="almacen" localNombre="Almacén" productos={productos} usuario={usuario} notify={notify} />
     </main>

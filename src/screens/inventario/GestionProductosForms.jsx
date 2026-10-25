@@ -194,6 +194,7 @@ const ETIQUETAS_TIPO_MOVIMIENTO = {
   reposicion: 'Reposición',
   transferencia: 'Transferencia',
   devolucion: 'Devolución',
+  autoconsumo: 'Autoconsumo',
 };
 
 function formatFechaHistorial(fecha) {

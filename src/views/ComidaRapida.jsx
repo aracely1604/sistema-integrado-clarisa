@@ -5,6 +5,7 @@ import Reloj from './Reloj';
 import { cerrarSesion } from '../models/authModel';
 import { obtenerProductosLocal } from '../models/productModel';
 import MonitorPedidosWeb from './MonitorPedidosWeb';
+import CashierInventoryButton from '../components/CashierInventoryButton';
 
 import { useAuth } from '../controllers/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -32,15 +33,16 @@ function ComidaRapida({ notify }) {
           <Reloj />
         </div>
         <div className="admin-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <CashierInventoryButton />
           <button className="btn btn-primary" onClick={() => setMostrarMonitor(true)}>Ver Pedidos Online</button>
 
           <button className="btn btn-secondary" onClick={() => navigate('/admin')}>Volver a administración</button>
 
+          <Perfil notify={notify} compact />
+
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
       </header>
-
-      <Perfil notify={notify} />
 
       <PuntoVenta localId="comidaRapida" localNombre="Comida Rápida" productos={productos} usuario={usuario} notify={notify} />
 

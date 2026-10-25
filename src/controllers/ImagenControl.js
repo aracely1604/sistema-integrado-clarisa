@@ -12,13 +12,13 @@
 // - imagenUrl  → URL pública de descarga, lista para usar en <img src>.
 // - imagenPath → ruta interna en Storage, necesaria para borrar/reemplazar.
 
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { storage } from '../firebase';
 
 export const TIPOS_IMAGEN_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp'];
 export const TAMANO_MAX_MB = 5;
-const LADO_MAX_PX = 1024;      // se reduce la imagen para que cargue rápido en la interfaz
-const CALIDAD_WEBP = 0.85;
+const LADO_MAX_PX = 512;       // resolución suficiente para un avatar y liviana para subir
+const CALIDAD_WEBP = 0.76;
 
 // ─── Validación (devuelve el mensaje de error o '' si está OK) ──────────────
 export function validarImagen(file) {
@@ -69,7 +69,7 @@ const EXTENSIONES = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'p
 // carpeta: 'productos' | 'recetas'.  idDoc: id del documento dueño de la imagen.
 // Cada subida usa un nombre nuevo (timestamp) para que la URL cambie al
 // reemplazar la imagen y no se quede cacheada la anterior.
-export async function subirImagen(carpeta, idDoc, file) {
+export async function subirImagen(carpeta, idDoc, file, onProgress) {
   exigirImagenValida(file);
   const blob = await optimizarImagen(file);
   const extension = EXTENSIONES[blob.type] ?? 'jpg';
@@ -77,7 +77,14 @@ export async function subirImagen(carpeta, idDoc, file) {
   const archivoRef = ref(storage, imagenPath);
 
   try {
-    await uploadBytes(archivoRef, blob, { contentType: blob.type });
+    const subida = uploadBytesResumable(archivoRef, blob, { contentType: blob.type });
+    await new Promise((resolve, reject) => {
+      subida.on('state_changed', (snapshot) => {
+        if (snapshot.totalBytes > 0) {
+          onProgress?.(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
+        }
+      }, reject, resolve);
+    });
     const imagenUrl = await getDownloadURL(archivoRef);
     return { imagenUrl, imagenPath };
   } catch (e) {

@@ -3,6 +3,7 @@ import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, up
 import { useNavigate } from 'react-router-dom';
 import Perfil from './Perfil';
 import Reloj from './Reloj';
+import CashierInventoryButton from '../components/CashierInventoryButton';
 import { db } from '../firebase';
 import { cerrarSesion } from '../models/authModel';
 import { useAuth } from '../controllers/AuthContext';
@@ -227,13 +228,12 @@ function Delivery({ notify }) {
           <Reloj />
         </div>
         <div className="admin-actions">
+          <CashierInventoryButton />
           {sesion.rol === 'admin' && <button className="btn btn-secondary" onClick={() => navigate('/admin')}>Volver a administración</button>}
+          <Perfil notify={notify} compact />
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
       </header>
-
-      <Perfil notify={notify} />
-
 
       {datosAutoCompletos && <section className="work-panel vehicle-panel">
         <div><h2>Vehículo de reparto</h2><p className="muted">{sesion.marcaAuto} · {sesion.colorAuto} · {sesion.patente}</p></div>

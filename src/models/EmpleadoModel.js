@@ -19,6 +19,8 @@ export class EmpleadoModel {
     patente            = '',
     colorAuto          = '',
     marcaAuto          = '',
+    fotoPerfilUrl      = '',
+    fotoPerfilPath     = '',
   }) {
     this.id                = id;
     this.nombre            = nombre.trim();
@@ -42,6 +44,8 @@ export class EmpleadoModel {
     this.patente   = rol === 'delivery' ? patente.trim().toUpperCase() : '';
     this.colorAuto = rol === 'delivery' ? colorAuto.trim() : '';
     this.marcaAuto = rol === 'delivery' ? marcaAuto.trim() : '';
+    this.fotoPerfilUrl = fotoPerfilUrl;
+    this.fotoPerfilPath = fotoPerfilPath;
 
     this.actualizadoEn     = new Date().toISOString();
   }
@@ -88,6 +92,8 @@ export class EmpleadoModel {
       patente:            this.patente,
       colorAuto:          this.colorAuto,
       marcaAuto:          this.marcaAuto,
+      fotoPerfilUrl:      this.fotoPerfilUrl,
+      fotoPerfilPath:     this.fotoPerfilPath,
     };
   }
 
@@ -111,6 +117,8 @@ export class EmpleadoModel {
       patente:           data.patente             ?? '',
       colorAuto:         data.colorAuto           ?? '',
       marcaAuto:         data.marcaAuto           ?? '',
+      fotoPerfilUrl:     data.fotoPerfilUrl       ?? '',
+      fotoPerfilPath:    data.fotoPerfilPath      ?? '',
     });
   }
 }

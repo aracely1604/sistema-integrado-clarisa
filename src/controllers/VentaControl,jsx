@@ -11,7 +11,7 @@
 //   ventas/{idVenta}                     -> la venta
 
 import {
-  collection, doc, onSnapshot, runTransaction,
+  collection, doc, onSnapshot, runTransaction, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { LocalProductoModel } from '../models/LocalProductoModel';
@@ -132,5 +132,64 @@ export async function registrarVentaConStock(localId, venta) {
     });
 
     tx.set(doc(db, 'ventas', venta.id), venta);
+  });
+}
+
+// Guarda un autoconsumo y descuenta sus productos en una sola transacción.
+// Si el stock no alcanza para cualquiera de ellos, no se registra nada.
+export async function registrarAutoconsumoConStock(localId, registro) {
+  const requeridos = new Map();
+  for (const linea of registro.productos || []) {
+    if (!linea.id) throw new Error(`El producto "${linea.nombre}" no tiene id.`);
+    const previo = requeridos.get(linea.id);
+    requeridos.set(linea.id, {
+      nombre: linea.nombre,
+      pedido: (previo?.pedido ?? 0) + (Number(linea.cantidad) || 1),
+    });
+  }
+
+  await runTransaction(db, async (tx) => {
+    const ids = [...requeridos.keys()];
+    const refs = ids.map((id) => refProductoLocal(localId, id));
+    const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+    const faltantes = [];
+
+    snaps.forEach((snap, index) => {
+      const { nombre, pedido } = requeridos.get(ids[index]);
+      const disponible = snap.exists() ? Number(snap.data().stockActual) || 0 : 0;
+      if (disponible < pedido) faltantes.push({ id: ids[index], nombre, disponible, pedido });
+    });
+
+    if (faltantes.length) {
+      const error = new Error('Stock insuficiente para registrar el autoconsumo.');
+      error.faltantes = faltantes;
+      throw error;
+    }
+
+    const fecha = new Date().toISOString();
+    snaps.forEach((snap, index) => {
+      const idProducto = ids[index];
+      const { pedido } = requeridos.get(idProducto);
+      const stockAnterior = Number(snap.data().stockActual) || 0;
+      const stockNuevo = stockAnterior - pedido;
+      tx.update(refs[index], { stockActual: stockNuevo, actualizadoEn: fecha });
+      tx.set(doc(collection(db, 'historialStock')), {
+        fecha: serverTimestamp(),
+        local: localId,
+        idProducto,
+        tipoMovimiento: 'autoconsumo',
+        cantidad: -pedido,
+        stockAnterior,
+        stockNuevo,
+        usuario: registro.trabajadorId ?? null,
+        idProveedor: null,
+        localRelacionado: null,
+        valorUnitario: null,
+        valorTotal: null,
+        fechaVencimiento: null,
+      });
+    });
+
+    tx.set(doc(db, 'autoconsumos', registro.id), registro);
   });
 }
