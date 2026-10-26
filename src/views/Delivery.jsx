@@ -6,6 +6,7 @@ import { db } from '../firebase';
 import { cerrarSesion } from '../models/authModel';
 import { useAuth } from '../controllers/AuthContext';
 import '../styles/views/delivery.css';
+import TourGuiado from '../components/TourGuiado';
 
 const estadosPedido = [
   { id: 'recibido', nombre: 'Recibido' },
@@ -33,6 +34,14 @@ const fechaPedido = (pedido) => {
   const fecha = valor?.toDate?.() || new Date(valor || 0);
   return Number.isNaN(fecha.getTime()) ? 0 : fecha.getTime();
 };
+
+// Tour guiado del panel de repartos (HU-50). Los pasos cuyo elemento no exista se omiten
+// (por ejemplo, el detalle de un pedido cuando no hay pedidos pendientes).
+const PASOS_TOUR_REPARTOS = [
+  { target: '[data-tour="perfil"]', content: 'Tu perfil: aquí completas los datos de tu vehículo (patente, color y marca del auto). Mientras estén incompletos no puedes tomar pedidos.' },
+  { target: '[data-tour="rep-lista"]', content: 'Pedidos activos en tiempo real, con la cantidad de pedidos que hay ahora. Si no hay ninguno, verás el aviso "No hay pedidos pendientes por ahora".' },
+  { target: '[data-tour="rep-pedido"]', content: 'Cada pedido muestra su código, el cliente, la dirección, el teléfono, los productos y el total. "Tomar pedido" te lo asigna (uno a la vez); luego ingresas el código final de 4 dígitos y presionas "Completar entrega".' },
+];
 
 function Delivery({ notify }) {
   const navigate = useNavigate();
@@ -174,7 +183,7 @@ function Delivery({ notify }) {
 
       <Perfil notify={notify} />
 
-      <section className="work-panel delivery-panel">
+      <section data-tour="rep-lista" className="work-panel delivery-panel">
         <div className="delivery-panel-head">
           <div>
             <p className="eyebrow">Pedidos en tiempo real</p>
@@ -204,7 +213,7 @@ function Delivery({ notify }) {
               const esPedidoEnCurso = normalizarEstado(pedido.estado) === 'en_camino' && pedido.repartidorId === repartidorId;
 
               return (
-                <article className="delivery-order" key={pedido.id}>
+                <article data-tour="rep-pedido" className="delivery-order" key={pedido.id}>
                   <div className="delivery-order-main">
                     <span className="delivery-order-code">#{pedido.id.slice(0, 6).toUpperCase()}</span>
                     <h3>{nombreCliente}</h3>
@@ -260,6 +269,8 @@ function Delivery({ notify }) {
           </div>
         )}
       </section>
+
+      <TourGuiado steps={PASOS_TOUR_REPARTOS} />
     </main>
   );
 }

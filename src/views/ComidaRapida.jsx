@@ -34,7 +34,7 @@ function ComidaRapida({ notify }) {
         </div>
         <div className="admin-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           {/* 4. Agregamos el botón junto a los otros botones de arriba */}
-          <button className="btn btn-primary" onClick={() => setMostrarMonitor(true)}>Ver Pedidos Online</button>
+          <button data-tour="caja-pedidos-online" className="btn btn-primary" onClick={() => setMostrarMonitor(true)}>Ver Pedidos Online</button>
           <button className="btn btn-secondary" onClick={() => navigate('/portal')}>Volver al panel</button>
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>

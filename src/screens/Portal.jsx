@@ -6,6 +6,7 @@ import { logoutEmpleado } from '../controllers/AuthControl';
 import { useAuth } from '../controllers/AuthContext';
 import CredencialVirtual from '../components/CredencialVirtual';
 import '../css/Portal.css';
+import { Joyride } from 'react-joyride';
 
 
 function Portal() {
@@ -14,6 +15,7 @@ function Portal() {
   const [mostrarLocales, setMostrarLocales] = useState(false);
   const [saliendo, setSaliendo] = useState(false);
   const { usuario } = useAuth();
+  const [correrTutorial] = useState(true); 
 
   // TODO: reemplazar por datos reales desde useAuth() (AuthContext)
   const nombreUsuario = usuario?.nombre || "prueba";
@@ -87,11 +89,23 @@ function Portal() {
 
   return (
     <main className="portal-page">
+      <Joyride
+        steps={[
+          {
+            target: '.module-card.module-blue',
+            content: 'Este es un paso de prueba: aquí iría la explicación del módulo de Inventario.',
+            skipBeacon: true,
+          },
+        ]}
+        run={correrTutorial}
+        continuous
+        showSkipButton
+      />
       <section className="portal-shell">
         <div className="portal-header">
           <div>
             <p className="eyebrow">Panel principal</p>
-            <h1>Sistema Integrado</h1>
+            <h1>PRUEBA 123</h1>
             <p className="muted">
               Bienvenido/a, <b>{nombreUsuario}</b> ({nombreRol})
             </p>

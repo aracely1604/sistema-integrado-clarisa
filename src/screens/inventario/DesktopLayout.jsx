@@ -140,13 +140,13 @@ export default function DesktopLayout({ state, actions }) {
         <div className="dl-sb-scroll">
 
           {/* Toggle Ventas / Inventario */}
-          <div style={{ paddingTop: 12 }}>
+          <div data-tour="inv-modo" style={{ paddingTop: 12 }}>
             <p className="dl-sb-sec-label" style={{ padding: '0 12px', marginBottom: 6 }}>MODO</p>
             <ModoToggleDesktop modo={modo} setModo={setModo} />
           </div>
 
           {/* Selector de local con subitems */}
-          <div className="dl-sb-locales">
+          <div data-tour="inv-local" className="dl-sb-locales">
             <p className="dl-sb-sec-label" style={{ padding: '0 12px', marginBottom: 6 }}>LOCAL ACTIVO</p>
             {localesVisibles.map(local => {
               const isActive   = activeLocal === local;
@@ -207,7 +207,7 @@ export default function DesktopLayout({ state, actions }) {
         </div>
 
         {/* Fondo sidebar */}
-        <div className="dl-sb-bottom">
+        <div data-tour="inv-acciones" className="dl-sb-bottom">
           <button
             type="button"
             className="dl-sb-bottom-btn"
@@ -277,7 +277,7 @@ export default function DesktopLayout({ state, actions }) {
             </p>
           </div>
           {modo === 'inventario' && (
-            <div className="dl-topbar-badges">
+            <div data-tour="inv-alertas" className="dl-topbar-badges">
               {cntCriticoLocal > 0 && (
                 <span className="dl-topbar-badge" style={{ backgroundColor: '#FCEBEB', color: '#791F1F' }}>
                   <FiAlertTriangle size={11} />

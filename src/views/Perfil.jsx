@@ -85,7 +85,7 @@ function Perfil({ notify }) {
   };
 
   return (
-    <section className="profile-panel">
+    <section data-tour="perfil" className="profile-panel">
       <button className="profile-summary" onClick={() => setAbierto(!abierto)}>
         <span>
           <strong>{sesion.nombre || sesion.user} {sesion.apellido || ''}</strong>
