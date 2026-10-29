@@ -1,0 +1,87 @@
+/* Botón flotante de ayuda: reinicia el tutorial guiado (azul de la paleta: #2563eb, igual que el módulo Inventario) */
+.tour-fab {
+  position: fixed;
+  right: 32px;
+  bottom: 32px;
+  z-index: 10;
+  width: 84px;
+  height: 84px;
+  border: 0;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.45);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  animation: tour-fab-pulso 2s ease-out 3;
+}
+
+.tour-fab:hover {
+  background: #1d4ed8;
+  transform: scale(1.08);
+  box-shadow: 0 16px 34px rgba(37, 99, 235, 0.55);
+}
+
+.tour-fab:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 3px;
+}
+
+/* Anillo suave que se repite 3 veces al cargar para llamar la atención */
+@keyframes tour-fab-pulso {
+  0%   { box-shadow: 0 12px 28px rgba(37, 99, 235, 0.45), 0 0 0 0 rgba(37, 99, 235, 0.5); }
+  70%  { box-shadow: 0 12px 28px rgba(37, 99, 235, 0.45), 0 0 0 22px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 12px 28px rgba(37, 99, 235, 0.45), 0 0 0 0 rgba(37, 99, 235, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-fab {
+    animation: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .tour-fab {
+    right: 20px;
+    bottom: 20px;
+    width: 68px;
+    height: 68px;
+    font-size: 36px;
+  }
+}
+
+
+
+/* Variante para el encabezado de una ventana emergente */
+.tour-btn-encabezado {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid #2563eb;
+  background: #ffffff;
+  color: #2563eb;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.tour-btn-encabezado:hover {
+  background: #2563eb;
+  color: #ffffff;
+  transform: scale(1.08);
+}
+
+.tour-btn-encabezado:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}

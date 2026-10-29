@@ -8,6 +8,7 @@ import { db } from '../firebase';
 import { cerrarSesion } from '../models/authModel';
 import { useAuth } from '../controllers/AuthContext';
 import '../styles/views/delivery.css';
+import TourGuiado from '../components/TourGuiado';
 
 const estadosPedido = [
   { id: 'pendiente', nombre: 'Pendiente' },
@@ -37,6 +38,15 @@ const fechaPedido = (pedido) => {
   const fecha = valor?.toDate?.() || new Date(valor || 0);
   return Number.isNaN(fecha.getTime()) ? 0 : fecha.getTime();
 };
+
+// Tour guiado del panel de repartos (HU-50). Los pasos cuyo elemento no exista se omiten
+// (por ejemplo, el vehículo si aún no lo has completado, o el detalle de un pedido si no hay pedidos).
+const PASOS_TOUR_REPARTOS = [
+  { target: '[data-tour="perfil"]', content: 'Tu perfil: toca tu foto para cambiarla y para editar tu correo y tu teléfono.' },
+  { target: '[data-tour="rep-vehiculo"]', content: 'Tu vehículo de reparto: marca, color y patente. "Editar vehículo" los actualiza. Si aún no los completas, el sistema te los pide al tomar tu primer pedido.' },
+  { target: '[data-tour="rep-lista"]', content: 'Pedidos activos en tiempo real, con la cantidad de pedidos que hay ahora. Si no hay ninguno, verás el aviso "No hay pedidos pendientes por ahora".' },
+  { target: '[data-tour="rep-pedido"]', content: 'Cada pedido muestra su código, el cliente, la dirección, el teléfono, los productos y el total. "Tomar pedido" te lo asigna (uno a la vez). Cuando sale a reparto marcas "En camino", y al entregar ingresas el código final de 4 dígitos y presionas "Completar entrega".' },
+];
 
 const esPedidoPendiente = (estado) => ['recibido', 'recibidos', 'pendiente', 'pendientes'].includes(normalizarEstado(estado));
 function Delivery({ notify }) {
@@ -235,7 +245,7 @@ function Delivery({ notify }) {
         </div>
       </header>
 
-      {datosAutoCompletos && <section className="work-panel vehicle-panel">
+      {datosAutoCompletos && <section data-tour="rep-vehiculo" className="work-panel vehicle-panel">
         <div><h2>Vehículo de reparto</h2><p className="muted">{sesion.marcaAuto} · {sesion.colorAuto} · {sesion.patente}</p></div>
         <button className="btn btn-secondary" type="button" onClick={() => { setVehiculo({ patente: sesion.patente || '', marcaAuto: sesion.marcaAuto || '', colorAuto: sesion.colorAuto || '' }); setVehiculoAbierto(!vehiculoAbierto); }}>Editar vehículo</button>
       </section>}
@@ -249,7 +259,7 @@ function Delivery({ notify }) {
       </section>}
 
 
-      <section className="work-panel delivery-panel">
+      <section data-tour="rep-lista" className="work-panel delivery-panel">
         <div className="delivery-panel-head">
           <div>
             <p className="eyebrow">Pedidos en tiempo real</p>
@@ -282,7 +292,7 @@ function Delivery({ notify }) {
 
 
               return (
-                <article className="delivery-order" key={pedido.id}>
+                <article data-tour="rep-pedido" className="delivery-order" key={pedido.id}>
                   <div className="delivery-order-main">
                     <span className="delivery-order-code">#{pedido.id.slice(0, 6).toUpperCase()}</span>
                     <h3>{nombreCliente}</h3>
@@ -348,6 +358,8 @@ function Delivery({ notify }) {
           </div>
         )}
       </section>
+
+      <TourGuiado steps={PASOS_TOUR_REPARTOS} />
     </main>
   );
 }

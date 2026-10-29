@@ -69,7 +69,7 @@ export default function DesktopInventarioView({
         <div className="div-kpi-row">
 
           {/* KPI Métricas */}
-          <button type="button" onClick={() => setKpiMetricas(true)} className="div-kpi-card">
+          <button data-tour="inv-metricas" type="button" onClick={() => setKpiMetricas(true)} className="div-kpi-card">
             <span className="div-section-label">MÉTRICAS</span>
             <div className="div-metric-grid">
               {[
@@ -90,7 +90,7 @@ export default function DesktopInventarioView({
           </button>
 
           {/* KPI Recetas */}
-          <button type="button" onClick={() => setKpiRecetas(true)} className="div-kpi-card">
+          <button data-tour="inv-recetas" type="button" onClick={() => setKpiRecetas(true)} className="div-kpi-card">
             <span className="div-section-label">RECETAS</span>
             <div className="div-metric-grid">
               {[
@@ -111,7 +111,7 @@ export default function DesktopInventarioView({
           </button>
 
           {/* KPI Proveedores */}
-          <button type="button" onClick={() => setKpiProveedores(true)} className="div-kpi-card">
+          <button data-tour="inv-proveedores" type="button" onClick={() => setKpiProveedores(true)} className="div-kpi-card">
             <span className="div-section-label">PROVEEDORES</span>
             <div className="div-metric-grid">
               {[
@@ -131,7 +131,7 @@ export default function DesktopInventarioView({
           </button>
 
           {/* Agenda semanal (no es botón: el click vive en cada día del calendario) */}
-          <div className="div-kpi-card div-kpi-agenda">
+          <div data-tour="inv-agenda" className="div-kpi-card div-kpi-agenda">
             <span className="div-section-label" style={{ marginBottom: 8, display: 'block' }}>AGENDA SEMANAL</span>
             <CalendarioSemanal
               proveedores={provLocal}
@@ -150,7 +150,7 @@ export default function DesktopInventarioView({
 
           {/* Col 1: Stock crítico */}
           <div className="div-col3">
-            <div className="div-card">
+            <div data-tour="inv-stock-critico" className="div-card">
               <div className="div-card-header">
                 <span className="div-section-label">STOCK CRÍTICO</span>
                 <Badge label={`${criticos.length + bajos.length} productos`} level={criticos.length > 0 ? 'critical' : 'low'} />
@@ -172,7 +172,7 @@ export default function DesktopInventarioView({
 
           {/* Col 2: Por vencer */}
           <div className="div-col3">
-            <div className="div-card">
+            <div data-tour="inv-por-vencer" className="div-card">
               <div className="div-card-header">
                 <span className="div-section-label">POR VENCER</span>
                 <Badge label={`${vencLocal.length} productos`} level={porVencer.length > 0 ? 'warning' : 'ok'} />
@@ -194,7 +194,7 @@ export default function DesktopInventarioView({
 
           {/* Col 3: Productos recientes */}
           <div className="div-col3">
-            <div className="div-card">
+            <div data-tour="inv-ingresados" className="div-card">
               <div className="div-card-header">
                 <span className="div-section-label">INGRESADOS HOY</span>
                 <Badge label={`${recienteLocal.length}`} level="info" />

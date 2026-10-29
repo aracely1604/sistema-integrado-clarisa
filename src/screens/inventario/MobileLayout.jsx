@@ -253,7 +253,7 @@ export default function MobileLayout({ state, actions }) {
 
       {/* ── Header ── */}
       <div className="ml-header">
-        <button type="button" onClick={() => setDrawerOpen(true)} className="ml-menu-btn">
+        <button data-tour="inv-m-menu" type="button" onClick={() => setDrawerOpen(true)} className="ml-menu-btn">
           <FiMenu size={16} />
         </button>
         <div className="ml-header-center">
@@ -268,7 +268,7 @@ export default function MobileLayout({ state, actions }) {
       <SessionWarningBanner />
 
       {/* ── Selector de local ── */}
-      <div className="ml-local-bar">
+      <div data-tour="inv-m-locales" className="ml-local-bar">
         {LOCALES_KPI.map(loc => {
           const isActive  = activeLocal === loc.id;
           const col       = LOCAL_COLORS[loc.id];
@@ -299,7 +299,7 @@ export default function MobileLayout({ state, actions }) {
 
       {/* ── Métricas KPI (solo en modo inventario) ── */}
       {modo === 'inventario' && (
-        <div className="ml-metrics-row">
+        <div data-tour="inv-m-metricas" className="ml-metrics-row">
           {[
             { label: 'Productos',  value: stockLocal.length,              color: 'var(--c-textPrimary)',                                onPress: () => setKpiMetricas(true) },
             { label: 'Stock bajo', value: criticos.length + bajos.length, color: criticos.length > 0 ? '#E24B4A' : '#BA7517',           onPress: () => setKpiMetricas(true) },
@@ -316,7 +316,7 @@ export default function MobileLayout({ state, actions }) {
 
       {/* ── Tabs (solo en modo inventario) ── */}
       {modo === 'inventario' && (
-        <div className="ml-tab-bar">
+        <div data-tour="inv-m-tabs" className="ml-tab-bar">
           {TABS.map(tab => {
             const TabIcon = tab.icon;
             const active = activeTab === tab.id;

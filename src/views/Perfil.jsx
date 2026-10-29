@@ -131,7 +131,7 @@ function Perfil({ notify, compact = false }) {
   const iniciales = nombre.split(/\s+/).filter(Boolean).slice(0, 2).map((parte) => parte[0]).join('').toUpperCase();
 
   return (
-    <section className={`profile-panel${compact ? ' profile-panel-compact' : ''}`}>
+    <section data-tour="perfil" className={`profile-panel${compact ? ' profile-panel-compact' : ''}`}>
       <div className={`profile-summary${compact ? ' profile-summary-compact' : ''}`}>
         <button className="profile-avatar" type="button" onClick={abrirEdicion} aria-label="Editar foto de perfil">
           {sesion.fotoPerfilUrl ? <img src={sesion.fotoPerfilUrl} alt="Foto de perfil" /> : <span>{iniciales || 'U'}</span>}
