@@ -1,5 +1,4 @@
 import React from 'react';
-import Perfil from './Perfil';
 import PuntoVenta from './PuntoVenta';
 import Reloj from './Reloj';
 import CashierInventoryButton from '../components/CashierInventoryButton';
@@ -37,7 +36,6 @@ function Cafeteria({ notify }) {
           <button className="btn btn-secondary" onClick={() => navigate(rutaVolver)}>
             {rutaVolver === '/admin' ? 'Volver a administración' : 'Volver al panel'}
           </button>
-          <Perfil notify={notify} compact />
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
       </header>

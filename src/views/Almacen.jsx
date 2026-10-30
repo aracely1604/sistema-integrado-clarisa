@@ -1,5 +1,4 @@
 import React from 'react';
-import Perfil from './Perfil';
 import PuntoVenta from './PuntoVenta';
 import Reloj from './Reloj';
 import CashierInventoryButton from '../components/CashierInventoryButton';
@@ -39,7 +38,6 @@ function Almacen({ notify }) {
           <button onClick={() => navigate(rutaVolver)} className="btn btn-secondary">
             {rutaVolver === '/admin' ? 'Volver a administración' : 'Volver al panel'}
           </button>
-          <Perfil notify={notify} compact />
           <button onClick={() => cerrarSesion(navigate)} className="btn btn-danger">
             Cerrar sesión
           </button>

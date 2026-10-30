@@ -59,7 +59,7 @@ export default function DesktopLayout({ state, actions }) {
 
   // ── Permisos según rol ──
   const esCajero       = usuario?.rol === 'cajero';
-  const localesUsuario = localesAsignados(usuario?.localAsignado);
+  const localesUsuario = localesAsignados(usuario?.localAsignado || usuario?.local);
   const localesVisibles = LOCALES_LIST.filter(l => localesUsuario.includes(l));
 
   // Subitems del desplegable: cajero ve Inventario y Proveedores

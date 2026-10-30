@@ -52,10 +52,22 @@ function esRepartidor(datos) {
  * @returns {string[]}
  */
 export function localesAsignados(localAsignado) {
+  const normalizarLocal = (valor) => {
+    const clave = String(valor || '').trim().toLowerCase().replaceAll(' ', '_');
+    if (['comidarapida', 'comida_rapida', 'comida'].includes(clave)) return 'comidaRapida';
+    if (['cafeteria', 'cafetería'].includes(clave)) return 'cafeteria';
+    if (['almacen', 'almacén'].includes(clave)) return 'almacen';
+    return null;
+  };
+  if (typeof localAsignado === 'string') {
+    const local = normalizarLocal(localAsignado);
+    return local ? [local] : [];
+  }
   if (!localAsignado || typeof localAsignado !== 'object') return [];
   return Object.entries(localAsignado)
     .filter(([, asignado]) => asignado === true)
-    .map(([nombre]) => nombre);
+    .map(([nombre]) => normalizarLocal(nombre))
+    .filter(Boolean);
 }
 
 /**
@@ -100,7 +112,7 @@ export function estaRealmenteEnLinea(usuario) {
 export function AuthProvider({ children }) {
   const [usuario,     setUsuario]     = useState(null);
   const [cargando,    setCargando]    = useState(true);
-  const [localActivo, setLocalActivo] = useState('comida');
+  const [localActivo, setLocalActivo] = useState('comidaRapida');
 
   const cierreAutoRef  = useRef(null);
   const advertenciaRef = useRef(null);
@@ -151,7 +163,7 @@ export function AuthProvider({ children }) {
         // El horario del local asignado no debe bloquear la consola de reparto:
         // perfiles Delivery suelen tener una asignación de caja heredada.
         if (datos.restriccionHorario && !esAdministrador(datos) && !esRepartidor(datos)) {
-          const nombreLocal = localesAsignados(datos.localAsignado)[0] ?? LOCAL_POR_DEFECTO;
+          const nombreLocal = localesAsignados(datos.localAsignado || datos.local)[0] ?? LOCAL_POR_DEFECTO;
           const horario = await obtenerHorarioLocal(nombreLocal);
           if (!estaDentroDelTurno(datos.turno, horario)) {
             await logoutEmpleado();
@@ -169,7 +181,7 @@ export function AuthProvider({ children }) {
             let horarioLocal = null;
 
             if (datos.restriccionHorario && !esAdmin && !esRepartidor(datos)) {
-              const nombreLocal = localesAsignados(datos.localAsignado)[0] ?? LOCAL_POR_DEFECTO;
+              const nombreLocal = localesAsignados(datos.localAsignado || datos.local)[0] ?? LOCAL_POR_DEFECTO;
               horarioLocal = await obtenerHorarioLocal(nombreLocal);
             }
 
@@ -185,7 +197,7 @@ export function AuthProvider({ children }) {
             setUsuario(nuevoUsuario);
             // Inicializar localActivo con el primer local asignado al usuario
             setLocalActivo(prev => {
-              const locales = localesAsignados(datos.localAsignado);
+              const locales = localesAsignados(datos.localAsignado || datos.local);
               // Solo actualizar si el local actual no pertenece al usuario
               if (locales.length > 0 && !locales.includes(prev)) {
                 return locales[0];

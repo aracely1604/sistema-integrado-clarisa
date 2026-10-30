@@ -650,6 +650,126 @@
   gap: 12px;
 }
 
+.pos-product-browser {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.pos-product-tabs {
+  display: grid;
+  gap: 8px;
+}
+
+.pos-product-tabs button {
+  min-height: 48px;
+  padding: 12px;
+  border: 1px solid #dbe4ee;
+  border-radius: 8px;
+  color: #334155;
+  background: #f8fafc;
+  text-align: left;
+  font-weight: 800;
+}
+
+.pos-product-tabs button.active {
+  border-color: #0f766e;
+  color: #fff;
+  background: #0f766e;
+}
+
+.pos-product-browser {
+  grid-template-columns: minmax(210px, 25%) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.pos-product-tabs button {
+  min-height: 60px;
+  padding: 13px 15px;
+  border-radius: 11px;
+  font-size: 15px;
+  line-height: 1.35;
+  transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease;
+}
+
+.pos-product-tabs button:hover:not(.active) {
+  border-color: #94a3b8;
+  background: #f1f5f9;
+  transform: translateY(-1px);
+}
+
+.pos-product-tabs button.active {
+  border: 2px solid #111827;
+  padding: 12px 14px;
+}
+
+.pos-product-browser .product-grid {
+  align-content: start;
+  gap: 14px;
+}
+
+.pos-product-browser .product-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  justify-content: initial;
+  min-height: 96px;
+  gap: 12px;
+  padding: 17px;
+  border-radius: 11px;
+}
+
+.pos-product-browser .product-button span {
+  min-width: 0;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pos-product-browser .product-button strong {
+  white-space: nowrap;
+}
+
+.pos-product-browser .product-stock {
+  max-width: 82px;
+  color: #0f172a;
+  text-align: left;
+  line-height: 1.35;
+}
+
+.pos-products-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-bottom: 16px;
+}
+
+.pos-products-heading h2 {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.pos-products-heading .pos-product-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pos-products-heading .pos-product-tabs button {
+  min-height: 42px;
+  padding: 9px 14px;
+  text-align: center;
+}
+
+.pos-products-heading .pos-product-tabs button.active {
+  padding: 8px 13px;
+}
+
+.pos-product-browser {
+  display: block;
+}
+
 .product-button {
   min-height: 78px;
   display: flex;
@@ -923,6 +1043,7 @@
   .chart-grid,
   .payment-summary,
   .product-grid,
+  .pos-product-browser,
   .pos-layout,
   .profile-form {
     grid-template-columns: 1fr;
@@ -938,6 +1059,27 @@
 
   .dashboard-page {
     padding: 18px;
+  }
+
+  .pos-products-heading .pos-product-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 2px 2px 7px;
+  }
+
+  .pos-products-heading .pos-product-tabs button {
+    flex: 0 0 auto;
+    min-height: 54px;
+    padding: 9px;
+    font-size: 13px;
+  }
+
+  .pos-products-heading .pos-product-tabs button.active {
+    padding: 8px;
+  }
+
+  .pos-product-browser .product-grid {
+    grid-template-columns: 1fr;
   }
 }
 

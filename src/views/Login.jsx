@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, where } from 'firebase/firestore';
-import { contrasenaSegura, mensajeContrasenaSegura, obtenerVistaInicial, rutConFormatoValido, rutValido } from '../models/authModel';
+import { contrasenaSegura, mensajeContrasenaSegura, obtenerOpcionRol, obtenerVistaInicial, opcionesRol, rutConFormatoValido, rutValido } from '../models/authModel';
 import { auth, db } from '../firebase';
 import '../styles/views/login.css';
 
@@ -72,6 +72,38 @@ function Login({ navigate, notify }) {
       : { ...porUid.docs[0].data(), uid, perfilId: porUid.docs[0].id };
   };
 
+  const recuperarUsuarioAceptado = async (email, uid) => {
+    const solicitudesRef = collection(db, 'solicitudesUsuarios');
+    let aceptada = await getDocs(query(solicitudesRef, where('uid', '==', uid), limit(5)));
+    let solicitudAceptada = aceptada.docs.find((documento) => documento.data().estado === 'aceptada');
+    if (!solicitudAceptada) {
+      for (const campo of ['user', 'email', 'correo']) {
+        aceptada = await getDocs(query(solicitudesRef, where(campo, '==', email)));
+        solicitudAceptada = aceptada.docs.find((documento) => documento.data().estado === 'aceptada');
+        if (solicitudAceptada) break;
+      }
+    }
+    if (!solicitudAceptada) return null;
+
+    const solicitud = solicitudAceptada.data();
+    const valorAsignado = solicitud.rolAsignadoValue || opcionesRol.find((opcion) => opcion.label.toLowerCase() === String(solicitud.rolAsignado || '').toLowerCase())?.value;
+    const opcion = obtenerOpcionRol(valorAsignado || 'cajero_almacen');
+    const usuarioAceptado = {
+      uid,
+      user: solicitud.user || solicitud.email || solicitud.correo || email,
+      nombre: solicitud.nombre || '',
+      apellido: solicitud.apellido || '',
+      rut: solicitud.rut || '',
+      telefono: solicitud.telefono || '',
+      rol: opcion.rol,
+      local: opcion.local,
+      estado: 'activo',
+      aprobadoEn: solicitud.aprobadaEn || new Date().toISOString(),
+    };
+    await setDoc(doc(db, 'usuarios', uid), usuarioAceptado, { merge: true });
+    return usuarioAceptado;
+  };
+
   const activarEscuchaSolicitud = (uid) => {
     localStorage.setItem('solicitudPendienteUid', uid);
     setSolicitudPendienteUid(uid);
@@ -92,7 +124,15 @@ function Login({ navigate, notify }) {
       const docSnap = await getDoc(doc(db, 'usuarios', uid));
 
       if (docSnap.exists()) {
-        iniciarSesion({ uid, ...docSnap.data() });
+        const perfil = { uid, ...docSnap.data() };
+        if (perfil.estado === 'pendiente' || !perfil.rol) {
+          const perfilAceptado = await recuperarUsuarioAceptado(email, uid);
+          if (perfilAceptado) {
+            iniciarSesion(perfilAceptado);
+            return;
+          }
+        }
+        iniciarSesion(perfil);
         return;
       }
 
@@ -100,7 +140,20 @@ function Login({ navigate, notify }) {
       const usuarioPorCorreo = await buscarUsuarioFirestore(email, uid);
 
       if (usuarioPorCorreo) {
+        if (usuarioPorCorreo.estado === 'pendiente' || !usuarioPorCorreo.rol) {
+          const perfilAceptado = await recuperarUsuarioAceptado(email, uid);
+          if (perfilAceptado) {
+            iniciarSesion(perfilAceptado);
+            return;
+          }
+        }
         iniciarSesion(usuarioPorCorreo);
+        return;
+      }
+
+      const usuarioAceptado = await recuperarUsuarioAceptado(email, uid);
+      if (usuarioAceptado) {
+        iniciarSesion(usuarioAceptado);
         return;
       }
 

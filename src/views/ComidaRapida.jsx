@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Perfil from './Perfil';
 import PuntoVenta from './PuntoVenta';
 import Reloj from './Reloj';
 import { cerrarSesion } from '../models/authModel';
@@ -37,8 +36,6 @@ function ComidaRapida({ notify }) {
           <button className="btn btn-primary" onClick={() => setMostrarMonitor(true)}>Ver Pedidos Online</button>
 
           <button className="btn btn-secondary" onClick={() => navigate('/admin')}>Volver a administración</button>
-
-          <Perfil notify={notify} compact />
 
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>

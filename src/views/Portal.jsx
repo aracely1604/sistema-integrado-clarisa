@@ -26,7 +26,7 @@ function Portal({ navigate, notify }) {
       return;
     }
 
-    if (sesion.rol !== 'admin') navigate(obtenerVistaInicial(sesion));
+    if (sesion.rol !== 'admin' && sesion.rol !== 'cajero') navigate(obtenerVistaInicial(sesion));
   }, [sesion, navigate]);
 
   useEffect(() => {
@@ -86,6 +86,7 @@ function Portal({ navigate, notify }) {
       await updateDoc(doc(db, 'solicitudesUsuarios', solicitud.id), {
         estado: 'aceptada',
         rolAsignado: opcionRol.label,
+        rolAsignadoValue: rolesSeleccionados[solicitud.id] || opcionRol.value,
         aprobadaEn: aprobadoEn,
         aprobadaPor: sesion.user || sesion.email || 'administrador',
       });
@@ -117,7 +118,9 @@ function Portal({ navigate, notify }) {
     }
   };
 
-  if (!sesion || sesion.rol !== 'admin') return null;
+  if (!sesion || !['admin', 'cajero'].includes(sesion.rol)) return null;
+  const esCajero = sesion.rol === 'cajero';
+  const rutaCaja = ({ almacen: 'almacen', cafeteria: 'cafeteria', comida_rapida: 'comidaRapida' })[sesion.local] || 'almacen';
 
   return (
     <main className="portal-page">
@@ -127,7 +130,7 @@ function Portal({ navigate, notify }) {
             <p className="eyebrow">Panel principal</p>
             <h1>Sistema Integrado</h1>
             <p className="muted">
-              Bienvenido/a, <b>{sesion.nombre || sesion.user || sesion.email}</b> (administrador)
+              Bienvenido/a, <b>{sesion.nombre || sesion.user || sesion.email}</b> ({esCajero ? `cajero · ${sesion.local || 'almacén'}` : 'administrador'})
             </p>
           </div>
           <button
@@ -142,6 +145,11 @@ function Portal({ navigate, notify }) {
         </div>
 
         <div className="action-grid">
+          {esCajero ? <>
+            <button onClick={() => navigate(rutaCaja)} className="module-card module-green"><span className="module-icon">Caja</span><strong>Mi caja</strong><small>Ingresar a la caja de {sesion.local || 'almacén'} asignada a tu cuenta.</small></button>
+            <button onClick={() => navigate('alertas')} className="module-card module-blue"><span className="module-icon">Stock</span><strong>Inventario</strong><small>Consultar el inventario.</small></button>
+            <button onClick={() => navigate('perfil')} className="module-card module-users"><span className="module-icon">Perfil</span><strong>Mi perfil</strong><small>Ver tus datos e historial y editar tu teléfono.</small></button>
+          </> : <>
           <button onClick={() => navigate('admin')} className="module-card module-green">
             <span className="module-icon">Caja</span>
             <strong>Panel admin</strong>
@@ -171,6 +179,12 @@ function Portal({ navigate, notify }) {
             <strong>Horarios de locales</strong>
             <small>Configura los turnos de cafetería, almacén, comida rápida y delivery.</small>
           </button>
+          <button onClick={() => navigate('perfil')} className="module-card module-users">
+            <span className="module-icon">Perfil</span>
+            <strong>Mi perfil</strong>
+            <small>Consulta tu información e historial y edita tu teléfono.</small>
+          </button>
+          </>}
         </div>
       </section>
 

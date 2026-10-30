@@ -15,6 +15,12 @@
 .dashboard-topbar .profile-summary-compact .profile-avatar-camera { width: 18px; height: 18px; }
 .profile-summary > span { display: grid; gap: 5px; }
 .profile-summary small { color: #64748b; }
+.profile-details { margin-top: 22px; padding: 22px; border: 1px solid #dbe4ee; border-radius: 14px; background: #fff; }
+.profile-details h2, .profile-details h3 { margin: 0 0 14px; color: #111827; }
+.profile-history-row { display: grid; gap: 5px; padding: 14px 0; border-top: 1px solid #e2e8f0; }
+.profile-history-row small, .profile-history-row span { color: #64748b; }
+.profile-history-details { margin-top: 18px; }
+.profile-history-details summary { width: fit-content; padding: 10px 14px; border-radius: 9px; background: #f1f5f9; color: #0f766e; font-weight: 800; cursor: pointer; }
 .profile-avatar { position: relative; display: grid; place-items: center; width: 58px; height: 58px; flex: 0 0 58px; padding: 0; overflow: hidden; border: 2px solid #dbe4ee; border-radius: 50%; color: #fff; background: #0f766e; font-size: 20px; font-weight: 800; }
 .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .profile-avatar-camera { position: absolute; right: 0; bottom: 0; display: grid; place-items: center; width: 23px; height: 23px; border: 2px solid #fff; border-radius: 50%; color: #fff; background: #0f766e; }

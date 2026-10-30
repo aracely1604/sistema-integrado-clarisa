@@ -191,5 +191,6 @@ export async function registrarAutoconsumoConStock(localId, registro) {
     });
 
     tx.set(doc(db, 'autoconsumos', registro.id), registro);
+    tx.set(doc(db, 'ventas', registro.id), { ...registro, tipo: 'autoconsumo', metodoPago: 'Autoconsumo' });
   });
 }

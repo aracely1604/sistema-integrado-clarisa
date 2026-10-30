@@ -40,6 +40,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
     nombre: '', categoria: '', unidadMedida: 'unidad', precioVenta: '', stockInicial: '1',
   });
   const [autoconsumo, setAutoconsumo] = useState([]);
+  const [seccionProductoActiva, setSeccionProductoActiva] = useState('Productos');
   const [aceptaFirma, setAceptaFirma] = useState(false);
   const [firmaDibujada, setFirmaDibujada] = useState(false);
   const firmaCanvasRef = useRef(null);
@@ -163,6 +164,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
       local: localId,
       localNombre,
       usuario,
+      uid: trabajador?.uid || null,
       nombre,
       apellido,
       efectivoInicial: montoInicial,
@@ -210,6 +212,13 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
     && new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date(registro.fecha || Date.now())) === diaLocalChile
   ));
   const totalPersonalHoy = consumosPersonalesHoy.reduce((suma, registro) => suma + Number(registro.total || 0), 0);
+  const unidadesGranel = ['kilogramos', 'kilogramo', 'kg', 'gramos', 'litros', 'litro', 'ml'];
+  const esProductoReceta = (p) => Boolean(p.recetaId || p.tipo === 'receta' || p.esReceta || p.ingredientesBase?.length);
+  const seccionesProductos = [
+    { titulo: 'Productos a granel', items: productos.filter((p) => !esProductoReceta(p) && unidadesGranel.includes(String(p.unidadMedida || '').toLowerCase())) },
+    { titulo: 'Productos a base de recetas', items: productos.filter(esProductoReceta) },
+    { titulo: 'Productos', items: productos.filter((p) => !esProductoReceta(p) && !unidadesGranel.includes(String(p.unidadMedida || '').toLowerCase())) },
+  ];
 
   const registrarAutoconsumo = async () => {
     if (autoconsumo.length === 0) {
@@ -253,7 +262,10 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
 
     const registros = JSON.parse(localStorage.getItem('autoconsumos')) || [];
     localStorage.setItem('autoconsumos', JSON.stringify([...registros, registro]));
+    const ventas = JSON.parse(localStorage.getItem('ventas')) || [];
+    localStorage.setItem('ventas', JSON.stringify([...ventas, { ...registro, tipo: 'autoconsumo', metodoPago: 'Autoconsumo' }]));
     window.dispatchEvent(new Event('autoconsumos-actualizados'));
+    window.dispatchEvent(new Event('ventas-actualizadas'));
     setAutoconsumo([]);
     setMostrarAutoconsumo(false);
     notify('Autoconsumo registrado. Quedará pendiente de tu firma diaria.', 'success');
@@ -785,9 +797,14 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
 
       <section className="pos-layout">
         <div className="work-panel">
-          <h2>Productos</h2>
-          <div className="product-grid">
-            {productos.map((producto) => (
+          <div className="pos-products-heading">
+            <nav className="pos-product-tabs" aria-label="Secciones de productos">
+              {seccionesProductos.map((seccion) => <button type="button" key={seccion.titulo} className={seccionProductoActiva === seccion.titulo ? 'active' : ''} aria-pressed={seccionProductoActiva === seccion.titulo} onClick={() => setSeccionProductoActiva(seccion.titulo)}>{seccion.titulo}</button>)}
+            </nav>
+          </div>
+          <div className="pos-product-browser">
+            <div className="product-grid">
+            {(seccionesProductos.find((seccion) => seccion.titulo === seccionProductoActiva)?.items || []).map((producto) => (
               <button
                 className="product-button"
                 onClick={() => agregarProducto(producto)}
@@ -803,8 +820,9 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
                 </small>
               </button>
             ))}
-            {productos.length === 0 && <p className="muted">No hay productos activos en este local.</p>}
+            </div>
           </div>
+          {(seccionesProductos.find((seccion) => seccion.titulo === seccionProductoActiva)?.items || []).length === 0 && <p className="muted">No hay productos en esta sección.</p>}
         </div>
 
         <aside className="work-panel">

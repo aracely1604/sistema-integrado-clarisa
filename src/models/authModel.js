@@ -49,6 +49,8 @@ export const obtenerVistaInicial = (usuario) => {
 
   if (usuario.rol === 'cocinero') return 'cocinero';
 
+  if (usuario.rol === 'cajero') return 'portal';
+
 
   return rutasPorLocal[usuario.local] || 'almacen';
 };

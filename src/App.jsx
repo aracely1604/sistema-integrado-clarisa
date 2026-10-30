@@ -62,13 +62,13 @@ function AppRoutes({ notify }) {
           <Route path="/alertas" element={<AlertasScreen notify={notify} />} />
 
           <Route path="/portal" element={<Portal navigate={navegarVista} notify={notify} />} />
-          <Route path="/admin" element={<Admin notify={notify} />} />
-          <Route path="/almacen" element={<Almacen notify={notify} />} />
+          <Route path="/admin" element={usuario.rol === 'admin' ? <Admin notify={notify} /> : <Navigate to="/portal" replace />} />
+          <Route path="/almacen" element={usuario.rol === 'cajero' && usuario.local !== 'almacen' ? <Navigate to="/portal" replace /> : <Almacen notify={notify} />} />
           <Route path="/delivery" element={<Delivery notify={notify} />} />
           <Route path="/cocinero" element={<Cocinero notify={notify} />} />
-          <Route path="/cafeteria" element={<Cafeteria notify={notify} />} />
-          <Route path="/comidaRapida" element={<ComidaRapida notify={notify} />} />
-          <Route path="/comida_rapida" element={<ComidaRapida notify={notify} />} />
+          <Route path="/cafeteria" element={usuario.rol === 'cajero' && usuario.local !== 'cafeteria' ? <Navigate to="/portal" replace /> : <Cafeteria notify={notify} />} />
+          <Route path="/comidaRapida" element={usuario.rol === 'cajero' && !['comida_rapida', 'comidaRapida'].includes(usuario.local) ? <Navigate to="/portal" replace /> : <ComidaRapida notify={notify} />} />
+          <Route path="/comida_rapida" element={usuario.rol === 'cajero' && !['comida_rapida', 'comidaRapida'].includes(usuario.local) ? <Navigate to="/portal" replace /> : <ComidaRapida notify={notify} />} />
           <Route path="/perfil" element={<Perfil notify={notify} />} />
           <Route path="*" element={<Navigate to="/portal" replace />} />
         </>

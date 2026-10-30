@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
-import Perfil from './Perfil';
 import Reloj from './Reloj';
 import CashierInventoryButton from '../components/CashierInventoryButton';
 import { db } from '../firebase';
@@ -230,7 +229,6 @@ function Delivery({ notify }) {
         <div className="admin-actions">
           <CashierInventoryButton />
           {sesion.rol === 'admin' && <button className="btn btn-secondary" onClick={() => navigate('/admin')}>Volver a administración</button>}
-          <Perfil notify={notify} compact />
           <button className="btn btn-danger" onClick={() => cerrarSesion(navigate)}>Cerrar sesión</button>
         </div>
       </header>
