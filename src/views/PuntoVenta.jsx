@@ -7,6 +7,7 @@ import { crearProductoGlobal, obtenerProductoPorCodigoBarra } from '../controlle
 import { ajustarStockLocal, actualizarProductoLocal, cambiarEstadoProductoLocal, crearProductoEnLocal, obtenerProductoLocal } from '../controllers/LocalProductoControl';
 import BarcodeScanner from '../components/BarcodeScanner';
 import { CATEGORIAS, UNIDADES_MEDIDA, convertirACantidadBase, unidadBaseDesdeUnidadMedida } from '../screens/inventario/gestionProductosData';
+import TourGuiado from '../components/TourGuiado';
 import '../styles/views/pointOfSale.css';
 
 const metodosBase = ['Débito', 'Efectivo', 'Transferencia'];
@@ -17,6 +18,25 @@ const formatearFechaHora = (fecha) => {
     timeStyle: 'medium',
   });
 };
+
+// Tour guiado del punto de venta (HU-50). Lo usan Almacén, Cafetería y Comida Rápida.
+// Los pasos cuyo elemento no exista en la pantalla activa se omiten automáticamente.
+const crearPasosTourCaja = (esComidaRapida) => [
+  { target: '.dashboard-topbar .admin-actions', content: 'Accesos de la parte superior: "Inventario" (para cajeros) abre el inventario, "Volver" regresa a la pantalla anterior, tu foto abre tu perfil y "Cerrar sesión" termina tu sesión.' },
+  { target: '[data-tour="caja-pedidos-online"]', content: 'Abre el monitor de pedidos online: puedes filtrarlos por estado y ver el detalle de cada uno.' },
+  { target: '[data-tour="perfil"]', content: 'Tu perfil: toca tu foto para cambiarla y para editar tu correo y tu teléfono.' },
+  { target: '[data-tour="caja-estado"]', content: 'Estado de tu caja. Para vender, primero ingresa el efectivo con el que empiezas el día y presiona "Abrir caja"; al terminar tu turno usa "Cerrar caja". Con la caja cerrada no se pueden agregar productos.' },
+  { target: '[data-tour="caja-autoconsumo"]', content: 'Autoconsumo: "Registrar autoconsumo" anota los productos que consumes (tu credencial virtual corresponde a tu RUT) y "Firmar resumen diario" confirma tu registro al terminar el turno. No se suma a una venta de cliente.' },
+  { target: '[data-tour="caja-productos"]', content: 'Presiona un producto para agregarlo al carrito; cada uno muestra su precio y su stock. También puedes agregarlo con un lector de código de barras. Solo funciona con la caja abierta y si el producto tiene stock.' },
+  {
+    target: '[data-tour="caja-carrito"]',
+    content: esComidaRapida
+      ? 'Aquí aparecen los productos que vas agregando. "Eliminar" o "Quitar uno" corrige un producto, y si el producto tiene ingredientes puedes presionar uno para quitarlo.'
+      : 'Aquí aparecen los productos que vas agregando. "Eliminar" o "Quitar uno" corrige un producto.',
+  },
+  { target: '[data-tour="caja-total"]', content: 'El total de la venta se calcula solo con lo que hay en el carrito.' },
+  { target: '[data-tour="caja-pago"]', content: 'Elige el método de pago. Si es efectivo, ingresa el monto recibido y el sistema calcula el vuelto. Luego presiona "Registrar pago".' },
+];
 
 function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metodosBase }) {
   const [productos, setProductos] = useState([]);
@@ -641,6 +661,8 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
 
   return (
     <>
+      <TourGuiado steps={crearPasosTourCaja(esComidaRapida)} />
+
       <BarcodeScanner onScan={manejarCodigoEscaneado} enabled={!codigoNuevoPendiente} />
       {codigoNuevoPendiente && !mostrarFormularioProductoNuevo && (
         <div className="modal-backdrop" role="presentation">
@@ -760,7 +782,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
         </div>
       )}
 
-      <section className="cash-panel">
+      <section data-tour="caja-estado" className="cash-panel">
         <div>
           <p className="eyebrow">Caja</p>
           <h2>{cajaAbierta ? 'Caja abierta' : 'Caja cerrada'}</h2>
@@ -790,12 +812,13 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
         </button>
       </section>
 
-      <section className="personal-consumption-panel">
+      <section data-tour="caja-autoconsumo" className="personal-consumption-panel">
         <div><p className="eyebrow">Consumo personal</p><h2>Autoconsumo del trabajador</h2><p className="muted">Tu credencial virtual corresponde a tu RUT. Firma tu resumen al terminar el turno.</p></div>
         <div className="personal-consumption-actions"><button className="btn btn-secondary" onClick={() => setMostrarAutoconsumo(true)}>Registrar autoconsumo</button><button className="btn btn-primary" onClick={() => setMostrarFirma(true)}>Firmar resumen diario</button></div>
       </section>
 
       <section className="pos-layout">
+<<<<<<< HEAD
         <div className="work-panel">
           <div className="pos-products-heading">
             <nav className="pos-product-tabs" aria-label="Secciones de productos">
@@ -805,6 +828,12 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
           <div className="pos-product-browser">
             <div className="product-grid">
             {(seccionesProductos.find((seccion) => seccion.titulo === seccionProductoActiva)?.items || []).map((producto) => (
+=======
+        <div data-tour="caja-productos" className="work-panel">
+          <h2>Productos</h2>
+          <div className="product-grid">
+            {productos.map((producto) => (
+>>>>>>> aa09dec4e5a8265053e26b146d7aef0b94cfe013
               <button
                 className="product-button"
                 onClick={() => agregarProducto(producto)}
@@ -831,7 +860,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
             <span>{carrito.reduce((cantidad, item) => cantidad + (item.cantidad || 1), 0)} productos</span>
           </div>
 
-          <div className="cart-list">
+          <div data-tour="caja-carrito" className="cart-list">
             {carrito.length === 0 ? (
               <p className="muted">Aún no hay productos agregados.</p>
             ) : (
@@ -880,12 +909,12 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
             )}
           </div>
 
-          <div className="cart-total">
+          <div data-tour="caja-total" className="cart-total">
             <span>Total</span>
             <strong>${total.toLocaleString('es-CL')}</strong>
           </div>
 
-          <div className="payment-panel">
+          <div data-tour="caja-pago" className="payment-panel">
             <label htmlFor={`metodo-pago-${localId}`}>Método de pago</label>
             <select
               id={`metodo-pago-${localId}`}

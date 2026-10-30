@@ -3,6 +3,7 @@ import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/fire
 import jsPDF from 'jspdf';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
+import { Joyride, EVENTS } from 'react-joyride';
 import '../styles/views/admin.css';
 
 const locales = [
@@ -215,6 +216,7 @@ function Barras({ datos, campos }) {
 
 function Admin() {
   const navigate = useNavigate();
+  const [tourActivo, setTourActivo] = useState(false); // tour guiado manual (botón "?" flotante)
   const [ventas, setVentas] = useState([]);
   const [cajas, setCajas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
@@ -598,6 +600,52 @@ function Admin() {
 
   return (
     <main className="dashboard-page">
+      <Joyride
+        run={tourActivo}
+        continuous
+        onEvent={(datos) => {
+          if (datos.type === EVENTS.TOUR_END) setTourActivo(false);
+        }}
+        options={{
+          skipBeacon: true,
+          showProgress: true,
+          buttons: ['back', 'close', 'skip', 'primary'],
+        }}
+        locale={{
+          back: 'Anterior',
+          close: 'Cerrar',
+          last: 'Finalizar',
+          next: 'Siguiente',
+          nextWithProgress: 'Siguiente ({current} de {total})',
+          skip: 'Saltar',
+        }}
+        steps={[
+          {
+            target: '[data-tour="admin-locales"]',
+            content: 'Desde "Locales" entras directo al punto de venta de Almacén, Cafetería y Comida Rápida, o a los pedidos de Delivery.',
+          },
+          {
+            target: '[data-tour="admin-stats"]',
+            content: 'Resumen rápido del negocio: ventas totales, ventas de hoy y cantidad de cajas abiertas.',
+          },
+          {
+            target: '[data-tour="admin-autoconsumo"]',
+            content: 'Control del autoconsumo del día: cuántos registros hay y su monto, identificados por trabajador, credencial y firma digital. Con el ícono ◉ de cada fila abres el resumen de esa persona y puedes descargarlo en PDF.',
+          },
+          {
+            target: '[data-tour="admin-cajas"]',
+            content: 'Aquí ves las cajas abiertas y las ventas acumuladas de hoy por local. Si una caja quedó abierta, puedes cerrarla desde esta sección.',
+          },
+          {
+            target: '[data-tour="admin-graficos"]',
+            content: 'Gráficos de ventas por local. Cambia entre vista diaria, semanal o mensual y filtra por método de pago.',
+          },
+          {
+            target: '[data-tour="admin-reporte"]',
+            content: 'Descarga un reporte en PDF eligiendo el periodo (diario, semanal, mensual o anual) y el local.',
+          },
+        ]}
+      />
       <header className="dashboard-topbar">
         <div>
           <p className="eyebrow">administrador</p>
@@ -606,6 +654,7 @@ function Admin() {
         </div>
         <div className="admin-actions">
           <button
+            data-tour="admin-locales"
             className="btn btn-primary"
             onClick={() => {
               setMostrarLocales(!mostrarLocales);
@@ -660,7 +709,7 @@ function Admin() {
         </section>
       )}
 
-      <section className="stats-grid admin-stats-grid">
+      <section data-tour="admin-stats" className="stats-grid admin-stats-grid">
         <div className="stat-card">
           <span>Ventas totales</span>
           <strong>${totalGeneral.toLocaleString('es-CL')}</strong>
@@ -680,7 +729,7 @@ function Admin() {
         </div>
       </section>
 
-      <section className="analytics-panel autoconsumo-dashboard">
+      <section data-tour="admin-autoconsumo" className="analytics-panel autoconsumo-dashboard">
         <div className="analytics-head"><div><p className="eyebrow">Autoconsumo personal</p><h2>Control y trazabilidad del día</h2><p className="muted">Registros identificados por trabajador, credencial y firma digital.</p></div><button type="button" className="btn btn-secondary" onClick={() => generarPDFAutoconsumo(autoconsumosHoy)}>Descargar autoconsumos PDF</button></div>
         <div className="autoconsumo-kpis">
           <div><span>Autoconsumos hoy</span><strong>{autoconsumosHoy.length}</strong></div>
@@ -721,7 +770,7 @@ function Admin() {
         </div>;
       })()}
 
-      <section className="open-cash-panel">
+      <section data-tour="admin-cajas" className="open-cash-panel">
         <div className="analytics-head">
           <div>
             <p className="eyebrow">Control de cajas</p>
@@ -769,7 +818,7 @@ function Admin() {
         </div>
       </section>
 
-      <section className="analytics-panel">
+      <section data-tour="admin-graficos" className="analytics-panel">
         <div className="analytics-head">
           <div>
             <p className="eyebrow">Gráficos de ventas</p>
@@ -845,7 +894,7 @@ function Admin() {
               ))}
             </div>
 
-            <section className="report-panel">
+            <section data-tour="admin-reporte" className="report-panel">
               <div className="analytics-head">
                 <div>
                   <p className="eyebrow">Reportes</p>
@@ -943,6 +992,16 @@ function Admin() {
           </article>
         </div>
       </section>
+
+      <button
+        type="button"
+        className="tutorial-fab"
+        onClick={() => setTourActivo(true)}
+        aria-label="Ver tutorial de esta pantalla"
+        title="Ver tutorial de esta pantalla"
+      >
+        ?
+      </button>
     </main>
   );
 }

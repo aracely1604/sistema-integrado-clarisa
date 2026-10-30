@@ -33,7 +33,7 @@ function ComidaRapida({ notify }) {
         </div>
         <div className="admin-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <CashierInventoryButton />
-          <button className="btn btn-primary" onClick={() => setMostrarMonitor(true)}>Ver Pedidos Online</button>
+          <button data-tour="caja-pedidos-online" className="btn btn-primary" onClick={() => setMostrarMonitor(true)}>Ver Pedidos Online</button>
 
           <button className="btn btn-secondary" onClick={() => navigate('/admin')}>Volver a administración</button>
 

@@ -15,6 +15,8 @@ import {
 } from '../controllers/EmpleadoControl';
 import { obtenerHorarioLocal } from '../controllers/LocalControl'; // TODO: ajustar la ruta según donde guardes LocalControl.jsx
 import { useAuth, estaRealmenteEnLinea  } from '../controllers/AuthContext';
+import AyudaTooltip from '../components/AyudaTooltip';
+import TourGuiado from '../components/TourGuiado';
 import '../css/PersonalScreen.css';
 
 // ─── Breakpoint ───────────────────────────────────────────────────────────────
@@ -511,7 +513,10 @@ function ModalEmpleado({ empleado, visible, onClose, onGuardar, onDesactivar, es
 
                   {/* RUT */}
                   <div className="ps-form-group">
-                    <label className="ps-form-label" style={{ color: colors.textPrimary }}>RUT <span style={{ color: '#E24B4A' }}>*</span></label>
+                    <label className="ps-form-label" style={{ color: colors.textPrimary }}>
+                      RUT <span style={{ color: '#E24B4A' }}>*</span>
+                      <AyudaTooltip texto="Formato: 12345678-9 (con guion, sin puntos). El último dígito es el verificador." />
+                    </label>
                     <input
                       className={`ps-input ${errors.rut ? 'ps-input-error' : ''}`}
                       placeholder="12345678-9"
@@ -556,7 +561,10 @@ function ModalEmpleado({ empleado, visible, onClose, onGuardar, onDesactivar, es
 
                   {/* Rol */}
                   <div className="ps-form-group">
-                    <label className="ps-form-label" style={{ color: colors.textPrimary }}>Rol <span style={{ color: '#E24B4A' }}>*</span></label>
+                    <label className="ps-form-label" style={{ color: colors.textPrimary }}>
+                      Rol <span style={{ color: '#E24B4A' }}>*</span>
+                      <AyudaTooltip texto="El rol define qué ve después: Cajero y Delivery eligen un solo local; Administrador puede elegir varios." />
+                    </label>
                     <div className="ps-row" style={{ gap: 8, flexWrap: 'wrap' }}>
                       {Object.entries(ROLES).map(([key, r]) => (
                         <button key={key} type="button" onClick={() => set('rol', key)}
@@ -1136,7 +1144,7 @@ function MetricasPersonal({ usuarios, colors }) {
   ];
 
   return (
-    <div className="ps-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+    <div data-tour="usr-kpis" className="ps-row" style={{ gap: 8, flexWrap: 'wrap' }}>
       {metricas.map((m, i) => (
         <div key={i} className="ps-kpi-card" style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
           <p className="ps-kpi-label" style={{ color: colors.textSecondary, margin: 0 }}>{m.label}</p>
@@ -1147,10 +1155,19 @@ function MetricasPersonal({ usuarios, colors }) {
   );
 }
 
+// Tour de la ventana "Usuarios activos" (HU-50). Los pasos cuyo elemento no exista en la
+// versión de escritorio o móvil activa se omiten automáticamente.
+const PASOS_TOUR_USUARIOS = [
+  { target: '[data-tour="usr-kpis"]', content: 'Resumen de tu equipo: total de usuarios, activos, en línea ahora, cajeros, repartidores y administradores.' },
+  { target: '[data-tour="usr-vista"]', content: 'Cambia entre la vista de tabla y la vista de tarjetas.' },
+  { target: '[data-tour="usr-filtros"]', content: 'Busca a una persona por nombre o RUT y filtra la lista por rol (Cajero, Delivery, Admin) y por local.' },
+  { target: '[data-tour="usr-lista"]', content: 'Lista de tu equipo con el rol y el turno de cada persona. Presiona a un empleado para abrir su ficha: datos, locales asignados, actividad y cambios rápidos.' },
+];
+
 // ─── Barra de filtros ─────────────────────────────────────────────────────────
 function FiltroBar({ filtros, setFiltros, colors }) {
   return (
-    <div className="ps-row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+    <div data-tour="usr-filtros" className="ps-row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
 
       {/* Búsqueda */}
       <div className="ps-search-box" style={{ borderColor: colors.border, backgroundColor: colors.surface, flex: 1, minWidth: 160 }}>
@@ -1240,6 +1257,7 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
           </div>
 
           <div className="ps-row" style={{ gap: 10 }}>
+            <TourGuiado variante="encabezado" zIndex={3000} steps={PASOS_TOUR_USUARIOS} />
             {/* Botón cerrar */}
             <button type="button" className="ps-reset-btn" onClick={onClose}>
               <FiX size={20} color="#7F8C8D" />
@@ -1255,7 +1273,7 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
           {/* Filtros + toggle vista */}
           <div className="ps-row" style={{ justifyContent: 'space-between', marginTop: 16, marginBottom: 4 }}>
             <p className="ps-section-label" style={{ color: colors.textSecondary, margin: 0 }}>USUARIOS ACTIVOS · {empFiltrados.length}</p>
-            <div className="ps-row" style={{ gap: 4 }}>
+            <div data-tour="usr-vista" className="ps-row" style={{ gap: 4 }}>
               {[{ id: 'tabla', Icon: FiList }, { id: 'cards', Icon: FiGrid }].map(v => (
                 <button key={v.id} type="button" onClick={() => setVista(v.id)}
                   className="ps-vista-btn"
@@ -1270,7 +1288,7 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
 
           {/* Vista tabla */}
           {vista === 'tabla' && (
-            <div className="ps-table-wrap" style={{ borderColor: colors.border, backgroundColor: colors.surface }}>
+            <div data-tour="usr-lista" className="ps-table-wrap" style={{ borderColor: colors.border, backgroundColor: colors.surface }}>
               {/* Header tabla */}
               <div className="ps-table-header" style={{ borderBottomColor: colors.border, backgroundColor: colors.bg }}>
                 {['Empleado', 'Rol', 'Local', 'Turno', 'Hora ultimo inicio sesión'].map(h => (
@@ -1291,7 +1309,7 @@ function DesktopLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ve
 
           {/* Vista cards */}
           {vista === 'cards' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div data-tour="usr-lista" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {empFiltrados.length === 0 ? (
                 <div className="ps-empty-box" style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
                   <FiUser size={22} color="#BDC3C7" style={{ marginBottom: 6 }} />
@@ -1364,9 +1382,12 @@ function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ver
             </p>
           </div>
         </div>
-        <button type="button" className="ps-reset-btn" onClick={onClose}>
-          <FiX size={20} color="#7F8C8D" />
-        </button>
+        <div className="ps-row" style={{ gap: 10 }}>
+          <TourGuiado variante="encabezado" zIndex={3000} steps={PASOS_TOUR_USUARIOS} />
+          <button type="button" className="ps-reset-btn" onClick={onClose}>
+            <FiX size={20} color="#7F8C8D" />
+          </button>
+        </div>
       </div>
 
       <div className="ps-scroll" style={{ flex: 1, padding: 12, paddingBottom: 40 }}>
@@ -1383,7 +1404,7 @@ function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ver
           <p className="ps-section-label" style={{ color: colors.textSecondary, margin: 0 }}>
             USUARIOS ACTIVOS · {empFiltrados.length}
           </p>
-          <div className="ps-row" style={{ gap: 4 }}>
+          <div data-tour="usr-vista" className="ps-row" style={{ gap: 4 }}>
             {[{ id: 'cards', Icon: FiGrid }, { id: 'tabla', Icon: FiList }].map(v => (
               <button key={v.id} type="button" onClick={() => setVista(v.id)}
                 className="ps-vista-btn"
@@ -1408,7 +1429,7 @@ function MobileLayout({ usuarios, onGuardar, onDesactivar, onClose, esAdmin, ver
 
         {/* Vista tabla */}
         {vista === 'tabla' && (
-          <div className="ps-table-wrap" style={{ borderColor: colors.border, backgroundColor: colors.surface }}>
+          <div data-tour="usr-lista" className="ps-table-wrap" style={{ borderColor: colors.border, backgroundColor: colors.surface }}>
             <div className="ps-table-header" style={{ borderBottomColor: colors.border, backgroundColor: colors.bg }}>
               {['Empleado', 'Rol', 'Turno'].map(h => (
                 <span key={h} className="ps-table-header-text" style={{ color: colors.textSecondary, flex: h === 'Empleado' ? 2 : 1 }}>{h}</span>

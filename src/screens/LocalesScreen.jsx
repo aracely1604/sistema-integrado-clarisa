@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { obtenerHorarioLocal, actualizarTurnoLocal } from '../controllers/LocalControl';
 import { TurnoModel } from '../models/LocalModel';
+import TourGuiado from '../components/TourGuiado';
 import '../css/LocalesScreen.css';
 
 const LOCALES = [
@@ -15,6 +16,15 @@ const LOCALES = [
   { key: 'almacen', label: 'Almacén' },
   { key: 'comidaRapida', label: 'Comida Rápida' },
   { key: 'delivery', label: 'Delivery' },
+];
+
+// Tour de la ventana "Horarios de locales" (HU-50). Los pasos del formulario se omiten mientras carga.
+const PASOS_TOUR_HORARIOS = [
+  { target: '[data-tour="hor-locales"]', content: 'Elige el local cuyo horario quieres configurar: Cafetería, Almacén, Comida Rápida o Delivery.' },
+  { target: '[data-tour="hor-turnos"]', content: 'Elige el turno: Día o Noche. Cada local tiene su propio horario para cada turno.' },
+  { target: '[data-tour="hor-campos"]', content: 'Define la hora de inicio y cuántas horas dura el turno (entre 0,5 y 24 horas, de media en media hora).' },
+  { target: '[data-tour="hor-resumen"]', content: 'Aquí ves la entrada y la salida resultantes. Si el turno cruza la medianoche, la salida indica "+1 día".' },
+  { target: '[data-tour="hor-acciones"]', content: '"Guardar horario" guarda el turno de este local; "Cancelar" cierra la ventana sin guardar.' },
 ];
 
 const TURNOS = [
@@ -103,12 +113,15 @@ export default function LocalesScreen({ visible, onClose }) {
             <p className="eyebrow">Horarios de locales</p>
             <h2>Configurar turno</h2>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Cerrar" type="button">
-            ×
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <TourGuiado variante="encabezado" zIndex={3000} steps={PASOS_TOUR_HORARIOS} />
+            <button className="icon-btn" onClick={onClose} aria-label="Cerrar" type="button">
+              ×
+            </button>
+          </div>
         </div>
 
-        <div className="locales-tabs">
+        <div data-tour="hor-locales" className="locales-tabs">
           {LOCALES.map((l) => (
             <button
               key={l.key}
@@ -121,7 +134,7 @@ export default function LocalesScreen({ visible, onClose }) {
           ))}
         </div>
 
-        <div className="turno-tabs">
+        <div data-tour="hor-turnos" className="turno-tabs">
           {TURNOS.map((t) => (
             <button
               key={t.key}
@@ -138,7 +151,7 @@ export default function LocalesScreen({ visible, onClose }) {
           <p className="hint">Cargando horario de {localInfo.label}...</p>
         ) : (
           <>
-            <div className="form-grid">
+            <div data-tour="hor-campos" className="form-grid">
               <div>
                 <label htmlFor="hora-inicio">Hora de inicio</label>
                 <input
@@ -164,7 +177,7 @@ export default function LocalesScreen({ visible, onClose }) {
               </div>
             </div>
 
-            <div className="resumen-horario">
+            <div data-tour="hor-resumen" className="resumen-horario">
               <div className="resumen-item">
                 <span>Entrada</span>
                 <strong>{horaInicio}</strong>
@@ -178,7 +191,7 @@ export default function LocalesScreen({ visible, onClose }) {
 
             {mensaje && <p className="hint">{mensaje}</p>}
 
-            <div className="modal-actions">
+            <div data-tour="hor-acciones" className="modal-actions">
               <button className="btn btn-secondary" onClick={onClose} type="button">
                 Cancelar
               </button>
