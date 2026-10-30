@@ -230,16 +230,12 @@ function Portal({ navigate, notify }) {
         </div>
 
         <div className="action-grid">
-<<<<<<< HEAD
           {esCajero ? <>
             <button onClick={() => navigate(rutaCaja)} className="module-card module-green"><span className="module-icon">Caja</span><strong>Mi caja</strong><small>Ingresar a la caja de {sesion.local || 'almacén'} asignada a tu cuenta.</small></button>
-            <button onClick={() => navigate('alertas')} className="module-card module-blue"><span className="module-icon">Stock</span><strong>Inventario</strong><small>Consultar el inventario.</small></button>
+            <button data-tour="inventario" onClick={() => navigate('alertas')} className="module-card module-blue"><span className="module-icon">Stock</span><strong>Inventario</strong><small>Consultar el inventario.</small></button>
             <button onClick={() => navigate('perfil')} className="module-card module-users"><span className="module-icon">Perfil</span><strong>Mi perfil</strong><small>Ver tus datos e historial y editar tu teléfono.</small></button>
           </> : <>
-          <button onClick={() => navigate('admin')} className="module-card module-green">
-=======
           <button data-tour="ventas" onClick={() => navigate('admin')} className="module-card module-green">
->>>>>>> aa09dec4e5a8265053e26b146d7aef0b94cfe013
             <span className="module-icon">Caja</span>
             <strong>Panel admin</strong>
             <small>Ver resumen de ventas y control general.</small>

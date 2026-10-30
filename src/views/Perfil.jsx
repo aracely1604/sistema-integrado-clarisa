@@ -49,24 +49,11 @@ function Perfil({ notify, compact = false }) {
 
   if (compact) return <button className="btn btn-secondary" type="button" onClick={() => navigate('/perfil')}>Perfil</button>;
   return (
-<<<<<<< HEAD
-    <section className="profile-panel">
+    <section data-tour="perfil" className="profile-panel">
       <div className="profile-summary">
         <span className="profile-summary-info"><strong>{nombre}</strong><small>{sesion.email || sesion.user}</small></span>
         <button className="btn btn-secondary" type="button" onClick={() => navigate('/portal')}>Volver al panel</button>
         <button className="btn btn-secondary" type="button" onClick={() => { setTelefono(sesion.telefono || ''); setAbierto(true); }}>Editar teléfono</button>
-=======
-    <section data-tour="perfil" className={`profile-panel${compact ? ' profile-panel-compact' : ''}`}>
-      <div className={`profile-summary${compact ? ' profile-summary-compact' : ''}`}>
-        <button className="profile-avatar" type="button" onClick={abrirEdicion} aria-label="Editar foto de perfil">
-          {sesion.fotoPerfilUrl ? <img src={sesion.fotoPerfilUrl} alt="Foto de perfil" /> : <span>{iniciales || 'U'}</span>}
-          <span className="profile-avatar-camera"><FiCamera size={15} /></span>
-        </button>
-        {!compact && <>
-          <span className="profile-summary-info"><strong>{nombre}</strong><small>{sesion.email || sesion.user}</small></span>
-          <button className="btn btn-secondary" type="button" onClick={abrirEdicion}>Editar perfil</button>
-        </>}
->>>>>>> aa09dec4e5a8265053e26b146d7aef0b94cfe013
       </div>
       <div className="profile-details">
         <h2>Perfil</h2>

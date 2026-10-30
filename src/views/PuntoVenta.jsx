@@ -818,8 +818,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
       </section>
 
       <section className="pos-layout">
-<<<<<<< HEAD
-        <div className="work-panel">
+        <div data-tour="caja-productos" className="work-panel">
           <div className="pos-products-heading">
             <nav className="pos-product-tabs" aria-label="Secciones de productos">
               {seccionesProductos.map((seccion) => <button type="button" key={seccion.titulo} className={seccionProductoActiva === seccion.titulo ? 'active' : ''} aria-pressed={seccionProductoActiva === seccion.titulo} onClick={() => setSeccionProductoActiva(seccion.titulo)}>{seccion.titulo}</button>)}
@@ -828,12 +827,6 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
           <div className="pos-product-browser">
             <div className="product-grid">
             {(seccionesProductos.find((seccion) => seccion.titulo === seccionProductoActiva)?.items || []).map((producto) => (
-=======
-        <div data-tour="caja-productos" className="work-panel">
-          <h2>Productos</h2>
-          <div className="product-grid">
-            {productos.map((producto) => (
->>>>>>> aa09dec4e5a8265053e26b146d7aef0b94cfe013
               <button
                 className="product-button"
                 onClick={() => agregarProducto(producto)}
