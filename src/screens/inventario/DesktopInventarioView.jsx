@@ -8,7 +8,7 @@ import { Badge } from './InventarioShared';
 import {
   Subseccion, FilaStockConVencimiento, TituloConAyuda, DetalleMetricas, DetalleRecetas, resumenMetricasLocal,
 } from './AlertasInventarioShared';
-import { useRecetasLocal } from './useRecetasLocal';
+import { useRecetasLocal } from './UseRecetasLocal';
 import { StockAlertCard, VencimientoCard, ProductoRecienteCard, CalendarioSemanal } from './AlertCards';
 import { FloatingKPIList, FloatingSheet, FloatingReporte, FloatingVisitanHoy } from './FloatingSheet';
 import {

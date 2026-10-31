@@ -21,7 +21,7 @@ import {
 } from '../../controllers/LocalProductoControl';
 import { suscribirProveedoresPorLocal } from '../../controllers/ProveedorControl';
 import { suscribirUltimaReposicionProducto } from '../../controllers/HistorialStockControl';
-import { diasHastaVencimiento, formatFechaVencimiento } from './vencimientoUtils';
+import { diasHastaVencimiento, formatFechaVencimiento } from './VencimientoUtils';
 import { DIAS_VENCIMIENTO_MAX } from './inventarioHelpers';
 import { LOCAL_LABELS, LOCALES_LIST } from './inventarioData';
 import '../../css/GestionProductos.css';

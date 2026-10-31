@@ -27,7 +27,7 @@ import {
   Subseccion, FilaStockConVencimiento, TituloConAyuda, resumenEstadoLocal,
   DetalleMetricas, DetalleRecetas, resumenMetricasLocal, colorPreparables, textoUnidades, textoLimitante,
 } from './AlertasInventarioShared';
-import { useRecetasLocal } from './useRecetasLocal';
+import { useRecetasLocal } from './UseRecetasLocal';
 import {
   LOCAL_LABELS, LOCAL_COLORS, LOCALES_LIST, HOY_IDX,
 } from './inventarioData';
