@@ -961,6 +961,7 @@ export function RegistrarModal({
   codigo, setCodigo, onBuscarCodigo, buscando, errorBusqueda,
   productoGlobal, productosGlobales, onSeleccionarGlobal,
   stockMinimo, setStockMinimo, precioVenta, setPrecioVenta,
+  usoReceta = false, setUsoReceta,
   guardando, errors = {},
 }) {
   if (!visible) return null;
@@ -1056,6 +1057,21 @@ export function RegistrarModal({
             {errors.precioVenta && (
               <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.precioVenta}</p>
             )}
+
+            <label
+              className="gp-form-group"
+              style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+            >
+              <input
+                type="checkbox"
+                checked={usoReceta}
+                onChange={(e) => setUsoReceta?.(e.target.checked)}
+                style={{ width: 18, height: 18, flexShrink: 0 }}
+              />
+              <span className="gp-form-label" style={{ margin: 0 }}>
+                Se usa para receta (ingrediente)
+              </span>
+            </label>
 
             <p className="gp-scan-sub" style={{ marginTop: -6, marginBottom: 10 }}>
               El stock actual de este producto en el local parte en 0.

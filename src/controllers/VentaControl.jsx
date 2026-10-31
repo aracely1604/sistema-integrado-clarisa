@@ -20,11 +20,19 @@ import { suscribirProductosGlobales } from './ProductoControl';
 const refProductoLocal = (localId, idProducto) =>
   doc(db, 'locales', localId, 'productos', idProducto);
 
+// Cuánto stock descuenta una línea de venta, en la unidad en que se guarda el stock.
+//  - Productos unitarios: `cantidad` (unidades).
+//  - Productos a granel (esGranel): `cantidadBase`, que ya viene en g/ml (el stock de
+//    estos productos se guarda en gramos/mililitros; `cantidad` en esas líneas va en kg/lt).
+const cantidadADescontar = (linea) => (
+  linea.esGranel ? Number(linea.cantidadBase) || 0 : (Number(linea.cantidad) || 1)
+);
+
 // ─── Productos vendibles de un local (en vivo) ──────────────────────────────
 // Cruza locales/{local}/productos con el nodo global "productos" y entrega
 // objetos listos para el punto de venta:
 //   { id, nombre, categoria, codigoBarra, unidadMedida,
-//     precio, stockActual, stockMinimo }
+//     precio, stockActual, stockMinimo, usoReceta }
 // Solo incluye los productos ACTIVOS en ese local. Como es en vivo, el stock
 // que ve el cajero se actualiza solo cuando alguien vende o ajusta inventario.
 export function suscribirProductosVenta(localId, callback) {
@@ -45,6 +53,7 @@ export function suscribirProductosVenta(localId, callback) {
           precio:       lp.precioVenta,
           stockActual:  lp.stockActual,
           stockMinimo:  lp.stockMinimo,
+          usoReceta:    lp.usoReceta,
         };
       })
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
@@ -86,7 +95,7 @@ export async function registrarVentaConStock(localId, venta) {
     const previo = requeridos.get(linea.id);
     requeridos.set(linea.id, {
       nombre: linea.nombre,
-      pedido: (previo?.pedido ?? 0) + (Number(linea.cantidad) || 1),
+      pedido: (previo?.pedido ?? 0) + cantidadADescontar(linea),
     });
   }
 
@@ -144,7 +153,7 @@ export async function registrarAutoconsumoConStock(localId, registro) {
     const previo = requeridos.get(linea.id);
     requeridos.set(linea.id, {
       nombre: linea.nombre,
-      pedido: (previo?.pedido ?? 0) + (Number(linea.cantidad) || 1),
+      pedido: (previo?.pedido ?? 0) + cantidadADescontar(linea),
     });
   }
 

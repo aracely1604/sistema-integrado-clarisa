@@ -8,6 +8,8 @@
 // También guarda la oferta del producto en este local: `oferta` (precio de oferta,
 // 0 = sin oferta definida) y `ofertaActiva` (si la oferta está vigente o no).
 //
+// `usoReceta` indica si el producto se usa como ingrediente de recetas en este local.
+//
 // El nombre, categoría, código de barras y unidad de medida del producto
 // NO se repiten acá: se consultan desde el nodo global cuando se necesiten
 // (ver controllers/ProductoControl.js).
@@ -21,6 +23,7 @@ export class LocalProductoModel {
     activo        = true,
     oferta        = 0,
     ofertaActiva  = false,
+    usoReceta     = false,
     creadoEn      = null,
     actualizadoEn = null,
   } = {}) {
@@ -31,6 +34,7 @@ export class LocalProductoModel {
     this.activo        = activo;
     this.oferta        = Number(oferta) || 0;
     this.ofertaActiva  = Boolean(ofertaActiva);
+    this.usoReceta     = Boolean(usoReceta);
     this.creadoEn      = creadoEn ?? new Date().toISOString();
     this.actualizadoEn = new Date().toISOString();
   }
@@ -43,6 +47,7 @@ export class LocalProductoModel {
       activo:        this.activo,
       oferta:        this.oferta,
       ofertaActiva:  this.ofertaActiva,
+      usoReceta:     this.usoReceta,
       creadoEn:      this.creadoEn,
       actualizadoEn: this.actualizadoEn,
     };
@@ -57,6 +62,7 @@ export class LocalProductoModel {
       activo:        data.activo        ?? true,
       oferta:        data.oferta        ?? 0,
       ofertaActiva:  data.ofertaActiva  ?? false,
+      usoReceta:     data.usoReceta     ?? false,
       creadoEn:      data.creadoEn      ?? null,
       actualizadoEn: data.actualizadoEn ?? null,
     });

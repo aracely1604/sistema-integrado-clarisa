@@ -105,6 +105,7 @@ export async function crearProductoEnLocal(local, idProducto, form) {
     stockMinimo: form.stockMinimo,
     precioVenta: form.precioVenta,
     activo: true,
+    usoReceta: Boolean(form.usoReceta),
   });
 
   const ref = doc(productosColRef(local), idProducto);

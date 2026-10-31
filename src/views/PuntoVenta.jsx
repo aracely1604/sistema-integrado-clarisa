@@ -2,15 +2,33 @@ import React, { useEffect, useRef, useState } from 'react';
 import { collection, doc, getDoc, getDocs, limit, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../controllers/AuthContext';
-import { suscribirProductosVenta, registrarVentaConStock, registrarAutoconsumoConStock } from '../controllers/VentaControl,jsx';
+import { suscribirProductosVenta, registrarVentaConStock, registrarAutoconsumoConStock } from '../controllers/VentaControl.jsx';
 import { crearProductoGlobal, obtenerProductoPorCodigoBarra } from '../controllers/ProductoControl';
 import { ajustarStockLocal, actualizarProductoLocal, cambiarEstadoProductoLocal, crearProductoEnLocal, obtenerProductoLocal } from '../controllers/LocalProductoControl';
 import BarcodeScanner from '../components/BarcodeScanner';
-import { CATEGORIAS, UNIDADES_MEDIDA, convertirACantidadBase, unidadBaseDesdeUnidadMedida } from '../screens/inventario/gestionProductosData';
+import { CATEGORIAS, UNIDADES_MEDIDA, convertirACantidadBase, unidadBaseDesdeUnidadMedida, etiquetaUnidadIngreso } from '../screens/inventario/gestionProductosData';
 import TourGuiado from '../components/TourGuiado';
 import '../styles/views/pointOfSale.css';
 
 const metodosBase = ['Débito', 'Efectivo', 'Transferencia'];
+
+const SECCION_UNITARIOS = 'Productos unitarios';
+const SECCION_GRANEL = 'Productos a granel';
+const SECCION_RECETAS = 'Recetas';
+
+// Unidad base en la que se guarda el stock del producto: 'g' | 'ml' | 'uds'.
+const unidadBaseDe = (producto) => unidadBaseDesdeUnidadMedida(String(producto.unidadMedida ?? '').trim().toLowerCase());
+const esGranel = (producto) => ['g', 'ml'].includes(unidadBaseDe(producto));
+
+// Granel: el stock está en g/ml, pero se muestra en kg/lt.
+const etiquetaGranel = etiquetaUnidadIngreso; // 'g' -> kg, 'ml' -> lt
+const formatearGranel = (cantidadBase, base) => (
+  `${(Number(cantidadBase) / 1000).toLocaleString('es-CL', { maximumFractionDigits: 3 })} ${etiquetaGranel(base)}`
+);
+// Regla de 3: si 1 kg (1000 g) cuesta `precioPorUnidad`, ¿cuántos g/ml se llevan con `monto` pesos?
+const montoABase = (monto, precioPorUnidad) => Math.round((Number(monto) * 1000) / Number(precioPorUnidad));
+
+const subtotalLinea = (item) => (item.esGranel ? item.monto : item.precio * (item.cantidad || 1));
 
 const formatearFechaHora = (fecha) => {
   return fecha.toLocaleString('es-CL', {
@@ -39,7 +57,11 @@ const crearPasosTourCaja = (esComidaRapida) => [
 ];
 
 function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metodosBase }) {
-  const [productos, setProductos] = useState([]);
+  const [catalogoLocal, setProductos] = useState([]);
+  // Todo lo que se muestra y se vende en caja (unitarios, granel y recetas) pasa primero por
+  // este filtro: solo aparecen los productos con usoReceta en false. `catalogoLocal` conserva
+  // la lista completa solo para que el escáner distinga "no existe" de "no está a la venta".
+  const productos = catalogoLocal.filter((p) => !p.usoReceta);
   const [guardandoVenta, setGuardandoVenta] = useState(false);
   const [carrito, setCarrito] = useState([]);
   const [cajaAbierta, setCajaAbierta] = useState(false);
@@ -60,7 +82,9 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
     nombre: '', categoria: '', unidadMedida: 'unidad', precioVenta: '', stockInicial: '1',
   });
   const [autoconsumo, setAutoconsumo] = useState([]);
-  const [seccionProductoActiva, setSeccionProductoActiva] = useState('Productos');
+  const [granelId, setGranelId] = useState(null);     // producto a granel abierto en la pestaña flotante
+  const [granelMonto, setGranelMonto] = useState('');  // monto ($) escrito en la pestaña flotante
+  const [seccionProductoActiva, setSeccionProductoActiva] = useState(SECCION_UNITARIOS);
   const [aceptaFirma, setAceptaFirma] = useState(false);
   const [firmaDibujada, setFirmaDibujada] = useState(false);
   const firmaCanvasRef = useRef(null);
@@ -153,7 +177,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
   }, [cajaAbierta, cajaSincronizada, alertaInicialMostrada]);
 
   const esComidaRapida = localId === 'comidaRapida';
-  const total = carrito.reduce((suma, producto) => suma + producto.precio * (producto.cantidad || 1), 0);
+  const total = carrito.reduce((suma, producto) => suma + subtotalLinea(producto), 0);
   const montoPagado = Number(montoEfectivo);
   const vuelto = metodoPago === 'Efectivo' && montoPagado >= total ? montoPagado - total : 0;
 
@@ -232,13 +256,22 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
     && new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date(registro.fecha || Date.now())) === diaLocalChile
   ));
   const totalPersonalHoy = consumosPersonalesHoy.reduce((suma, registro) => suma + Number(registro.total || 0), 0);
-  const unidadesGranel = ['kilogramos', 'kilogramo', 'kg', 'gramos', 'litros', 'litro', 'ml'];
   const esProductoReceta = (p) => Boolean(p.recetaId || p.tipo === 'receta' || p.esReceta || p.ingredientesBase?.length);
+  // Unitarios: unidadMedida "unidad". A granel: g/ml. (`productos` ya viene sin los de usoReceta.)
   const seccionesProductos = [
-    { titulo: 'Productos a granel', items: productos.filter((p) => !esProductoReceta(p) && unidadesGranel.includes(String(p.unidadMedida || '').toLowerCase())) },
-    { titulo: 'Productos a base de recetas', items: productos.filter(esProductoReceta) },
-    { titulo: 'Productos', items: productos.filter((p) => !esProductoReceta(p) && !unidadesGranel.includes(String(p.unidadMedida || '').toLowerCase())) },
+    { titulo: SECCION_UNITARIOS, items: productos.filter((p) => !esProductoReceta(p) && !esGranel(p)) },
+    { titulo: SECCION_GRANEL, items: productos.filter((p) => !esProductoReceta(p) && esGranel(p)) },
+    { titulo: SECCION_RECETAS, items: productos.filter(esProductoReceta) },
   ];
+  const seccionActual = seccionesProductos.find((seccion) => seccion.titulo === seccionProductoActiva);
+
+  // Pestaña flotante de producto a granel (agregar o editar)
+  const productoGranel = granelId ? productos.find((p) => p.id === granelId) : null;
+  const baseGranel = productoGranel ? unidadBaseDe(productoGranel) : null;
+  const lineaGranel = granelId ? carrito.find((item) => item.id === granelId && item.esGranel) : null;
+  const cantidadGranel = productoGranel && Number(granelMonto) > 0 && productoGranel.precio > 0
+    ? montoABase(granelMonto, productoGranel.precio)
+    : 0;
 
   const registrarAutoconsumo = async () => {
     if (autoconsumo.length === 0) {
@@ -446,11 +479,88 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
     });
   };
 
+  // Producto a granel: al tocarlo se abre una pestaña flotante donde el cajero escribe cuántos
+  // pesos quiere llevar el cliente. Con una regla de 3 sobre el precio por kg/lt se calcula
+  // cuántos g/ml se descuentan del inventario. Si ya está en el carrito, se abre para editarlo.
+  const abrirGranel = (producto) => {
+    if (!cajaAbierta) {
+      notify('Debes abrir caja antes de agregar productos.', 'error');
+      return;
+    }
+    const linea = carrito.find((item) => item.id === producto.id && item.esGranel);
+    setGranelMonto(linea ? String(linea.monto) : '');
+    setGranelId(producto.id);
+  };
+
+  const editarGranelDesdeCarrito = (item) => {
+    const vivo = productos.find((p) => p.id === item.id);
+    if (!vivo) {
+      notify(`${item.nombre} ya no está disponible en este local.`, 'error');
+      return;
+    }
+    abrirGranel(vivo);
+  };
+
+  const cerrarGranel = () => {
+    setGranelId(null);
+    setGranelMonto('');
+  };
+
+  const confirmarGranel = (evento) => {
+    evento?.preventDefault();
+    if (!productoGranel) {
+      cerrarGranel();
+      return;
+    }
+
+    const monto = Math.round(Number(granelMonto));
+    if (!monto || monto <= 0) {
+      notify(`Ingresa el monto a comprar de ${productoGranel.nombre}.`, 'error');
+      return;
+    }
+    if (!(productoGranel.precio > 0)) {
+      notify(`${productoGranel.nombre} no tiene precio de venta definido.`, 'error');
+      return;
+    }
+
+    const cantidadBase = montoABase(monto, productoGranel.precio);
+    if (cantidadBase < 1) {
+      notify('El monto es demasiado bajo para el precio de este producto.', 'error');
+      return;
+    }
+    if (cantidadBase > productoGranel.stockActual) {
+      notify(`Stock insuficiente de ${productoGranel.nombre} (disponible: ${formatearGranel(productoGranel.stockActual, baseGranel)}).`, 'error');
+      return;
+    }
+
+    // Una sola línea por producto a granel: agregar crea la línea, editar la reemplaza.
+    setCarrito((actual) => (lineaGranel
+      ? actual.map((item) => (item.id === productoGranel.id && item.esGranel
+        ? { ...item, precio: productoGranel.precio, monto, cantidadBase }
+        : item))
+      : [...actual, {
+        ...productoGranel,
+        esGranel: true,
+        unidadBase: baseGranel,
+        cantidad: 1,
+        monto,
+        cantidadBase,
+        ingredientes: [],
+        ingredientesBase: [],
+      }]));
+    cerrarGranel();
+  };
+
+  const quitarGranelDelCarrito = () => {
+    setCarrito((actual) => actual.filter((item) => !(item.id === granelId && item.esGranel)));
+    cerrarGranel();
+  };
+
   // La pistola envía el código como teclado y termina con Enter. El catálogo
   // de ventas ya incluye codigoBarra, por lo que se puede resolver localmente.
   const manejarCodigoEscaneado = (codigo) => {
     const codigoBuscado = codigo.trim();
-    const producto = productos.find(
+    const producto = catalogoLocal.find(
       (item) => String(item.codigoBarra ?? '').trim() === codigoBuscado,
     );
 
@@ -458,6 +568,20 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
       setCodigoNuevoPendiente(codigoBuscado);
       setDestinoProductoNuevo(mostrarAutoconsumo ? 'autoconsumo' : 'venta');
       setFormProductoNuevo({ nombre: '', categoria: '', unidadMedida: 'unidad', precioVenta: '', stockInicial: '1' });
+      return;
+    }
+
+    if (producto.usoReceta) {
+      notify(`${producto.nombre} es de uso para receta: no está disponible para la venta.`, 'error');
+      return;
+    }
+
+    if (esGranel(producto)) {
+      if (mostrarAutoconsumo) {
+        notify(`${producto.nombre} es a granel: no se puede registrar en el autoconsumo.`, 'error');
+      } else {
+        abrirGranel(producto);
+      }
       return;
     }
 
@@ -531,7 +655,9 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
         stockActual: stockTotalBase,
         stockMinimo: 0,
       };
-      if (destinoProductoNuevo === 'autoconsumo') {
+      if (esGranel(productoVenta)) {
+        notify(`${productoGlobal.nombre} se agregó al inventario. Los productos a granel se venden desde "${SECCION_GRANEL}".`, 'info');
+      } else if (destinoProductoNuevo === 'autoconsumo') {
         agregarAutoconsumo(productoVenta);
         notify(`${productoGlobal.nombre} se agregó al inventario y al autoconsumo.`, 'success');
       } else {
@@ -569,7 +695,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
   const eliminarProducto = (indexProducto) => {
     setCarrito((actual) => {
       const producto = actual[indexProducto];
-      if (producto.cantidad > 1) {
+      if (!producto.esGranel && producto.cantidad > 1) {
         return actual.map((item, index) => (
           index === indexProducto ? { ...item, cantidad: item.cantidad - 1 } : item
         ));
@@ -616,7 +742,18 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
       usuarioNombre: `${nombre} ${apellido}`.trim(),
       nombreUsuario: nombre,
       apellidoUsuario: apellido,
-      productos: carrito.map((item) => ({
+      productos: carrito.map((item) => (item.esGranel ? {
+        id: item.id,
+        nombre: item.nombre,
+        precio: item.precio,                       // precio por kg / lt
+        cantidad: item.cantidadBase / 1000,        // kg / lt vendidos
+        unidad: etiquetaGranel(item.unidadBase),
+        subtotal: item.monto,
+        esGranel: true,
+        cantidadBase: item.cantidadBase,           // g / ml que se descuentan del inventario
+        unidadBase: item.unidadBase,
+        ingredientes: [],
+      } : {
         id: item.id,
         nombre: item.nombre,
         precio: item.precio,                       // precio unitario
@@ -752,7 +889,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
             <div className="modal-head"><h2>Registrar autoconsumo</h2><button className="icon-btn" onClick={() => setMostrarAutoconsumo(false)}>×</button></div>
             <p className="muted">Elige tus productos. Este registro no se suma a una venta de cliente.</p>
             <div className="autoconsumo-products">
-              {productos.map((producto) => <button type="button" className="product-button" key={producto.nombre} onClick={() => agregarAutoconsumo(producto)}><span>{producto.nombre}</span><strong>${producto.precio.toLocaleString('es-CL')}</strong></button>)}
+              {productos.filter((producto) => !esGranel(producto)).map((producto) => <button type="button" className="product-button" key={producto.nombre} onClick={() => agregarAutoconsumo(producto)}><span>{producto.nombre}</span><strong>${producto.precio.toLocaleString('es-CL')}</strong></button>)}
             </div>
             <div className="autoconsumo-selected">
               {autoconsumo.length === 0 ? <p className="muted">Sin productos seleccionados.</p> : autoconsumo.map((item) => <div key={item.nombre}><span>{item.nombre} ×{item.cantidad}</span><button type="button" className="btn btn-secondary btn-small" onClick={() => quitarAutoconsumo(item.nombre)}>Quitar uno</button></div>)}
@@ -779,6 +916,55 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
             <label className="signature-check"><input type="checkbox" checked={aceptaFirma} onChange={(e) => setAceptaFirma(e.target.checked)} /> Confirmo que los consumos registrados corresponden a mí.</label>
             <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setMostrarFirma(false)}>Cancelar</button><button className="btn btn-primary" onClick={firmarResumenDiario}>Firmar resumen</button></div>
           </section>
+        </div>
+      )}
+
+      {productoGranel && (
+        <div className="modal-backdrop" role="presentation" onClick={cerrarGranel}>
+          <form
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="granel-titulo"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={confirmarGranel}
+          >
+            <div className="modal-head">
+              <h2 id="granel-titulo">{lineaGranel ? 'Editar' : 'Agregar'} {productoGranel.nombre}</h2>
+              <button type="button" className="icon-btn" onClick={cerrarGranel} aria-label="Cerrar">×</button>
+            </div>
+            <p className="muted">
+              ${productoGranel.precio.toLocaleString('es-CL')} / {etiquetaGranel(baseGranel)} · Disponible: {formatearGranel(productoGranel.stockActual, baseGranel)}
+            </p>
+            <label className="cash-opening-field">
+              Monto a comprar ($)
+              <input
+                className="field"
+                type="number"
+                min="1"
+                step="1"
+                autoFocus
+                value={granelMonto}
+                onChange={(e) => setGranelMonto(e.target.value)}
+                placeholder="Ej.: 1500"
+              />
+            </label>
+            {cantidadGranel > 0 && (
+              <p>
+                = <strong>{formatearGranel(cantidadGranel, baseGranel)}</strong> ({cantidadGranel.toLocaleString('es-CL')} {baseGranel})
+                {cantidadGranel > productoGranel.stockActual && <small style={{ display: 'block', color: '#E24B4A' }}>Supera el stock disponible.</small>}
+              </p>
+            )}
+            <div className="modal-actions">
+              {lineaGranel && (
+                <button type="button" className="btn btn-danger" onClick={quitarGranelDelCarrito}>Quitar del carrito</button>
+              )}
+              <button type="button" className="btn btn-secondary" onClick={cerrarGranel}>Cancelar</button>
+              <button type="submit" className="btn btn-primary" disabled={!(Number(granelMonto) > 0)}>
+                {lineaGranel ? 'Guardar cambios' : 'Agregar al carrito'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
@@ -826,25 +1012,34 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
           </div>
           <div className="pos-product-browser">
             <div className="product-grid">
-            {(seccionesProductos.find((seccion) => seccion.titulo === seccionProductoActiva)?.items || []).map((producto) => (
-              <button
-                className="product-button"
-                onClick={() => agregarProducto(producto)}
-                disabled={!cajaAbierta || producto.stockActual <= 0}
-                key={producto.id}
-              >
-                <span>{producto.nombre}</span>
-                <strong>${producto.precio.toLocaleString('es-CL')}</strong>
-                <small className="product-stock">
-                  {producto.stockActual <= 0
-                    ? 'Sin stock'
-                    : `Stock: ${producto.stockActual}${producto.stockActual <= producto.stockMinimo ? ' ⚠' : ''}`}
-                </small>
-              </button>
-            ))}
+            {(seccionActual?.items || []).map((producto) => {
+              // Si el producto es g/ml el stock se guarda en g/ml, pero siempre se muestra en kg/lt.
+              const base = unidadBaseDe(producto);
+              const granel = base === 'g' || base === 'ml';
+              const enCarrito = granel && carrito.some((item) => item.id === producto.id && item.esGranel);
+              return (
+                <button
+                  className="product-button"
+                  onClick={() => (granel ? abrirGranel(producto) : agregarProducto(producto))}
+                  disabled={!cajaAbierta || producto.stockActual <= 0}
+                  key={producto.id}
+                >
+                  <span>{producto.nombre}</span>
+                  <strong>
+                    ${producto.precio.toLocaleString('es-CL')}{granel ? ` / ${etiquetaGranel(base)}` : ''}
+                  </strong>
+                  <small className="product-stock">
+                    {producto.stockActual <= 0
+                      ? 'Sin stock'
+                      : `Stock: ${granel ? formatearGranel(producto.stockActual, base) : producto.stockActual}${producto.stockActual <= producto.stockMinimo ? ' ⚠' : ''}`}
+                  </small>
+                  {enCarrito && <small>✓ En el carrito</small>}
+                </button>
+              );
+            })}
             </div>
           </div>
-          {(seccionesProductos.find((seccion) => seccion.titulo === seccionProductoActiva)?.items || []).length === 0 && <p className="muted">No hay productos en esta sección.</p>}
+          {(seccionActual?.items || []).length === 0 && <p className="muted">No hay productos en esta sección.</p>}
         </div>
 
         <aside className="work-panel">
@@ -859,11 +1054,24 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
             ) : (
               carrito.map((item, index) => (
                 <div className="cart-row" key={`${item.id}-${index}`}>
-                  <div className="cart-item-detail">
+                  <div
+                    className="cart-item-detail"
+                    {...(item.esGranel ? {
+                      role: 'button',
+                      tabIndex: 0,
+                      title: 'Editar monto',
+                      style: { cursor: 'pointer' },
+                      onClick: () => editarGranelDesdeCarrito(item),
+                      onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editarGranelDesdeCarrito(item); } },
+                    } : {})}
+                  >
                     <span className="cart-item-name">{item.nombre}</span>
                     <small className="cart-item-unit">
-                      ${item.precio.toLocaleString('es-CL')} c/u × {item.cantidad || 1}
+                      {item.esGranel
+                        ? `$${item.precio.toLocaleString('es-CL')}/${etiquetaGranel(item.unidadBase)} × ${formatearGranel(item.cantidadBase, item.unidadBase)}`
+                        : `$${item.precio.toLocaleString('es-CL')} c/u × ${item.cantidad || 1}`}
                     </small>
+                    {item.esGranel && <small className="muted">Toca para editar el monto</small>}
                     {esComidaRapida && item.ingredientesBase?.length > 0 && (
                       <>
                         {item.ingredientes.length > 0 && (
@@ -890,12 +1098,14 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
                       </>
                     )}
                   </div>
-                  <strong>${(item.precio * (item.cantidad || 1)).toLocaleString('es-CL')}</strong>
-                  <button className="btn btn-secondary btn-small" onClick={() => sumarUno(index)} title="Sumar uno">
-                    +
-                  </button>
+                  <strong>${subtotalLinea(item).toLocaleString('es-CL')}</strong>
+                  {!item.esGranel && (
+                    <button className="btn btn-secondary btn-small" onClick={() => sumarUno(index)} title="Sumar uno">
+                      +
+                    </button>
+                  )}
                   <button className="btn btn-danger btn-small" onClick={() => eliminarProducto(index)}>
-                    {item.cantidad > 1 ? 'Quitar uno' : 'Eliminar'}
+                    {!item.esGranel && item.cantidad > 1 ? 'Quitar uno' : 'Eliminar'}
                   </button>
                 </div>
               ))

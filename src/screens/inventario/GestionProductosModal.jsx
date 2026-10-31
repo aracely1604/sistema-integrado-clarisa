@@ -141,6 +141,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   const [productosGlobales, setProductosGlobales] = useState([]);
   const [regStockMinimo, setRegStockMinimo] = useState('');
   const [regPrecioVenta, setRegPrecioVenta] = useState('');
+  const [regUsoReceta, setRegUsoReceta] = useState(false);
   const [regGuardando, setRegGuardando] = useState(false);
   const [regErrors, setRegErrors] = useState({});
 
@@ -188,6 +189,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       activo: lp.activo,
       oferta: lp.oferta,
       ofertaActiva: lp.ofertaActiva,
+      usoReceta: lp.usoReceta,
       ultima: lp.actualizadoEn ? new Date(lp.actualizadoEn).toLocaleDateString('es-CL') : '—',
       imagen: null,
     };
@@ -326,6 +328,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     setRegProductoGlobal(null);
     setRegStockMinimo('');
     setRegPrecioVenta('');
+    setRegUsoReceta(false);
     setRegErrors({});
   }
 
@@ -410,6 +413,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       await crearProductoEnLocal(local, regProductoGlobal.id, {
         stockMinimo: convertirACantidadBase(regStockMinimo, unidadBase),
         precioVenta: regPrecioVenta,
+        usoReceta: regUsoReceta,
       });
       const nombreCreado = regProductoGlobal.nombre;
       resetRegistrar();
@@ -769,6 +773,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         onSeleccionarGlobal={seleccionarProductoGlobal}
         stockMinimo={regStockMinimo} setStockMinimo={setRegStockMinimo}
         precioVenta={regPrecioVenta} setPrecioVenta={setRegPrecioVenta}
+        usoReceta={regUsoReceta} setUsoReceta={setRegUsoReceta}
         guardando={regGuardando}
         errors={regErrors}
       />
