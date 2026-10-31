@@ -1,5 +1,8 @@
 /* ─── Overlay de pantalla completa (el "modal" principal) ────────────────── */
 .gp-overlay {
+  --gp-selected: #EDEDEE;
+  --gp-section-bg: #F1F1F2;
+  --gp-thumb: rgba(120,120,120,0.35);
   position: fixed;
   inset: 0;
   z-index: 1000;
@@ -324,3 +327,226 @@
 @media (max-width: 767px) {
   .gp-master-detail { flex-direction: column; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Mejoras: fila de producto, selección, detalle compacto, edición rápida
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@supports (background: color-mix(in srgb, red 10%, white)) {
+  .gp-overlay {
+    --gp-selected: color-mix(in srgb, var(--gp-text-primary) 8%, var(--gp-surface));
+    --gp-section-bg: color-mix(in srgb, var(--gp-text-primary) 6%, var(--gp-surface));
+    --gp-thumb: color-mix(in srgb, var(--gp-text-secondary) 40%, transparent);
+  }
+}
+
+/* Categoría en la fila */
+.gp-card-categoria {
+  font-size: 11px; font-weight: 500; color: var(--gp-text-secondary);
+  background: var(--gp-surface2); padding: 3px 9px; border-radius: 999px; max-width: 140px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Lista: filas cuadradas, sin bordes ni separaciones, pegadas entre sí ── */
+/* Línea que separa lista y detalle: solo sin selección (con selección se funden) */
+.gp-master-panel {
+  flex: 1 1 0; max-width: none; background: var(--gp-surface);
+  border-right: 0.5px solid var(--gp-border);
+}
+.gp-master-panel.has-selection { border-right-color: transparent; }
+.gp-detail-panel { flex: 1 1 0; }
+.gp-list { padding: 0; gap: 0; }
+.gp-card {
+  border: none; border-radius: 0; background: transparent;
+  padding: 12px 18px; transition: background .12s;
+}
+.gp-card:hover { filter: none; background: var(--gp-surface2); }
+.gp-card .gp-card-icon { background: var(--gp-surface2); }
+
+/* Fila seleccionada: mismo gris que el panel de detalle, sin líneas → se funden */
+.gp-card.selected,
+.gp-card.selected:hover { background: var(--gp-selected); }
+.gp-card.selected .gp-card-icon,
+.gp-card.selected .gp-card-categoria { background: var(--gp-surface); }
+
+/* Mosaicos: sin el efecto de continuidad, solo un fondo suave al seleccionar */
+.gp-grid-card.selected { background: var(--gp-selected); }
+
+/* ── Panel de detalle: mismo tono que la fila seleccionada ── */
+.gp-detail-panel.has-selection { background: var(--gp-selected); }
+.gp-detail-panel.has-selection .gp-sheet-header { border-bottom: none; }
+.gp-detail-panel.has-selection .gp-stat-card,
+.gp-detail-panel.has-selection .gp-info-block { background: var(--gp-surface); }
+
+/* Menos líneas divisorias en el detalle */
+.gp-info-block { border: none; border-radius: 12px; }
+.gp-block-title { border-bottom: none; background: transparent; padding-top: 10px; }
+.gp-info-row { border-bottom-color: color-mix(in srgb, var(--gp-border) 45%, transparent); }
+.gp-info-row:last-child { border-bottom: none; }
+
+/* Cabecera (título + buscador + filtros) y barra de acciones comparten el mismo
+   fondo de sección; sin líneas internas, solo la que las separa de la lista */
+.gp-topbar, .gp-search-wrap, .gp-filter-wrap, .gp-fab-row {
+  background: var(--gp-section-bg); border-bottom: none;
+}
+.gp-filter-wrap { border-bottom: 1px solid var(--gp-border); }
+.gp-topbar { padding-bottom: 8px; }
+.gp-search-wrap { padding-top: 4px; }
+
+/* Controles de la cabecera: claros y con borde visible sobre el fondo de sección */
+.gp-search-input,
+.gp-filter-dropdown,
+.gp-view-toggle,
+.gp-close-btn,
+.gp-icon-btn,
+.gp-search-clear-btn { background: var(--gp-surface); border: 1px solid var(--gp-border); }
+
+/* Barra inferior de acciones: separada de la lista por una línea de sección */
+.gp-fab-row { border-top: 1px solid var(--gp-border); box-shadow: none; }
+
+/* "Registrar producto": neutro (sin azul) y con borde */
+.gp-fab-register {
+  background: var(--gp-surface); border: 1px solid var(--gp-border); color: var(--gp-text-primary);
+}
+.gp-fab-register:hover { filter: brightness(0.97); }
+
+/* División entre filas de productos (la fila seleccionada y su vecina superior
+   no la llevan, para que la selección se funda con el detalle) */
+.gp-card { border-bottom: 1px solid var(--gp-border); }
+.gp-card.selected,
+.gp-card:has(+ .gp-card.selected) { border-bottom-color: transparent; }
+
+/* Detalle más compacto */
+.gp-stats-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px;
+}
+.gp-stat-card { min-width: 0; padding: 8px 10px; }
+.gp-stat-value { font-size: 15px; }
+.gp-stat-value-sm { font-size: 13px; line-height: 1.3; word-break: break-word; }
+.gp-info-row { padding: 7px 12px; }
+.gp-hist-row { padding: 7px 12px; }
+.gp-info-block { margin-bottom: 8px; }
+
+/* ── Barras de scroll finas e integradas ── */
+.gp-overlay * { scrollbar-width: thin; scrollbar-color: var(--gp-thumb) transparent; }
+.gp-overlay *::-webkit-scrollbar { width: 8px; height: 8px; }
+.gp-overlay *::-webkit-scrollbar-track { background: transparent; }
+.gp-overlay *::-webkit-scrollbar-thumb {
+  background: var(--gp-thumb); border-radius: 999px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+.gp-overlay *::-webkit-scrollbar-thumb:hover { background-color: var(--gp-text-secondary); background-clip: content-box; }
+/* Con un producto seleccionado, el carril de la lista toma el gris del detalle:
+   la barra queda "dentro" del bloque gris y no corta la unión fila ↔ detalle */
+.gp-master-panel.has-selection .gp-list,
+.gp-master-panel.has-selection .gp-grid { scrollbar-color: var(--gp-thumb) var(--gp-selected); }
+.gp-master-panel.has-selection .gp-list::-webkit-scrollbar-track,
+.gp-master-panel.has-selection .gp-grid::-webkit-scrollbar-track { background: var(--gp-selected); }
+
+/* Tarjetas editables (stock mínimo / precio) */
+.gp-stat-editable { display: flex; align-items: center; gap: 8px; border: 1px solid transparent; transition: border-color .15s, background .15s; }
+.gp-stat-main { flex: 1; min-width: 0; }
+.gp-stat-editable.editing { border-color: var(--gp-border); }
+.gp-stat-editable.changed { border-color: #BA7517; background: #FAEEDA !important; }
+.gp-stat-editable.changed .gp-stat-label { color: #633806; }
+.gp-stat-input {
+  width: 100%; box-sizing: border-box; font-size: 15px; font-weight: 500;
+  color: var(--gp-text-primary); background: var(--gp-surface2);
+  border: 0.5px solid var(--gp-border); border-radius: 7px; padding: 4px 8px; outline: none;
+}
+.gp-stat-input:focus { border-color: var(--gp-accent-text); }
+.gp-stat-edit-btn {
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; cursor: pointer;
+  background: var(--gp-surface); border: 0.5px solid var(--gp-border);
+  color: var(--gp-text-secondary); font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.gp-stat-edit-btn:hover { background: var(--gp-btn-bg); color: var(--gp-btn-text); border-color: transparent; }
+.gp-stat-edit-btn.cancel:hover { background: #FCEBEB; color: #791F1F; border-color: #F5C6C6; }
+
+/* Botón guardar cambios (gris = sin cambios, verde = hay cambios) */
+.gp-save-changes-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin: 0 12px 10px; width: calc(100% - 24px); padding: 10px; border-radius: 10px;
+  font-size: 13px; font-weight: 600; flex-shrink: 0;
+  background: var(--gp-surface2); color: var(--gp-placeholder);
+  border: 0.5px dashed var(--gp-border); cursor: not-allowed;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.gp-save-changes-btn.active {
+  background: #3B8D2F; color: #fff; border: 0.5px solid #2F7525; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(59,141,47,0.35);
+}
+.gp-save-changes-btn.active:hover { filter: brightness(0.95); }
+
+/* Mensaje flotante de confirmación */
+.gp-confirm-overlay { z-index: 1300; }
+.gp-confirm-box {
+  background: var(--gp-surface); color: var(--gp-text-primary);
+  border-radius: 16px; width: 100%; max-width: 400px; padding: 18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+.gp-confirm-title { font-size: 16px; font-weight: 600; }
+.gp-confirm-sub { font-size: 12px; color: var(--gp-text-secondary); margin: 2px 0 12px; }
+.gp-confirm-changes {
+  border: 0.5px solid var(--gp-border); border-radius: 10px; overflow: hidden; background: var(--gp-surface2);
+}
+.gp-confirm-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 10px 12px; border-bottom: 0.5px solid var(--gp-border); font-size: 13px; flex-wrap: wrap;
+}
+.gp-confirm-row:last-child { border-bottom: none; }
+.gp-confirm-key { color: var(--gp-text-secondary); }
+.gp-confirm-vals { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.gp-confirm-old { color: var(--gp-text-secondary); text-decoration: line-through; }
+.gp-confirm-arrow { color: var(--gp-text-secondary); }
+.gp-confirm-new { color: #3B6D11; font-weight: 600; }
+.gp-confirm-error {
+  margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  background: #FCEBEB; color: #791F1F; border: 0.5px solid #F5C6C6;
+}
+.gp-confirm-actions { display: flex; gap: 8px; margin-top: 14px; }
+.gp-confirm-actions button {
+  flex: 1; padding: 11px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.gp-confirm-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
+.gp-confirm-cancel { background: var(--gp-surface2); color: var(--gp-text-primary); border: 0.5px solid var(--gp-border); }
+.gp-confirm-ok { background: #3B8D2F; color: #fff; border: none; }
+
+@media (max-width: 767px) {
+  .gp-master-panel, .gp-detail-panel { flex: 1 1 auto; }
+}
+
+
+/* ─── Historial: switch Movimientos | Modificaciones ─────────────────────── */
+.gp-seg {
+  display: flex; gap: 2px; margin: 8px 12px 6px; padding: 2px;
+  background: var(--gp-surface2); border-radius: 9px;
+}
+.gp-seg-btn {
+  flex: 1; border: none; border-radius: 7px; padding: 7px 8px; cursor: pointer;
+  background: transparent; color: var(--gp-text-secondary); font: inherit; font-size: 12.5px; font-weight: 500;
+  transition: background .12s, color .12s;
+}
+.gp-seg-btn:hover:not(.active) { color: var(--gp-text-primary); }
+.gp-seg-btn.active { background: var(--gp-btn-bg); color: var(--gp-btn-text); }
+.gp-hist-empty { padding: 8px 14px 12px; margin: 0; }
+.gp-hist-count { font-size: 12px; color: var(--gp-text-secondary); flex-shrink: 0; }
+
+
+/* ─── Oferta ─────────────────────────────────────────────────────────────── */
+.gp-offer-tag {
+  display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em;
+  color: #fff; background: #D9730D; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+}
+.gp-grid-img-wrap { position: relative; }
+.gp-offer-tag-grid { position: absolute; top: 6px; left: 6px; font-size: 9.5px; padding: 2px 7px; }
+.gp-switch-track:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Botón "Ver todos / Ver menos" del historial */
+.gp-hist-more {
+  display: block; width: calc(100% - 24px); margin: 6px 12px 10px; padding: 8px;
+  background: var(--gp-surface2); color: var(--gp-text-primary); border: none; border-radius: 9px;
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: center;
+}
+.gp-hist-more:hover { filter: brightness(0.96); }

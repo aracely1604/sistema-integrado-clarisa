@@ -17,6 +17,9 @@
   background-color: var(--c-surface, #FFFFFF);
   border-right: 0.5px solid var(--c-border, #E2E6EA);
   height: 100vh;
+  /* `backwards`: la animación solo actúa antes/durante; al terminar no deja transform ni
+     opacity puestos (así los modales position:fixed de adentro siguen cubriendo la pantalla). */
+  animation: dl-slide-in-left 0.45s cubic-bezier(0.22, 0.8, 0.3, 1) backwards;
 }
 
 .dl-sb-section {
@@ -117,6 +120,18 @@
   cursor: pointer;
   font-family: inherit;
   box-sizing: border-box;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease,
+              transform 0.15s ease;
+}
+
+.dl-sb-local-btn:not(.dl-sb-local-btn-active):hover {
+  background-color: var(--c-surface2, #F8F9FA);
+  color: var(--c-textPrimary, #1A1916);
+  transform: translateX(2px);
+}
+
+.dl-sb-local-btn:active {
+  transform: scale(0.98);
 }
 
 .dl-sb-local-btn span:nth-of-type(2) {
@@ -134,24 +149,74 @@
   border-radius: 4px;
   background-color: var(--c-border, #E2E6EA);
   flex-shrink: 0;
+  transition: background-color 0.25s ease, transform 0.25s ease;
+}
+
+.dl-sb-local-btn-active .dl-sb-local-dot {
+  transform: scale(1.35);
+}
+
+/* Flecha del desplegable: una sola, que gira al abrir/cerrar */
+.dl-sb-chevron {
+  flex-shrink: 0;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dl-sb-chevron-open {
+  transform: rotate(180deg);
 }
 
 /* Colores fijos por local (no dependen del tema claro/oscuro) */
 .dl-local-comidaRapida       { background-color: #E6F1FB; border-color: #0C447C !important; color: #0C447C !important; font-weight: 600; }
 .dl-local-almacen      { background-color: #EAF3DE; border-color: #27500A !important; color: #27500A !important; font-weight: 600; }
 .dl-local-cafeteria    { background-color: #FAEEDA; border-color: #633806 !important; color: #633806 !important; font-weight: 600; }
-.dl-local-dot-comidaRadida    { background-color: #378ADD !important; }
+.dl-local-dot-comidaRapida    { background-color: #378ADD !important; }
 .dl-local-dot-almacen   { background-color: #639922 !important; }
 .dl-local-dot-cafeteria { background-color: #BA7517 !important; }
 
+/* Desplegable de un local: SIEMPRE está en el DOM y se anima la altura (0fr → 1fr).
+   Cerrado queda `visibility: hidden` (con retardo) para que sus botones no reciban foco. */
+.dl-subitems-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin: 0 12px 0 36px;
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s ease,
+              margin-bottom 0.3s ease,
+              visibility 0s linear 0.3s;
+}
+
+.dl-subitems-collapse-open {
+  grid-template-rows: 1fr;
+  margin-bottom: 4px;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.25s ease 0.05s,
+              margin-bottom 0.3s ease,
+              visibility 0s;
+}
+
 .dl-subitems-wrap {
-  margin: 0 12px 4px 36px;
+  min-height: 0;          /* permite que la fila de la grilla colapse a 0 */
+  overflow: hidden;
   border-left: 1.5px solid var(--c-border, #E2E6EA);
   padding-left: 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
+
+/* Los subitems entran uno tras otro al abrir */
+.dl-subitems-collapse-open .dl-subitem {
+  animation: dl-subitem-in 0.3s ease backwards;
+}
+.dl-subitems-collapse-open .dl-subitem:nth-child(1) { animation-delay: 0.06s; }
+.dl-subitems-collapse-open .dl-subitem:nth-child(2) { animation-delay: 0.10s; }
+.dl-subitems-collapse-open .dl-subitem:nth-child(3) { animation-delay: 0.14s; }
+.dl-subitems-collapse-open .dl-subitem:nth-child(4) { animation-delay: 0.18s; }
 
 .dl-subitem {
   display: flex;
@@ -166,10 +231,17 @@
   cursor: pointer;
   font-family: inherit;
   text-align: left;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
 }
 
 .dl-subitem:hover {
   background-color: var(--c-surface2, #F8F9FA);
+  color: var(--c-textPrimary, #1A1916);
+  transform: translateX(2px);
+}
+
+.dl-subitem:active {
+  transform: scale(0.98);
 }
 
 .dl-sb-bottom {
@@ -193,10 +265,16 @@
   width: 100%;
   font-family: inherit;
   text-align: left;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
 }
 
 .dl-sb-bottom-btn:hover {
   background-color: var(--c-surface2, #F8F9FA);
+  color: var(--c-textPrimary, #1A1916);
+}
+
+.dl-sb-bottom-btn:active {
+  transform: scale(0.98);
 }
 
 .dl-sb-bottom-btn-between {
@@ -264,4 +342,42 @@
   border-radius: 6px;
   font-size: 11px;
   font-weight: 600;
+}
+
+/* ── Animaciones ───────────────────────────────────────────────────────────── */
+@keyframes dl-slide-in-left {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes dl-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes dl-subitem-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Los locales de la barra aparecen escalonados al cargar */
+.dl-sb-locales > div {
+  animation: dl-fade-up 0.4s ease backwards;
+}
+.dl-sb-locales > div:nth-of-type(1) { animation-delay: 0.15s; }
+.dl-sb-locales > div:nth-of-type(2) { animation-delay: 0.22s; }
+.dl-sb-locales > div:nth-of-type(3) { animation-delay: 0.29s; }
+.dl-sb-locales > div:nth-of-type(4) { animation-delay: 0.36s; }
+
+/* Respeta la preferencia "reducir movimiento" del sistema */
+@media (prefers-reduced-motion: reduce) {
+  .dl-screen *,
+  .dl-screen *::before,
+  .dl-screen *::after,
+  .dl-sidebar {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
 }

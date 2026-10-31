@@ -16,6 +16,15 @@
   inset: 0;
   background-color: rgba(0, 0, 0, 0.4);
   z-index: 99;
+  /* Siempre montado: aparece y desaparece con fundido en vez de cortarse de golpe */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.ml-drawer-overlay-open {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .ml-drawer {
@@ -29,11 +38,37 @@
   border-right: 0.5px solid var(--c-border, #E2E6EA);
   display: flex;
   flex-direction: column;
-  transition: transform 0.25s ease;
+  box-shadow: none;
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+              box-shadow 0.32s ease,
+              visibility 0s linear 0.32s;
 }
 
-.ml-drawer-open   { transform: translateX(0); }
-.ml-drawer-closed { transform: translateX(-260px); }
+.ml-drawer-open {
+  transform: translateX(0);
+  box-shadow: 8px 0 28px rgba(0, 0, 0, 0.22);
+  visibility: visible;
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+              box-shadow 0.32s ease,
+              visibility 0s;
+}
+
+/* Cerrado: fuera de pantalla Y oculto (con retardo, para ver la salida) → no recibe foco */
+.ml-drawer-closed {
+  transform: translateX(-100%);
+  visibility: hidden;
+}
+
+/* El contenido del cajón entra escalonado al abrir */
+.ml-drawer-open .ml-drawer-profile,
+.ml-drawer-open .ml-drawer-section,
+.ml-drawer-open .ml-drawer-bottom {
+  animation: ml-drawer-item-in 0.35s ease backwards;
+}
+.ml-drawer-open .ml-drawer-profile                      { animation-delay: 0.08s; }
+.ml-drawer-open .ml-drawer-section:nth-of-type(1)       { animation-delay: 0.14s; }
+.ml-drawer-open .ml-drawer-section:nth-of-type(2)       { animation-delay: 0.20s; }
+.ml-drawer-open .ml-drawer-bottom                       { animation-delay: 0.26s; }
 
 .ml-drawer-profile {
   padding: 16px;
@@ -114,6 +149,12 @@
   font-size: 13px;
   font-weight: 500;
   text-align: left;
+  transition: background-color 0.18s ease, transform 0.12s ease;
+}
+
+.ml-drawer-btn:active {
+  transform: scale(0.98);
+  background-color: var(--c-surface2, #F8F9FA);
 }
 
 .ml-drawer-btn-between {
@@ -502,4 +543,22 @@
   color: var(--c-textSecondary, #7A7670);
   text-align: center;
   font-size: 13px;
+}
+
+/* ── Animaciones ───────────────────────────────────────────────────────────── */
+@keyframes ml-drawer-item-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Respeta la preferencia "reducir movimiento" del sistema */
+@media (prefers-reduced-motion: reduce) {
+  .ml-drawer,
+  .ml-drawer-overlay,
+  .ml-drawer * {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
 }

@@ -4,23 +4,25 @@ import { useAuth } from '../../controllers/AuthContext';
 import {
   CATEGORIAS,
   getStockStatus, formatStock, unidadBaseDesdeUnidadMedida,
-  convertirACantidadBase, convertirBaseAIngreso, etiquetaUnidadIngreso,
+  convertirACantidadBase, etiquetaUnidadIngreso,
   convertirValorUnitarioABase,
 } from './gestionProductosData';
 import {
   FiltroPickerModal, DetalleContenido, DetalleModal,
-  EditarModal, ActualizarStockModal, RegistrarModal, TransferirModal,
+  ActualizarStockModal, RegistrarModal, TransferirModal,
 } from './GestionProductosForms';
 import {
-  obtenerProductoPorCodigoBarra, suscribirProductosGlobales, actualizarProductoGlobal,
+  obtenerProductoPorCodigoBarra, suscribirProductosGlobales,
 } from '../../controllers/ProductoControl';
 import {
   crearProductoEnLocal, obtenerProductoLocal, suscribirProductosLocal,
-  actualizarProductoLocal, cambiarEstadoProductoLocal,
+  actualizarProductoLocal, cambiarEstadoProductoLocal, cambiarOfertaActivaProductoLocal,
   transferirProductoEntreLocales, registrarMovimientoStock,
 } from '../../controllers/LocalProductoControl';
 import { suscribirProveedoresPorLocal } from '../../controllers/ProveedorControl';
-import { suscribirHistorialProductoLocal } from '../../controllers/HistorialStockControl';
+import { suscribirUltimaReposicionProducto } from '../../controllers/HistorialStockControl';
+import { diasHastaVencimiento, formatFechaVencimiento } from './vencimientoUtils';
+import { DIAS_VENCIMIENTO_MAX } from './inventarioHelpers';
 import { LOCAL_LABELS, LOCALES_LIST } from './inventarioData';
 import '../../css/GestionProductos.css';
 
@@ -39,13 +41,11 @@ function useWindowWidth() {
 
 // ─── Tarjeta de producto ──────────────────────────────────────────────────────
 
-function TarjetaProducto({ item, onClick }) {
+function TarjetaProducto({ item, onClick, selected = false }) {
   const status = getStockStatus(item.stock, item.minimo);
-  // formatStock ya convierte: g -> kg, ml -> lt, uds -> uds
-  const [stockNum, stockLbl] = formatStock(item.stock, item.unidad).split(' ');
 
   return (
-    <button className={`gp-card${!item.activo ? ' inactivo' : ''}`} onClick={onClick}>
+    <button className={`gp-card${!item.activo ? ' inactivo' : ''}${selected ? ' selected' : ''}`} onClick={onClick}>
       <div className="gp-card-icon">{item.unidad === 'uds' ? ' ' : ' '}</div>
       <div className="gp-card-info">
         <div className="gp-card-nombre">{item.nombre}</div>
@@ -58,18 +58,20 @@ function TarjetaProducto({ item, onClick }) {
           <div className="gp-badge gp-badge-inactive">Inactivo</div>
         )}
       </div>
-      <div className="gp-card-right">
-        <div className="gp-stock-num">{stockNum}</div>
-        <div className="gp-stock-lbl">{stockLbl}</div>
-      </div>
+      {item.ofertaActiva && (
+        <div className="gp-card-right">
+          <span className="gp-offer-tag">OFERTA</span>
+        </div>
+      )}
     </button>
   );
 }
 
-function TarjetaProductoGrid({ item, onClick }) {
+function TarjetaProductoGrid({ item, onClick, selected = false }) {
   return (
-    <button className={`gp-grid-card${!item.activo ? ' inactivo' : ''}`} onClick={onClick}>
+    <button className={`gp-grid-card${!item.activo ? ' inactivo' : ''}${selected ? ' selected' : ''}`} onClick={onClick}>
       <div className="gp-grid-img-wrap">
+        {item.ofertaActiva && <span className="gp-offer-tag gp-offer-tag-grid">OFERTA</span>}
         {item.imagen ? (
           <img src={item.imagen} alt={item.nombre} loading="lazy" />
         ) : (
@@ -102,18 +104,12 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
 
   // Modales
   const [modalDetalle, setModalDetalle] = useState(false);
-  const [modalEditar, setModalEditar] = useState(false);
   const [modalActualizar, setModalActualizar] = useState(false);
   const [modalRegistrar, setModalRegistrar] = useState(false);
   const [modalTransferir, setModalTransferir] = useState(false);
 
   // Producto seleccionado
   const [productoActual, setProductoActual] = useState(null);
-
-  // Formulario editar
-  const [editNombre, setEditNombre] = useState('');
-  const [editPrecio, setEditPrecio] = useState('');
-  const [editMinimo, setEditMinimo] = useState('');
 
   // Formulario actualizar stock (movimientos: reposición / transferencia / devolución)
   const [updCodigo, setUpdCodigo] = useState('');
@@ -190,6 +186,8 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       minimo: lp.stockMinimo,
       unidad: unidadBaseDesdeUnidadMedida(global?.unidadMedida),
       activo: lp.activo,
+      oferta: lp.oferta,
+      ofertaActiva: lp.ofertaActiva,
       ultima: lp.actualizadoEn ? new Date(lp.actualizadoEn).toLocaleDateString('es-CL') : '—',
       imagen: null,
     };
@@ -202,23 +200,6 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     if (actualizado) setProductoActual(actualizado);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productos]);
-
-  // Historial de movimientos del producto seleccionado, en tiempo real
-  const [historialProducto, setHistorialProducto] = useState([]);
-  const [cargandoHistorial, setCargandoHistorial] = useState(false);
-
-  useEffect(() => {
-    if (!productoActual?.id) {
-      setHistorialProducto([]);
-      return;
-    }
-    setCargandoHistorial(true);
-    const unsubscribe = suscribirHistorialProductoLocal(local, productoActual.id, (movimientos) => {
-      setHistorialProducto(movimientos);
-      setCargandoHistorial(false);
-    });
-    return () => unsubscribe?.();
-  }, [local, productoActual?.id]);
 
   // Cerrar con tecla Escape
   useEffect(() => {
@@ -239,6 +220,40 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   // Producto encontrado en modal actualizar (para condicionar campos)
   const productoUpdCodigo = productos.find((p) => p.codigo === updCodigo.trim()) || null;
 
+  // Producto al que se le va a mover stock en el formulario abierto: el encontrado por
+  // código ("Actualizar stock") o el del panel de detalle ("Transferir a otro local").
+  const productoMovimiento = modalActualizar ? productoUpdCodigo : (modalTransferir ? productoActual : null);
+  const idProductoMov = productoMovimiento?.id ?? null;
+
+  // Vencimiento vigente de ese producto. Solo se consulta mientras hay un formulario abierto.
+  const [ultimaRepoMov, setUltimaRepoMov] = useState(null);
+  useEffect(() => {
+    if (!idProductoMov) { setUltimaRepoMov(null); return undefined; }
+    setUltimaRepoMov(null);
+    const unsubscribe = suscribirUltimaReposicionProducto(local, idProductoMov, setUltimaRepoMov);
+    return () => unsubscribe?.();
+  }, [local, idProductoMov]);
+
+  // Estado de vencimiento del producto en ESTE LOCAL (solo si venció o vence en ≤ DIAS_VENCIMIENTO_MAX días).
+  //  · tipo 'vencido':   con stock no se puede reponer ni transferir (hasta darlo de baja);
+  //                      vencido (con o sin stock) no se puede devolver.
+  //  · tipo 'porVencer': con stock no se puede reponer (hay que terminar el stock actual).
+  // `conStock` dice si le queda stock. (El controlador también lo valida; esto solo adelanta
+  // el aviso. Que el DESTINO de una transferencia tenga stock vencido solo lo detecta el
+  // controlador, y el mensaje sale bajo "Local destino".)
+  const bloqueoVencido = useMemo(() => {
+    if (!productoMovimiento) return null;
+    const dias = diasHastaVencimiento(ultimaRepoMov?.vencimiento);
+    if (dias === null || dias > DIAS_VENCIMIENTO_MAX) return null;
+    return {
+      tipo: dias < 0 ? 'vencido' : 'porVencer',
+      dias,
+      diasVencido: dias < 0 ? -dias : 0,
+      fecha: formatFechaVencimiento(ultimaRepoMov.vencimiento),
+      conStock: Number(productoMovimiento.stock) > 0,
+    };
+  }, [productoMovimiento, ultimaRepoMov]);
+
   const productosFiltrados = productos.filter((p) => {
     const matchBusqueda =
       p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
@@ -254,45 +269,42 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     setModalDetalle(true);
   }
 
-  function abrirEditar() {
-    setEditNombre(productoActual.nombre);
-    setEditPrecio(String(productoActual.precio));
-    setEditMinimo(String(convertirBaseAIngreso(productoActual.minimo, productoActual.unidad)));
-    setModalEditar(true);
-  }
+  // Actualiza solo stock mínimo y/o precio de venta de ESTE local (se llama desde
+  // el panel de detalle tras confirmar el resumen de cambios). Lanza Error con un
+  // mensaje legible para que el panel lo muestre dentro del mensaje de confirmación.
+  async function actualizarMinimoPrecio({ minimo, precio, oferta }) {
+    let stockMinimo = productoActual.minimo;
+    let precioVenta = productoActual.precio;
+    let precioOferta = productoActual.oferta ?? 0;
 
-  async function guardarEdicion() {
-    if (!editNombre.trim()) {
-      window.alert('El nombre no puede estar vacío');
-      return;
+    if (minimo !== undefined) {
+      const minimoIngresado = Number(minimo);
+      if (isNaN(minimoIngresado) || minimoIngresado < 0) {
+        throw new Error('Revisa el stock mínimo');
+      }
+      // El usuario lo ingresa en kg/L (unidad de compra): se convierte a g/ml
+      stockMinimo = convertirACantidadBase(minimoIngresado, productoActual.unidad);
     }
-    const minimoIngresado = Number(editMinimo);
-    const precioNum = parseInt(editPrecio);
-    if (isNaN(minimoIngresado) || minimoIngresado < 0 || isNaN(precioNum) || precioNum <= 0) {
-      window.alert('Revisa el stock mínimo y el precio de venta');
-      return;
+    if (precio !== undefined) {
+      const precioNum = parseInt(precio);
+      if (isNaN(precioNum) || precioNum <= 0) {
+        throw new Error('Revisa el precio de venta');
+      }
+      precioVenta = precioNum;
     }
+    if (oferta !== undefined) {
+      const ofertaNum = Math.round(Number(oferta));
+      if (isNaN(ofertaNum) || ofertaNum < 0) {
+        throw new Error('Revisa el precio de oferta');
+      }
+      precioOferta = ofertaNum;
+    }
+
     try {
-      // Nombre vive en el catálogo GLOBAL (se reenvían categoría/código/unidad
-      // tal cual estaban, porque validarProducto exige los 4 campos juntos)
-      await actualizarProductoGlobal(productoActual.id, {
-        nombre: editNombre.trim(),
-        categoria: productoActual.categoria,
-        codigoBarra: productoActual.codigo,
-        unidadMedida: productoActual.unidadMedida,
-      });
-      // Stock mínimo y precio de venta viven en ESTE local. El usuario lo
-      // ingresa en kg/L (unidad de compra) — se convierte a la unidad base
-      // (g/ml) antes de guardar.
-      await actualizarProductoLocal(local, productoActual.id, {
-        stockMinimo: convertirACantidadBase(minimoIngresado, productoActual.unidad),
-        precioVenta: precioNum,
-      });
-      setModalEditar(false);
-      window.alert('Producto actualizado correctamente');
+      await actualizarProductoLocal(local, productoActual.id, { stockMinimo, precioVenta, oferta: precioOferta }, { usuario });
     } catch (err) {
       const primerError = err?.errores ? Object.values(err.errores)[0] : null;
-      window.alert(primerError ?? 'No se pudo actualizar el producto. Intenta nuevamente.');
+      throw new Error(primerError ?? 'No se pudo actualizar el producto. Intenta nuevamente.');
     }
   }
 
@@ -466,6 +478,17 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     }
   }
 
+  async function toggleOferta() {
+    if (!productoActual) return;
+    const nuevaOfertaActiva = !productoActual.ofertaActiva;
+    try {
+      await cambiarOfertaActivaProductoLocal(local, productoActual.id, nuevaOfertaActiva);
+      setProductoActual((prev) => (prev ? { ...prev, ofertaActiva: nuevaOfertaActiva } : prev));
+    } catch (err) {
+      window.alert(err?.errores?.general ?? 'No se pudo actualizar la oferta. Intenta nuevamente.');
+    }
+  }
+
   // Este botón (desde el panel de detalle) usa la MISMA transferirProductoEntreLocales
   // que "Actualizar Stock → Transferencia", así que también queda registrado
   // en historialStock — por eso ahora también pide el costo total de lo transferido.
@@ -627,17 +650,17 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         <div className="gp-master-detail">
 
           {/* Panel izquierdo: lista */}
-          <div className="gp-master-panel">
+          <div className={`gp-master-panel${productoActual ? ' has-selection' : ''}`}>
             {vista === 'grid' ? (
               <div className="gp-grid">
                 {productosFiltrados.map((item) => (
-                  <TarjetaProductoGrid key={item.id} item={item} onClick={() => abrirDetalle(item)} />
+                  <TarjetaProductoGrid key={item.id} item={item} selected={productoActual?.id === item.id} onClick={() => abrirDetalle(item)} />
                 ))}
               </div>
             ) : (
               <div className="gp-list">
                 {productosFiltrados.map((item) => (
-                  <TarjetaProducto key={item.id} item={item} onClick={() => abrirDetalle(item)} />
+                  <TarjetaProducto key={item.id} item={item} selected={productoActual?.id === item.id} onClick={() => abrirDetalle(item)} />
                 ))}
               </div>
             )}
@@ -648,7 +671,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
           </div>
 
           {/* Panel derecho: detalle */}
-          <div className="gp-detail-panel">
+          <div className={`gp-detail-panel${productoActual ? ' has-selection' : ''}`}>
             {productoActual ? (
               <>
                 <div className="gp-sheet-header">
@@ -656,11 +679,11 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
                 </div>
                 <DetalleContenido
                   producto={productoActual}
-                  onEditar={abrirEditar}
+                  onActualizar={actualizarMinimoPrecio}
                   onTransferir={() => setModalTransferir(true)}
                   onToggleActivo={toggleActivo}
-                  historial={historialProducto}
-                  cargandoHistorial={cargandoHistorial}
+                  onToggleOferta={toggleOferta}
+                  local={local}
                 />
               </>
             ) : (
@@ -700,23 +723,11 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         visible={modalDetalle}
         producto={productoActual}
         onClose={() => setModalDetalle(false)}
-        onEditar={abrirEditar}
+        onActualizar={actualizarMinimoPrecio}
         onTransferir={() => setModalTransferir(true)}
         onToggleActivo={toggleActivo}
-        historial={historialProducto}
-        cargandoHistorial={cargandoHistorial}
-      />
-
-      {/* ── Modal: Editar ──────────────────────────────────────────────────── */}
-      <EditarModal
-        isDesktop={isDesktop}
-        visible={modalEditar}
-        onClose={() => setModalEditar(false)}
-        onGuardar={guardarEdicion}
-        nombre={editNombre} setNombre={setEditNombre}
-        precio={editPrecio} setPrecio={setEditPrecio}
-        minimo={editMinimo} setMinimo={setEditMinimo}
-        unidad={productoActual?.unidad}
+        onToggleOferta={toggleOferta}
+        local={local}
       />
 
       {/* ── Modal: Actualizar stock ────────────────────────────────────────── */}
@@ -730,6 +741,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         cantidad={updCantidad} setCantidad={setUpdCantidad}
         tipoMovimiento={updTipoMovimiento} setTipoMovimiento={setUpdTipoMovimiento}
         productoEncontrado={productoUpdCodigo}
+        bloqueoVencido={bloqueoVencido}
         proveedores={proveedoresLocal}
         proveedorId={updProveedorId} setProveedorId={setUpdProveedorId}
         fechaVencimiento={updFechaVencimiento} setFechaVencimiento={setUpdFechaVencimiento}
@@ -773,6 +785,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         valorTotal={transValorTotal} setValorTotal={setTransValorTotal}
         localesDestino={(LOCALES_LIST ?? []).filter((l) => l !== local)}
         localLabels={LOCAL_LABELS ?? {}}
+        bloqueoVencido={bloqueoVencido?.tipo === 'vencido' && bloqueoVencido.conStock ? bloqueoVencido : null}
         guardando={transGuardando}
         errors={transErrors}
       />

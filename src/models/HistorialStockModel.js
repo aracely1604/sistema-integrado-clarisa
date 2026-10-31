@@ -10,6 +10,12 @@
 
 export const TIPOS_MOVIMIENTO_STOCK = ['reposicion', 'transferencia', 'devolucion'];
 
+// Todos los tipos que pueden aparecer en historialStock. 'merma' NO está en
+// TIPOS_MOVIMIENTO_STOCK a propósito: ese arreglo valida el formulario manual de
+// movimientos (registrarMovimientoStock), que SUMA stock. La merma resta, y solo
+// se crea con registrarMermaPorVencimiento (LocalProductoControl.js).
+export const TIPOS_MOVIMIENTO_HISTORIAL = [...TIPOS_MOVIMIENTO_STOCK, 'merma'];
+
 export class HistorialStockModel {
   constructor({
     id               = null,
@@ -23,9 +29,9 @@ export class HistorialStockModel {
     usuario          = null,   // uid del usuario autenticado
     idProveedor      = null,   // solo reposición
     localRelacionado = null,   // solo transferencia (el "otro" local)
-    valorUnitario    = null,   // reposición y transferencia
+    valorUnitario    = null,   // reposición, transferencia y merma
     valorTotal       = null,   // = cantidad * valorUnitario
-    fechaVencimiento = null,   // solo reposición
+    fechaVencimiento = null,   // reposición y merma (la del producto que se retira)
   } = {}) {
     this.id               = id;
     this.fecha             = fecha;

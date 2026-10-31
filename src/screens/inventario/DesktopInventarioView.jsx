@@ -1,11 +1,14 @@
-import { useState } from 'react';
-import { FiChevronDown, FiCheckCircle, FiInbox, FiPackage, FiBookOpen } from 'react-icons/fi';
+import { useEffect, useState } from 'react';
+import { FiChevronDown, FiCheckCircle, FiInbox } from 'react-icons/fi';
 
 import { LOCAL_LABELS, HOY_IDX } from './inventarioData';
-import { getLevel, getVencLevel, nextVisitOffset } from './inventarioHelpers';
-import { useInventarioAlertas } from './useInventarioAlertas';
+import { getLevel, getVencLevel, nextVisitOffset, formatearPrecioCorto } from './inventarioHelpers';
 
 import { Badge } from './InventarioShared';
+import {
+  Subseccion, FilaStockConVencimiento, TituloConAyuda, DetalleMetricas, DetalleRecetas, resumenMetricasLocal,
+} from './AlertasInventarioShared';
+import { useRecetasLocal } from './useRecetasLocal';
 import { StockAlertCard, VencimientoCard, ProductoRecienteCard, CalendarioSemanal } from './AlertCards';
 import { FloatingKPIList, FloatingSheet, FloatingReporte, FloatingVisitanHoy } from './FloatingSheet';
 import {
@@ -20,8 +23,8 @@ import '../../css/DesktopInventarioView.css';
 // ─────────────────────────────────────────────────────────────────────────────
 export default function DesktopInventarioView({
   activeLocal,
+  alertas,   // resultado de useInventarioAlertas(activeLocal): se llama UNA vez, en DesktopLayout
   proveedores,
-  recetasData,
   productosData,
   inventarioReciente,
   modalStock,     setModalStock,
@@ -29,7 +32,6 @@ export default function DesktopInventarioView({
   modalProv,      setModalProv,
   modalNuevoProv, setModalNuevoProv,
   handleGuardarProveedor,
-  setRecetasData,
   setProductosData,
   visitanHoyVisible,        setVisitanHoyVisible,
   visitanHoyDismissedToday, setVisitanHoyDismissedToday,
@@ -43,23 +45,58 @@ export default function DesktopInventarioView({
   // ── Stock / vencimiento / ingresados hoy: EN VIVO desde Firestore ──
   // El hook ya entrega todo filtrado al local activo, con la misma forma
   // de campos que usaba el mock (qty, min, max, unit, vence, lote, etc.)
-  const { stockData: stockLocal, vencimientosData: vencLocal, inventarioReciente: recienteLocal } = useInventarioAlertas(activeLocal);
+  const {
+    stockData: stockLocal, vencimientosData: vencLocal, inventarioReciente: recienteLocal,
+    ofertasActivas, productosLocal, agregarAviso,
+  } = alertas;
+
+  // Recetas REALES del local (recetario global + asignaciones), con el stock en vivo.
+  const { resumen: resumenRecetas, cargando: cargandoRecetas } = useRecetasLocal(activeLocal, productosLocal);
+
+  // El modal de vencimiento se alimenta de la lista EN VIVO (no de la copia que se
+  // guardó al hacer clic): así refleja al instante que la oferta quedó activa, y se
+  // cierra solo cuando el producto sale de la lista (p. ej. tras eliminar su stock).
+  const itemVencimiento = modalVenc ? (vencLocal.find(i => i.id === modalVenc.id) ?? null) : null;
+  useEffect(() => {
+    if (modalVenc && !itemVencimiento) setModalVenc(null);
+  }, [modalVenc, itemVencimiento, setModalVenc]);
 
   // ── Derivados ──
-  const recetasLocal   = recetasData.filter(r => r.local === activeLocal);
-  const productosLocal = productosData.filter(p => p.local === activeLocal);
   const criticos       = stockLocal.filter(i => ['critical', 'out'].includes(getLevel(i)));
   const bajos          = stockLocal.filter(i => getLevel(i) === 'low');
-  const porVencer      = vencLocal.filter(i => getVencLevel(i.vence) !== 'soon');
-  const totalRecetas   = recetasLocal.length;
-  const activas        = recetasLocal.filter(r => r.activa).length;
-  const inactivas      = totalRecetas - activas;
+  // El hook ya entrega solo lo que vence en ≤ 30 días (o ya venció), del más urgente al menos.
+  const metricas       = resumenMetricasLocal(vencLocal, ofertasActivas);
+  const vencimientosOrdenados = [...vencLocal].sort((a, b) => a.vence - b.vence);
+  const vencidos       = vencimientosOrdenados.filter(i => getVencLevel(i.vence) === 'expired');
+  const porVencer      = vencimientosOrdenados.filter(i => getVencLevel(i.vence) !== 'expired');
   const provLocal      = proveedores.filter(p => p.locales.includes(activeLocal));
   const provHoy        = provLocal.filter(p => p.dias.includes(HOY_IDX));
   const provProximos   = [...provLocal].sort((a, b) => nextVisitOffset(a.dias) - nextVisitOffset(b.dias));
   const totalProvLocal = provLocal.length;
-  const recetasInactivas   = recetasLocal.filter(r => !r.activa);
-  const productosInactivos = productosLocal.filter(p => !p.activo);
+  // Productos en alerta de stock que además están vencidos (reposición bloqueada hasta
+  // eliminar su stock) o por vencer (solo se recomienda priorizar su venta al reponer).
+  const vencPorId = new Map(vencLocal.map(i => [i.id, i]));
+
+  // Ítem del modal de detalle de stock, en vivo y con su vencimiento (si lo tiene), para que
+  // el modal muestre la recomendación o el aviso de reposición no disponible.
+  const itemStockModal = modalStock
+    ? { ...(stockLocal.find(i => i.id === modalStock.id) ?? modalStock), venc: vencPorId.get(modalStock.id) ?? null }
+    : null;
+  const renderAlertaStock = (item) => {
+    const card = <StockAlertCard item={item} onVerDetalle={setModalStock} compact />;
+    const venc = vencPorId.get(item.id);
+    if (!venc) return <div key={item.id}>{card}</div>;
+    return (
+      <FilaStockConVencimiento
+        key={item.id}
+        vencido={getVencLevel(venc.vence) === 'expired'}
+        onAbrir={() => setModalStock(item)}
+      >
+        {card}
+      </FilaStockConVencimiento>
+    );
+  };
+
 
   return (
     <>
@@ -73,19 +110,29 @@ export default function DesktopInventarioView({
             <span className="div-section-label">MÉTRICAS</span>
             <div className="div-metric-grid">
               {[
-                { label: 'Productos',  value: stockLocal.length,              color: 'var(--c-textPrimary)' },
-                { label: 'Stock bajo', value: criticos.length + bajos.length, color: criticos.length > 0 ? '#E24B4A' : '#BA7517' },
-                { label: 'Por vencer', value: porVencer.length,               color: porVencer.length > 0 ? '#BA7517' : 'var(--c-textPrimary)' },
+                { label: 'Stock bajo',      value: criticos.length + bajos.length, color: criticos.length > 0 ? '#E24B4A' : '#BA7517' },
+                { label: 'En riesgo',       value: formatearPrecioCorto(metricas.valorRiesgo),
+                  color: metricas.valorVencido > 0 ? '#E24B4A' : metricas.valorPorVencer > 0 ? '#BA7517' : 'var(--c-textPrimary)' },
+                { label: 'Ofertas',         value: metricas.nOfertas, color: metricas.nOfertas > 0 ? '#639922' : 'var(--c-textPrimary)' },
               ].map((m, i) => (
                 <div key={i} className="div-metric-card">
-                  <span className="div-metric-label">{m.label}</span>
-                  <span className="div-metric-value" style={{ color: m.color }}>{m.value}</span>
+                  <span className="div-metric-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{m.label}</span>
+                  <span
+                    className="div-metric-value"
+                    style={{
+                      color: m.color, whiteSpace: 'nowrap', maxWidth: '100%',
+                      // montos ($12.500, $1,3 M): se achican un poco en vez de pisar al vecino
+                      ...(typeof m.value === 'string' ? { fontSize: 'clamp(12px, 1.6vw, 17px)' } : null),
+                    }}
+                  >
+                    {m.value}
+                  </span>
                 </div>
               ))}
             </div>
             <div className="div-kpi-tap">
               <FiChevronDown size={12} />
-              <span>Ver inactivos</span>
+              <span>Ver detalle</span>
             </div>
           </button>
 
@@ -94,19 +141,30 @@ export default function DesktopInventarioView({
             <span className="div-section-label">RECETAS</span>
             <div className="div-metric-grid">
               {[
-                { label: 'Total',     value: totalRecetas, color: 'var(--c-textPrimary)' },
-                { label: 'Activas',   value: activas,      color: '#639922' },
-                { label: 'Inactivas', value: inactivas,    color: '#7F8C8D' },
+                { label: 'Total', value: cargandoRecetas ? '…' : resumenRecetas.total, color: 'var(--c-textPrimary)' },
+                { label: 'Preparables', value: cargandoRecetas ? '…' : `${resumenRecetas.preparables}/${resumenRecetas.activas}`,
+                  color: resumenRecetas.activas > resumenRecetas.preparables ? '#E24B4A' : '#639922' },
+                { label: 'Más usado', value: cargandoRecetas ? '…' : (resumenRecetas.ingredienteClave?.nombre ?? '—'),
+                  color: 'var(--c-textPrimary)' },
               ].map((m, i) => (
                 <div key={i} className="div-metric-card">
-                  <span className="div-metric-label">{m.label}</span>
-                  <span className="div-metric-value" style={{ color: m.color }}>{m.value}</span>
+                  <span className="div-metric-label" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{m.label}</span>
+                  <span
+                    className="div-metric-value"
+                    style={{
+                      color: m.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
+                      // textos largos (nombre de ingrediente): más chicos, con "…" si aun así no caben
+                      ...(String(m.value).length > 5 ? { fontSize: 'clamp(12px, 1.6vw, 17px)' } : null),
+                    }}
+                  >
+                    {m.value}
+                  </span>
                 </div>
               ))}
             </div>
             <div className="div-kpi-tap">
               <FiChevronDown size={12} />
-              <span>Ver inactivas</span>
+              <span>Ver detalle</span>
             </div>
           </button>
 
@@ -148,11 +206,11 @@ export default function DesktopInventarioView({
         {/* ── 3 columnas inferiores ── */}
         <div className="div-content-area">
 
-          {/* Col 1: Stock crítico */}
-          <div className="div-col3">
-            <div data-tour="inv-stock-critico" className="div-card">
+          {/* Col 1: Stock a reponer (crítico arriba, bajo abajo) */}
+          <div data-tour="inv-stock-critico" className="div-col3">
+            <div className="div-card">
               <div className="div-card-header">
-                <span className="div-section-label">STOCK CRÍTICO</span>
+                <TituloConAyuda titulo="STOCK A REPONER" />
                 <Badge label={`${criticos.length + bajos.length} productos`} level={criticos.length > 0 ? 'critical' : 'low'} />
               </div>
               {criticos.length === 0 && bajos.length === 0 ? (
@@ -161,21 +219,27 @@ export default function DesktopInventarioView({
                   <span>Sin alertas en {LOCAL_LABELS[activeLocal]}</span>
                 </div>
               ) : (
-                <div className="div-list-gap">
-                  {[...criticos, ...bajos].map(item => (
-                    <StockAlertCard key={item.id} item={item} onVerDetalle={setModalStock} compact />
-                  ))}
-                </div>
+                <>
+                  <Subseccion titulo="Stock crítico" cantidad={criticos.length} color="#E24B4A" textoVacio="Sin productos en nivel crítico">
+                    {criticos.map(renderAlertaStock)}
+                  </Subseccion>
+                  <Subseccion titulo="Stock bajo" cantidad={bajos.length} color="#BA7517" textoVacio="Sin productos con stock bajo">
+                    {bajos.map(renderAlertaStock)}
+                  </Subseccion>
+                </>
               )}
             </div>
           </div>
 
-          {/* Col 2: Por vencer */}
-          <div className="div-col3">
-            <div data-tour="inv-por-vencer" className="div-card">
+          {/* Col 2: Control de vencimientos (vencidos arriba, por vencer abajo) */}
+          <div data-tour="inv-por-vencer" className="div-col3">
+            <div className="div-card">
               <div className="div-card-header">
-                <span className="div-section-label">POR VENCER</span>
-                <Badge label={`${vencLocal.length} productos`} level={porVencer.length > 0 ? 'warning' : 'ok'} />
+                <TituloConAyuda titulo="CONTROL DE VENCIMIENTOS" />
+                <Badge
+                  label={`${vencLocal.length} productos`}
+                  level={vencidos.length > 0 ? 'critical' : porVencer.length > 0 ? 'warning' : 'ok'}
+                />
               </div>
               {vencLocal.length === 0 ? (
                 <div className="div-empty-card">
@@ -183,18 +247,25 @@ export default function DesktopInventarioView({
                   <span>Sin vencimientos próximos</span>
                 </div>
               ) : (
-                <div className="div-list-gap">
-                  {[...vencLocal].sort((a, b) => a.vence - b.vence).map(item => (
-                    <VencimientoCard key={item.id} item={item} onVerDetalle={setModalVenc} compact />
-                  ))}
-                </div>
+                <>
+                  <Subseccion titulo="Vencidos" cantidad={vencidos.length} color="#E24B4A" textoVacio="Sin productos vencidos">
+                    {vencidos.map(item => (
+                      <VencimientoCard key={item.id} item={item} onVerDetalle={setModalVenc} compact />
+                    ))}
+                  </Subseccion>
+                  <Subseccion titulo="Por vencer" cantidad={porVencer.length} color="#BA7517" textoVacio="Sin productos por vencer">
+                    {porVencer.map(item => (
+                      <VencimientoCard key={item.id} item={item} onVerDetalle={setModalVenc} compact />
+                    ))}
+                  </Subseccion>
+                </>
               )}
             </div>
           </div>
 
           {/* Col 3: Productos recientes */}
-          <div className="div-col3">
-            <div data-tour="inv-ingresados" className="div-card">
+          <div data-tour="inv-ingresados" className="div-col3">
+            <div className="div-card">
               <div className="div-card-header">
                 <span className="div-section-label">INGRESADOS HOY</span>
                 <Badge label={`${recienteLocal.length}`} level="info" />
@@ -216,50 +287,30 @@ export default function DesktopInventarioView({
       </div>
 
       {/* ── Modales de detalle ── */}
-      <ModalDetalleStock       item={modalStock}     onClose={() => setModalStock(null)} />
-      <ModalDetalleVencimiento item={modalVenc}      onClose={() => setModalVenc(null)} />
+      <ModalDetalleStock
+        item={itemStockModal}
+        onClose={() => setModalStock(null)}
+        onVerVencimiento={(venc) => { setModalStock(null); setModalVenc(venc); }}
+      />
+      <ModalDetalleVencimiento item={itemVencimiento} onClose={() => setModalVenc(null)} onAviso={agregarAviso} />
       <ModalNuevoProveedor     visible={modalNuevoProv} onClose={() => setModalNuevoProv(false)} onGuardar={handleGuardarProveedor} localFijo={activeLocal} />
 
       {/* ── KPI Flotantes ── */}
-      <FloatingKPIList
+      <FloatingSheet
         visible={kpiMetricas}
         onClose={() => setKpiMetricas(false)}
-        title={`Productos inactivos · ${LOCAL_LABELS[activeLocal]}`}
-        items={productosInactivos}
-        renderItem={item => (
-          <div key={item.id} className="div-kpi-item-row">
-            <FiPackage size={14} />
-            <span className="div-kpi-item-name">{item.nombre}</span>
-            <button
-              type="button"
-              className="div-kpi-item-btn"
-              onClick={() => setProductosData(prev => prev.map(p => p.id === item.id ? { ...p, activo: true } : p))}
-            >
-              Activar
-            </button>
-          </div>
-        )}
-      />
+        title={`Valor en riesgo y ofertas · ${LOCAL_LABELS[activeLocal]}`}
+      >
+        <DetalleMetricas vencLocal={vencLocal} ofertasActivas={ofertasActivas} />
+      </FloatingSheet>
 
-      <FloatingKPIList
+      <FloatingSheet
         visible={kpiRecetas}
         onClose={() => setKpiRecetas(false)}
-        title={`Recetas inactivas · ${LOCAL_LABELS[activeLocal]}`}
-        items={recetasInactivas}
-        renderItem={item => (
-          <div key={item.id} className="div-kpi-item-row">
-            <FiBookOpen size={14} />
-            <span className="div-kpi-item-name">{item.nombre}</span>
-            <button
-              type="button"
-              className="div-kpi-item-btn"
-              onClick={() => setRecetasData(prev => prev.map(r => r.id === item.id ? { ...r, activa: true } : r))}
-            >
-              Activar
-            </button>
-          </div>
-        )}
-      />
+        title={`Recetas · ${LOCAL_LABELS[activeLocal]}`}
+      >
+        <DetalleRecetas resumen={resumenRecetas} localLabel={LOCAL_LABELS[activeLocal]} />
+      </FloatingSheet>
 
       <FloatingKPIList
         visible={kpiProveedores}

@@ -1,20 +1,22 @@
 import { useState, useEffect } from 'react';
 import {
-  FiChevronUp, FiChevronDown, FiBox, FiBookOpen, FiTruck, FiFileText,
-  FiUserPlus, FiLogOut, FiAlertTriangle, FiClock, FiPlusCircle,
+  FiChevronDown, FiBox, FiBookOpen, FiTruck, FiFileText,
+  FiUserPlus, FiLogOut, FiAlertTriangle, FiCheckCircle, FiPlusCircle,
 } from 'react-icons/fi';
 
 import { useAuth, localesAsignados } from '../../controllers/AuthContext';
 import { logoutEmpleado } from '../../controllers/AuthControl';
 import { useTheme } from '../../context/ThemeContext';
 import SessionWarningBanner from '../../controllers/SessionWarningBanner';
-import { ModalGestionProveedores, ModalRegistrarProductoGlobal, ModalRecetaGlobal } from './DetalleModals';
+import {
+  ModalGestionProveedores, ModalRegistrarProductoGlobal, ModalRecetaGlobal, AvisosFlotantes,
+} from './DetalleModals';
 import GestionProductosModal from './GestionProductosModal';
 import GestionRecetasModal from './GestionRecetasModal';
 
-import { ToggleSwitch, ModoToggleDesktop } from './InventarioShared';
+import { ToggleSwitch } from './InventarioShared';
+import { resumenEstadoLocal } from './AlertasInventarioShared';
 import { FloatingReporte, FloatingSheet } from './FloatingSheet';
-import DesktopVentasView from './DesktopVentasView';
 import DesktopInventarioView from './DesktopInventarioView';
 import { LOCAL_LABELS, LOCALES_LIST, HOY_IDX } from './inventarioData';
 import { getLevel, getVencLevel } from './inventarioHelpers';
@@ -43,12 +45,12 @@ export default function DesktopLayout({ state, actions }) {
   const [reporteRentabilidadVisible, setReporteRentabilidadVisible] = useState(false);
 
   const {
-    activeLocal, modo, proveedores, modalStock, modalVenc, modalProv, modalNuevoProv,
+    activeLocal, proveedores, modalStock, modalVenc, modalProv, modalNuevoProv,
     recetasData, productosData, inventarioReciente,
     visitanHoyVisible, visitanHoyDismissedToday,
   } = state;
   const {
-    setActiveLocal, setModo, setModalStock, setModalVenc, setModalProv,
+    setActiveLocal, setModalStock, setModalVenc, setModalProv,
     setModalNuevoProv, handleGuardarProveedor, setRecetasData, setProductosData,
     setVisitanHoyVisible, setVisitanHoyDismissedToday,
   } = actions;
@@ -84,25 +86,28 @@ export default function DesktopLayout({ state, actions }) {
     gerente: 'Gerente',
   }[usuario?.rol] ?? (usuario?.rol ?? '');
 
-  // Derivados necesarios para el sidebar y topbar — stock/vencimiento en vivo
-  const { stockData: stockLocal, vencimientosData: vencLocal } = useInventarioAlertas(activeLocal);
-  const criticos        = stockLocal.filter(i => ['critical', 'out'].includes(getLevel(i)));
-  const bajos           = stockLocal.filter(i => getLevel(i) === 'low');
-  const porVencer       = vencLocal.filter(i => getVencLevel(i.vence) !== 'soon');
-  const cntCriticoLocal = criticos.length + bajos.length;
-  const cntVencLocal    = porVencer.length;
-  const provLocal       = proveedores.filter(p => p.locales.includes(activeLocal));
-  const provHoy         = provLocal.filter(p => p.dias.includes(HOY_IDX));
+  // Stock / vencimientos en vivo. El hook se llama UNA sola vez, acá, y se le pasa el
+  // resultado a la vista de inventario: así hay una sola suscripción a Firestore y las
+  // ofertas automáticas se activan una sola vez (en vez de una por cada llamada al hook).
+  const alertas = useInventarioAlertas(activeLocal);
+  const { stockData: stockLocal, vencimientosData: vencLocal } = alertas;
+
+  // Resumen del local para el indicador de la barra superior.
+  const estadoLocal = resumenEstadoLocal(stockLocal, vencLocal);
+
+  // Proveedores del local activo y los que visitan hoy
+  const provLocal = proveedores.filter(p => p.locales.includes(activeLocal));
+  const provHoy   = provLocal.filter(p => p.dias.includes(HOY_IDX));
 
   // Recordatorio al entrar en un local (una vez por día)
   useEffect(() => {
-    if (modo === 'inventario' && provHoy.length > 0 && !visitanHoyDismissedToday) {
+    if (provHoy.length > 0 && !visitanHoyDismissedToday) {
       setVisitanHoyVisible(true);
     } else {
       setVisitanHoyVisible(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLocal, modo, provHoy.length, visitanHoyDismissedToday]);
+  }, [activeLocal, provHoy.length, visitanHoyDismissedToday]);
 
   // Variables CSS de tema para todo el layout
   const themeVars = {
@@ -143,14 +148,8 @@ export default function DesktopLayout({ state, actions }) {
 
         <div className="dl-sb-scroll">
 
-          {/* Toggle Ventas / Inventario */}
-          <div data-tour="inv-modo" style={{ paddingTop: 12 }}>
-            <p className="dl-sb-sec-label" style={{ padding: '0 12px', marginBottom: 6 }}>MODO</p>
-            <ModoToggleDesktop modo={modo} setModo={setModo} />
-          </div>
-
           {/* Selector de local con subitems */}
-          <div data-tour="inv-local" className="dl-sb-locales">
+          <div data-tour="inv-local" className="dl-sb-locales" style={{ paddingTop: 12 }}>
             <p className="dl-sb-sec-label" style={{ padding: '0 12px', marginBottom: 6 }}>LOCAL ACTIVO</p>
             {localesVisibles.map(local => {
               const isActive   = activeLocal === local;
@@ -169,11 +168,14 @@ export default function DesktopLayout({ state, actions }) {
                     <span className={`dl-sb-local-dot ${isActive ? `dl-local-dot-${local}` : ''}`} />
                     <LocalIcon size={14} />
                     <span className="dl-sb-local-label">{LOCAL_LABELS[local]}</span>
-                    {isExpanded ? <FiChevronUp size={12} /> : <FiChevronDown size={12} />}
+                    <FiChevronDown size={12} className={`dl-sb-chevron ${isExpanded ? 'dl-sb-chevron-open' : ''}`} />
                   </button>
 
-                  {/* Sub-items del local */}
-                  {isExpanded && (
+                  {/* Sub-items del local: siempre montados, el CSS anima la altura al abrir/cerrar */}
+                  <div
+                    className={`dl-subitems-collapse ${isExpanded ? 'dl-subitems-collapse-open' : ''}`}
+                    aria-hidden={!isExpanded}
+                  >
                     <div className="dl-subitems-wrap">
                       {SIDEBAR_SUBITEMS.map(sub => {
                         const SubIcon = sub.icon;
@@ -202,7 +204,7 @@ export default function DesktopLayout({ state, actions }) {
                         );
                       })}
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })}
@@ -277,53 +279,49 @@ export default function DesktopLayout({ state, actions }) {
           <div>
             <p className="dl-topbar-title">{LOCAL_LABELS[activeLocal]}</p>
             <p className="dl-topbar-sub">
-              {modo === 'inventario' ? 'Inventario y Recetas · Dashboard general' : 'Módulo de ventas · Próximamente'}
+              Inventario y Recetas · Dashboard general
             </p>
           </div>
-          {modo === 'inventario' && (
-            <div data-tour="inv-alertas" className="dl-topbar-badges">
-              {cntCriticoLocal > 0 && (
-                <span className="dl-topbar-badge" style={{ backgroundColor: '#FCEBEB', color: '#791F1F' }}>
-                  <FiAlertTriangle size={11} />
-                  {cntCriticoLocal} stock crítico
-                </span>
-              )}
-              {cntVencLocal > 0 && (
-                <span className="dl-topbar-badge" style={{ backgroundColor: '#FAEEDA', color: '#633806', marginLeft: 6 }}>
-                  <FiClock size={11} />
-                  {cntVencLocal} por vencer
-                </span>
-              )}
-            </div>
-          )}
+          <div data-tour="inv-alertas" className="dl-topbar-badges">
+            <span
+              className="dl-topbar-badge"
+              role="status"
+              title={estadoLocal.detalle}
+              aria-label={`Estado de ${LOCAL_LABELS[activeLocal]}: ${estadoLocal.texto}. ${estadoLocal.detalle}`}
+              style={{ backgroundColor: estadoLocal.bg, color: estadoLocal.color }}
+            >
+              <estadoLocal.Icono size={11} />
+              {estadoLocal.texto}
+            </span>
+          </div>
         </div>
 
         <SessionWarningBanner />
 
         {/* ── Contenido: delega a la vista correspondiente ── */}
-        {modo === 'venta' ? (
-          <DesktopVentasView />
-        ) : (
-          <DesktopInventarioView
-            activeLocal={activeLocal}
-            proveedores={proveedores}
-            recetasData={recetasData}
-            productosData={productosData}
-            inventarioReciente={inventarioReciente}
-            modalStock={modalStock}         setModalStock={setModalStock}
-            modalVenc={modalVenc}           setModalVenc={setModalVenc}
-            modalProv={modalProv}           setModalProv={setModalProv}
-            modalNuevoProv={modalNuevoProv} setModalNuevoProv={setModalNuevoProv}
-            handleGuardarProveedor={handleGuardarProveedor}
-            setRecetasData={setRecetasData}
-            setProductosData={setProductosData}
-            visitanHoyVisible={visitanHoyVisible}
-            setVisitanHoyVisible={setVisitanHoyVisible}
-            visitanHoyDismissedToday={visitanHoyDismissedToday}
-            setVisitanHoyDismissedToday={setVisitanHoyDismissedToday}
-          />
-        )}
+        <DesktopInventarioView
+          activeLocal={activeLocal}
+          alertas={alertas}
+          proveedores={proveedores}
+          recetasData={recetasData}
+          productosData={productosData}
+          inventarioReciente={inventarioReciente}
+          modalStock={modalStock}         setModalStock={setModalStock}
+          modalVenc={modalVenc}           setModalVenc={setModalVenc}
+          modalProv={modalProv}           setModalProv={setModalProv}
+          modalNuevoProv={modalNuevoProv} setModalNuevoProv={setModalNuevoProv}
+          handleGuardarProveedor={handleGuardarProveedor}
+          setRecetasData={setRecetasData}
+          setProductosData={setProductosData}
+          visitanHoyVisible={visitanHoyVisible}
+          setVisitanHoyVisible={setVisitanHoyVisible}
+          visitanHoyDismissedToday={visitanHoyDismissedToday}
+          setVisitanHoyDismissedToday={setVisitanHoyDismissedToday}
+        />
       </div>
+
+      {/* Avisos flotantes (ofertas automáticas, mermas...) */}
+      <AvisosFlotantes avisos={alertas.avisos} onDescartar={alertas.descartarAviso} />
 
       <FloatingReporte
         visible={reporteModal}

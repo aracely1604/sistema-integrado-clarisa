@@ -166,3 +166,68 @@ export function calcularProduccionEstimada(recetaGlobal, asignacion, productosLo
     detalle,
   };
 }
+// ─── Resumen de las recetas de un local (para el dashboard) ─────────────────
+// recetasConEstado: [{ receta, asignacion }] — todas las recetas globales, con su
+// asignación en ESTE local (o null si el local no la tiene asignada).
+// productosLocal: productos del local con su stock (misma forma que usa
+// calcularProduccionEstimada).
+//
+// Devuelve:
+//  - total / activas / inactivas / sinAsignar: conteos (total = recetas asignadas a este local)
+//  - preparables: cuántas recetas ACTIVAS se pueden preparar hoy (al menos 1 unidad)
+//  - recetas: cada receta asignada con cuántas unidades se pueden preparar y su ingrediente
+//    limitante (más urgentes primero: activas, menos unidades)
+//  - ingredienteClave: el ingrediente que más recetas del local necesitan (el "más importante":
+//    si falta, frena más producción). Es null si ningún ingrediente se repite en 2+ recetas.
+//  - ranking: los 5 ingredientes más usados, con en cuántas recetas aparecen
+export function resumirRecetasLocal(recetasConEstado, productosLocal) {
+  const asignadas = (recetasConEstado ?? []).filter((r) => r.asignacion);
+
+  const recetas = asignadas.map(({ receta, asignacion }) => {
+    const estimacion = calcularProduccionEstimada(receta, asignacion, productosLocal ?? []);
+    const lim = estimacion.ingredienteLimitante;
+    return {
+      id: receta.id,
+      nombre: receta.nombre,
+      activa: Boolean(asignacion.activo),
+      preparables: estimacion.cantidadPreparable,
+      limitante: lim
+        ? { nombreIngrediente: lim.nombreIngrediente, nombreProducto: lim.nombreProducto, sinAsignar: lim.sinAsignar }
+        : null,
+    };
+  }).sort((a, b) =>
+    (Number(b.activa) - Number(a.activa))
+    || (a.preparables - b.preparables)
+    || a.nombre.localeCompare(b.nombre, 'es'));
+
+  // En cuántas recetas aparece cada ingrediente (una vez por receta, sin importar la cantidad)
+  const conteo = new Map();
+  asignadas.forEach(({ receta }) => {
+    const vistos = new Set();
+    (receta.ingredientes ?? []).forEach((ing) => {
+      const clave = normalizar(ing.nombre);
+      if (!clave || vistos.has(clave)) return;
+      vistos.add(clave);
+      const actual = conteo.get(clave) ?? { nombre: String(ing.nombre).trim(), recetas: 0 };
+      actual.recetas += 1;
+      conteo.set(clave, actual);
+    });
+  });
+  const ranking = [...conteo.values()]
+    .sort((a, b) => (b.recetas - a.recetas) || a.nombre.localeCompare(b.nombre, 'es'))
+    .slice(0, 5);
+
+  const activas = recetas.filter((r) => r.activa).length;
+  return {
+    total: asignadas.length,
+    activas,
+    inactivas: asignadas.length - activas,
+    sinAsignar: (recetasConEstado ?? []).length - asignadas.length,
+    preparables: recetas.filter((r) => r.activa && r.preparables > 0).length,
+    recetas,
+    ingredienteClave: ranking[0] && ranking[0].recetas >= 2
+      ? { nombre: ranking[0].nombre, recetas: ranking[0].recetas, de: asignadas.length }
+      : null,
+    ranking,
+  };
+}

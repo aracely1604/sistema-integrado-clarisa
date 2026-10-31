@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { useTheme } from '../../context/ThemeContext';
 import {
-  FiX, FiAlertOctagon, FiClock, FiCalendar, FiClipboard,
+  FiX, FiAlertOctagon, FiClock, FiClipboard,
   FiCheckCircle, FiAlertTriangle, FiArrowDown, FiChevronLeft,
   FiChevronRight, FiUsers, FiUserPlus, FiPlusCircle, FiImage,
 } from 'react-icons/fi';
 import { Badge, LocalChip, ToggleSwitch } from './InventarioShared';
 import { STOCK_DATA, LOCAL_LABELS, LOCAL_COLORS, DIAS, DIAS_SEMANA, HOY_IDX } from './inventarioData';
-import { getLevel, getPct, getVencLevel } from './inventarioHelpers';
+import { getLevel, getPct, getVencLevel, formatearPrecio } from './inventarioHelpers';
 import {
   crearProveedorGlobal, actualizarProveedorGlobal,
   obtenerProveedoresGlobalesDisponibles, asignarProveedorExistenteALocal,
@@ -26,8 +28,10 @@ import {
   validarReceta, esRecetaValida,
 } from '../../models/RecetaModel';
 import { validarImagen, TAMANO_MAX_MB } from '../../controllers/ImagenControl';
-import { CATEGORIAS, UNIDADES_MEDIDA } from './gestionProductosData';
+import { CATEGORIAS, UNIDADES_MEDIDA, convertirBaseAIngreso } from './gestionProductosData';
+import { cambiarOfertaActivaProductoLocal, registrarMermaPorVencimiento } from '../../controllers/LocalProductoControl';
 import '../../css/DetalleModals.css';
+import '../../css/GestionProductos.css'; // marco de pantalla completa (gp-overlay, gp-topbar...)
 
 // ─── Mensaje de éxito reutilizable (banner verde con auto-ocultado) ─────────
 function useMensajeExito(duracion = 4000) {
@@ -156,12 +160,32 @@ function SelectorImagen({ archivo, urlActual = '', onChange, error = '', disable
 }
 
 // ─── Modal detalle de stock ───────────────────────────────────────────────────
-export function ModalDetalleStock({ item, onClose }) {
+// `item.venc` (opcional): si el producto además está vencido o por vencer, es su ítem de
+// vencimientos; con eso el modal agrega los avisos de reposición. `onVerVencimiento(venc)`
+// lleva al detalle del vencimiento (donde se elimina el stock vencido).
+export function ModalDetalleStock({ item, onClose, onVerVencimiento }) {
   if (!item) return null;
   const level      = getLevel(item);
   const pct        = getPct(item);
   const isCritical = ['critical', 'out'].includes(level);
   const barColor   = isCritical ? '#E24B4A' : level === 'low' ? '#BA7517' : '#639922';
+
+  // Estado de vencimiento (si lo hay): vencido bloquea la reposición; por vencer solo recomienda.
+  const venc      = item.venc ?? null;
+  const vencido   = venc ? getVencLevel(venc.vence) === 'expired' : false;
+  const porVencer = Boolean(venc) && !vencido;
+  const cuando    = venc
+    ? (venc.vence === 0 ? 'hoy' : `en ${venc.vence} ${venc.vence === 1 ? 'día' : 'días'}`)
+    : '';
+  const diasVencido = venc ? Math.abs(venc.vence) : 0;
+
+  const mensajeStock = vencido
+    ? (isCritical
+        ? `Una vez eliminado el stock vencido, solicitar reposición urgente (mínimo: ${item.min} ${item.unit}).`
+        : `Una vez eliminado el stock vencido, considerar un pedido (mínimo: ${item.min} ${item.unit}).`)
+    : (isCritical
+        ? `Solicitar reposición urgente. Faltan ${(item.min - item.qty).toFixed(1)} ${item.unit} para alcanzar el mínimo.`
+        : `Considerar pedido pronto. Stock actual es ${pct}% del máximo.`);
 
   return (
     <div className="inv-modal-overlay" onClick={onClose}>
@@ -207,32 +231,239 @@ export function ModalDetalleStock({ item, onClose }) {
           </div>
         </div>
 
+        {vencido && (
+          <div
+            role="note"
+            style={{
+              background: '#FCEBEB', border: '1px solid #F5A6A6', color: '#791F1F',
+              borderRadius: 12, padding: '12px 14px', marginBottom: 12,
+            }}
+          >
+            <p className="inv-modal-infotitle" style={{ color: 'inherit' }}>Reposición no disponible</p>
+            <p className="inv-modal-infotext" style={{ color: 'inherit' }}>
+              Producto vencido (venció hace {diasVencido} {diasVencido === 1 ? 'día' : 'días'}): debes eliminar su stock antes de reponer.
+            </p>
+            {onVerVencimiento && (
+              <button
+                type="button"
+                onClick={() => onVerVencimiento(venc)}
+                style={{
+                  marginTop: 8, padding: '8px 12px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                  background: '#E24B4A', color: '#fff', fontSize: 13, fontWeight: 600,
+                }}
+              >
+                Ver vencimiento y eliminar stock
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="inv-modal-infobox">
           <p className="inv-modal-infotitle">Recomendación</p>
-          <p className="inv-modal-infotext">
-            {isCritical
-              ? `Solicitar reposición urgente. Faltan ${(item.min - item.qty).toFixed(1)} ${item.unit} para alcanzar el mínimo.`
-              : `Considerar pedido pronto. Stock actual es ${pct}% del máximo.`}
-          </p>
+          <ul className="inv-modal-infotext" style={{ margin: '6px 0 0', paddingLeft: 18, listStyle: 'disc' }}>
+            {porVencer && (
+              <li style={{ marginBottom: 4 }}>
+                Este producto vence {cuando}. Al reponer, prioriza la venta de los productos pronto a vencer.
+              </li>
+            )}
+            <li>{mensajeStock}</li>
+          </ul>
         </div>
       </div>
     </div>
   );
 }
 
+// ─── Piezas flotantes reutilizables (se pintan en <body>, sobre cualquier modal) ──
+const ESTILO_BOTON = {
+  base: {
+    flex: 1, padding: '10px 14px', borderRadius: 10, fontSize: 14, fontWeight: 600,
+    cursor: 'pointer', border: '1px solid transparent',
+  },
+  neutro:  { background: 'transparent', color: 'var(--c-textPrimary, #1a1a1a)', borderColor: 'rgba(128,128,128,.45)' },
+  oferta:  { background: '#BA7517', color: '#fff' },
+  peligro: { background: '#E24B4A', color: '#fff' },
+};
+
+function ConfirmacionFlotante({
+  titulo, children, textoAceptar, textoRechazar = 'Rechazar',
+  tono = 'oferta', procesando = false, error = '', onAceptar, onRechazar,
+}) {
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 10000, padding: 16,
+        background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      onClick={(e) => { e.stopPropagation(); if (!procesando) onRechazar(); }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={titulo}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(420px, 100%)', maxHeight: '90vh', overflowY: 'auto', padding: 20, borderRadius: 16,
+          background: 'var(--c-card, var(--c-surface, #fff))', color: 'var(--c-textPrimary, #1a1a1a)',
+          boxShadow: '0 12px 40px rgba(0,0,0,.3)',
+        }}
+      >
+        <h3 className="inv-modal-title" style={{ marginBottom: 12 }}>{titulo}</h3>
+        {children}
+        {error && (
+          <p style={{ color: '#E24B4A', fontSize: 13, margin: '12px 0 0' }}>{error}</p>
+        )}
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button
+            type="button"
+            disabled={procesando}
+            onClick={onRechazar}
+            style={{ ...ESTILO_BOTON.base, ...ESTILO_BOTON.neutro }}
+          >
+            {textoRechazar}
+          </button>
+          <button
+            type="button"
+            disabled={procesando}
+            onClick={onAceptar}
+            style={{ ...ESTILO_BOTON.base, ...ESTILO_BOTON[tono], opacity: procesando ? 0.6 : 1 }}
+          >
+            {procesando ? 'Procesando…' : textoAceptar}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function FilasResumen({ filas }) {
+  return (
+    <div className="inv-modal-infotable">
+      {filas.map((fila, i) => (
+        <div key={i} className="inv-modal-inforow">
+          <span className="inv-modal-infokey">{fila.k}</span>
+          <span className="inv-modal-infoval">{fila.v}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Avisos verdes arriba a la derecha (se ocultan solos; vienen de useInventarioAlertas). */
+export function AvisosFlotantes({ avisos, onDescartar }) {
+  if (!avisos?.length) return null;
+  return createPortal(
+    <div style={{
+      position: 'fixed', top: 16, right: 16, zIndex: 10001, display: 'flex',
+      flexDirection: 'column', gap: 8, width: 'min(380px, calc(100vw - 32px))',
+    }}>
+      {avisos.map((a) => (
+        <div
+          key={a.id}
+          role="status"
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12,
+            background: '#EAF3DE', border: '1px solid #B8DFA0', color: '#27500A',
+            boxShadow: '0 6px 20px rgba(0,0,0,.18)',
+          }}
+        >
+          <FiCheckCircle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ flex: 1, fontSize: 13, lineHeight: 1.4 }}>{a.texto}</span>
+          <button
+            type="button"
+            onClick={() => onDescartar(a.id)}
+            aria-label="Cerrar aviso"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0 }}
+          >
+            <FiX size={16} />
+          </button>
+        </div>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
 // ─── Modal detalle de vencimiento ────────────────────────────────────────────
-export function ModalDetalleVencimiento({ item, onClose }) {
+// Niveles (ver getVencLevel):
+//  · warning  → permite ACTIVAR la oferta a mano, con confirmación.
+//  · critical → la oferta ya se activó sola (useInventarioAlertas); se avisa.
+//  · expired  → "Venció hace X días" + opción de eliminar el stock (merma).
+const textoDias = (n) => `${n} ${n === 1 ? 'día' : 'días'}`;
+
+export function ModalDetalleVencimiento({ item, onClose, onAviso }) {
+  const [confirmando, setConfirmando] = useState(null); // 'oferta' | 'merma' | null
+  const [procesando, setProcesando]   = useState(false);
+  const [error, setError]             = useState('');
+
+  // Al abrir otro producto, se limpia cualquier diálogo o error del anterior.
+  const idItem = item?.id;
+  useEffect(() => {
+    setConfirmando(null);
+    setProcesando(false);
+    setError('');
+  }, [idItem]);
+
   if (!item) return null;
+
   const level      = getVencLevel(item.vence);
+  const vencido    = level === 'expired';
   const isCritical = level === 'critical';
+  const diasPasados = Math.abs(item.vence);
 
-  const boxColors = isCritical
+  const tieneOferta = item.oferta > 0;
+  const descuento = tieneOferta && item.precioVenta > 0
+    ? Math.round((1 - item.oferta / item.precioVenta) * 100)
+    : 0;
+  const valorTotalMerma = item.precioVenta * item.qty;
+
+  const boxColors = vencido || isCritical
     ? { bg: '#FCEBEB', border: '#F5A6A6', text: '#791F1F' }
-    : level === 'warning'
-    ? { bg: '#FAEEDA', border: '#FAC775', text: '#633806' }
-    : { bg: '#EAF3DE', border: '#B8DFA0', text: '#27500A' };
+    : { bg: '#FAEEDA', border: '#FAC775', text: '#633806' };
+  const Icon = vencido || isCritical ? FiAlertOctagon : FiClock;
 
-  const Icon = isCritical ? FiAlertOctagon : level === 'warning' ? FiClock : FiCalendar;
+  const mensaje = vencido
+    ? `Venció hace ${textoDias(diasPasados)}. Retirar del inventario.`
+    : item.vence === 0
+    ? 'Vence hoy. Revisar uso urgente o retirar del inventario.'
+    : isCritical
+    ? `Vence en ${textoDias(item.vence)}. Revisar uso urgente.`
+    : `Vence en ${textoDias(item.vence)}. Priorizar su uso.`;
+
+  const cerrarDialogo = () => { setConfirmando(null); setError(''); };
+
+  const aceptarOferta = async () => {
+    setProcesando(true);
+    setError('');
+    try {
+      await cambiarOfertaActivaProductoLocal(item.local, item.id, true);
+      setConfirmando(null);
+      onAviso?.(`Oferta activada: ${item.nombre} ahora se vende a ${formatearPrecio(item.oferta)} (antes ${formatearPrecio(item.precioVenta)}).`);
+    } catch (e) {
+      setError(e?.errores?.general ?? e?.message ?? 'No se pudo activar la oferta.');
+    } finally {
+      setProcesando(false);
+    }
+  };
+
+  const aceptarMerma = async () => {
+    setProcesando(true);
+    setError('');
+    try {
+      await registrarMermaPorVencimiento(item.local, item.id, {
+        fechaVencimiento: item.fechaVencimientoRaw,
+        aUnidadPrecio: (cantidadBase) => convertirBaseAIngreso(cantidadBase, item.unidadBase),
+      });
+      setConfirmando(null);
+      onAviso?.(`Merma registrada: se eliminó el stock vencido de ${item.nombre} (${item.qty} ${item.unitQty}).`);
+      onClose();
+    } catch (e) {
+      setError(e?.errores?.general ?? e?.message ?? 'No se pudo eliminar el stock.');
+    } finally {
+      setProcesando(false);
+    }
+  };
 
   return (
     <div className="inv-modal-overlay" onClick={onClose}>
@@ -250,7 +481,9 @@ export function ModalDetalleVencimiento({ item, onClose }) {
 
         {[
           [
-            { label: 'Vence en', value: `${item.vence} ${item.unit}` },
+            vencido
+              ? { label: 'Venció hace', value: textoDias(diasPasados) }
+              : { label: 'Vence en',    value: item.vence === 0 ? 'Hoy' : textoDias(item.vence) },
             { label: 'Cantidad', value: `${item.qty} ${item.unitQty}` },
           ],
           [
@@ -270,15 +503,97 @@ export function ModalDetalleVencimiento({ item, onClose }) {
 
         <div className="inv-modal-warningbox" style={{ backgroundColor: boxColors.bg, borderColor: boxColors.border }}>
           <Icon size={18} color={boxColors.text} />
-          <span style={{ color: boxColors.text }}>
-            {isCritical
-              ? 'Producto vence hoy o mañana. Revisar uso urgente o retirar del inventario.'
-              : level === 'warning'
-              ? `Vence en ${item.vence} días. Priorizar su uso.`
-              : `Vence en ${item.vence} días. Monitorear consumo.`}
-          </span>
+          <span style={{ color: boxColors.text }}>{mensaje}</span>
         </div>
+
+        {/* ── Oferta (solo si aún no venció) ── */}
+        {!vencido && item.ofertaActiva && (
+          <div className="inv-modal-infobox" style={{ marginTop: 12 }}>
+            <p className="inv-modal-infotitle">Oferta activa</p>
+            <p className="inv-modal-infotext">
+              {isCritical
+                ? `El precio de venta se cambió automáticamente al precio de oferta: ${formatearPrecio(item.oferta)} (antes ${formatearPrecio(item.precioVenta)}).`
+                : `Se está vendiendo al precio de oferta: ${formatearPrecio(item.oferta)} (antes ${formatearPrecio(item.precioVenta)}).`}
+            </p>
+          </div>
+        )}
+
+        {!vencido && !item.ofertaActiva && !tieneOferta && (
+          <div className="inv-modal-infobox" style={{ marginTop: 12 }}>
+            <p className="inv-modal-infotitle">Sin precio de oferta</p>
+            <p className="inv-modal-infotext">
+              Este producto no tiene precio de oferta definido en este local. Defínelo en la gestión del producto para poder ofertarlo.
+            </p>
+          </div>
+        )}
+
+        {!vencido && !item.ofertaActiva && tieneOferta && (
+          <button
+            type="button"
+            onClick={() => setConfirmando('oferta')}
+            style={{ ...ESTILO_BOTON.base, ...ESTILO_BOTON.oferta, width: '100%', marginTop: 12 }}
+          >
+            Activar oferta ({formatearPrecio(item.oferta)})
+          </button>
+        )}
+
+        {/* ── Vencido: eliminar el stock ── */}
+        {vencido && (
+          <button
+            type="button"
+            onClick={() => setConfirmando('merma')}
+            style={{ ...ESTILO_BOTON.base, ...ESTILO_BOTON.peligro, width: '100%', marginTop: 12 }}
+          >
+            Eliminar stock vencido
+          </button>
+        )}
       </div>
+
+      {confirmando === 'oferta' && (
+        <ConfirmacionFlotante
+          titulo="Activar oferta"
+          textoAceptar="Aceptar"
+          textoRechazar="Rechazar"
+          tono="oferta"
+          procesando={procesando}
+          error={error}
+          onAceptar={aceptarOferta}
+          onRechazar={cerrarDialogo}
+        >
+          <p className="inv-modal-infotext" style={{ marginBottom: 12 }}>
+            Al activarla, el precio de venta de <strong>{item.nombre}</strong> en {LOCAL_LABELS[item.local] ?? item.local} pasará al precio de oferta.
+          </p>
+          <FilasResumen filas={[
+            { k: 'Precio actual',    v: formatearPrecio(item.precioVenta) },
+            { k: 'Precio de oferta', v: formatearPrecio(item.oferta) },
+            ...(descuento > 0 ? [{ k: 'Descuento', v: `${descuento}%` }] : []),
+          ]} />
+        </ConfirmacionFlotante>
+      )}
+
+      {confirmando === 'merma' && (
+        <ConfirmacionFlotante
+          titulo="Eliminar stock vencido"
+          textoAceptar="Eliminar stock"
+          textoRechazar="Cancelar"
+          tono="peligro"
+          procesando={procesando}
+          error={error}
+          onAceptar={aceptarMerma}
+          onRechazar={cerrarDialogo}
+        >
+          <p className="inv-modal-infotext" style={{ marginBottom: 12 }}>
+            Se dará de baja todo el stock de <strong>{item.nombre}</strong> y quedará registrado como merma. Esta acción no se puede deshacer.
+          </p>
+          <FilasResumen filas={[
+            { k: 'Stock a eliminar',   v: `${item.qty} ${item.unitQty}` },
+            { k: 'Stock resultante',   v: `0 ${item.unitQty}` },
+            { k: 'Valor unitario',     v: `${formatearPrecio(item.precioVenta)} / ${item.unitQty}` },
+            { k: 'Valor total',        v: formatearPrecio(valorTotalMerma) },
+            { k: 'Fecha de vencimiento', v: item.fechaVencimiento },
+          ]} />
+        </ConfirmacionFlotante>
+      )}
     </div>
   );
 }
@@ -720,7 +1035,10 @@ export function ModalGestionProveedores({ visible, onClose }) {
 // onGuardar (opcional): se sigue invocando después de asignar un proveedor,
 // por compatibilidad con quien use este modal para refrescar su propio
 // estado local; el guardado real en la BD ya ocurrió antes de llamarlo.
-export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo }) {
+// `pantallaCompleta`: en vez de la hoja flotante, se muestra como pantalla completa con el mismo
+// marco que "Gestión de productos" y "Gestión de recetas" (la usa la versión móvil).
+export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo, pantallaCompleta = false }) {
+  const { colors } = useTheme();
   const [tab, setTab] = useState('asignar'); // 'asignar' | 'editar'
 
   // ── Pestaña "Asignar" ──
@@ -866,24 +1184,9 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo }) 
 
   const col = LOCAL_COLORS[localFijo] || { bg: '#F8F9FA', text: '#7F8C8D' };
 
-  return (
-    <div className="inv-modal-overlay" onClick={handleClose}>
-      <div className="inv-modal-sheet inv-modal-sheet-tall" onClick={(e) => e.stopPropagation()}>
-        <div className="inv-modal-handle" />
-        <div className="inv-modal-row-between" style={{ marginBottom: 6 }}>
-          <h2 className="inv-modal-title">{tab === 'asignar' ? 'Asignar proveedor' : 'Editar proveedor'}</h2>
-          <button type="button" className="inv-modal-close" onClick={handleClose} aria-label="Cerrar">
-            <FiX size={20} />
-          </button>
-        </div>
-
-        <div className="inv-modal-row" style={{ marginBottom: 14, gap: 6 }}>
-          <span className="inv-chip" style={{ backgroundColor: col.bg, color: col.text }}>
-            {LOCAL_LABELS[localFijo] ?? localFijo}
-          </span>
-          <span className="inv-modal-hint-inline">Local asignado automáticamente</span>
-        </div>
-
+  // Contenido compartido por las dos presentaciones (hoja flotante / pantalla completa).
+  const cuerpo = (
+    <>
         {/* Selector de pestaña */}
         <div className="inv-modal-row" style={{ gap: 8, marginBottom: 16 }}>
           <button
@@ -1114,6 +1417,67 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo }) 
             </div>
           </form>
         )}
+    </>
+  );
+
+  // Pantalla completa: mismo marco (barra superior + botón ✕) que Gestión de productos / recetas.
+  if (pantallaCompleta) {
+    const themeVars = {
+      '--gp-bg': colors.bg,
+      '--gp-surface': colors.surface,
+      '--gp-surface2': colors.surface2,
+      '--gp-border': colors.border,
+      '--gp-text-primary': colors.textPrimary,
+      '--gp-text-secondary': colors.textSecondary,
+      '--gp-placeholder': colors.placeholder,
+      '--gp-btn-bg': colors.btnBg,
+      '--gp-btn-text': colors.btnText,
+      '--gp-accent-text': colors.accentText,
+    };
+    return (
+      <div className="gp-overlay" style={themeVars}>
+        <div className="gp-topbar">
+          <div className="gp-topbar-row">
+            <div>
+              <p className="gp-topbar-title">{tab === 'asignar' ? 'Asignar proveedor' : 'Editar proveedor'}</p>
+              <p className="gp-topbar-sub">{LOCAL_LABELS[localFijo] ?? localFijo} · Local asignado automáticamente</p>
+            </div>
+            <div className="gp-topbar-actions">
+              <button className="gp-close-btn" onClick={handleClose} aria-label="Cerrar">✕</button>
+            </div>
+          </div>
+        </div>
+        <div
+          style={{
+            flex: 1, minHeight: 0, overflowY: 'auto',
+            padding: '14px 16px calc(24px + env(safe-area-inset-bottom, 0px))',
+          }}
+        >
+          {cuerpo}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="inv-modal-overlay" onClick={handleClose}>
+      <div className="inv-modal-sheet inv-modal-sheet-tall" onClick={(e) => e.stopPropagation()}>
+        <div className="inv-modal-handle" />
+        <div className="inv-modal-row-between" style={{ marginBottom: 6 }}>
+          <h2 className="inv-modal-title">{tab === 'asignar' ? 'Asignar proveedor' : 'Editar proveedor'}</h2>
+          <button type="button" className="inv-modal-close" onClick={handleClose} aria-label="Cerrar">
+            <FiX size={20} />
+          </button>
+        </div>
+
+        <div className="inv-modal-row" style={{ marginBottom: 14, gap: 6 }}>
+          <span className="inv-chip" style={{ backgroundColor: col.bg, color: col.text }}>
+            {LOCAL_LABELS[localFijo] ?? localFijo}
+          </span>
+          <span className="inv-modal-hint-inline">Local asignado automáticamente</span>
+        </div>
+
+        {cuerpo}
       </div>
     </div>
   );

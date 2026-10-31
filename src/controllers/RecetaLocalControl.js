@@ -3,7 +3,8 @@
 // recetas globales (RecetaControl) con las asignaciones que cada local haya
 // guardado en su propia subcolección `recetas` (definida en LocalModel.js).
 
-import { getDoc, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { getDoc, getDocs, doc, setDoc, updateDoc, onSnapshot, collection } from 'firebase/firestore';
+import { db } from '../firebase';
 import { recetasColRef, productosColRef } from '../models/LocalModel';
 import { obtenerRecetasGlobales } from './RecetaControl';
 import { obtenerProductosGlobales, suscribirProductosGlobales } from './ProductoControl';
@@ -96,6 +97,38 @@ export async function obtenerRecetasConEstadoLocal(local) {
     receta,
     asignacion: asignacionesPorId.get(receta.id) ?? null,
   }));
+}
+
+// ─── Lo mismo, pero EN VIVO ──────────────────────────────────────────────────
+// Se suscribe a las recetas globales y a las asignaciones de ESTE local, y entrega
+// [{ receta, asignacion }] cada vez que cualquiera de las dos cambia (por ejemplo, al
+// asignar, activar o desactivar una receta), sin recargar la pantalla.
+export function suscribirRecetasConEstadoLocal(local, callback) {
+  let globales = null;
+  let asignaciones = null;
+
+  function emitir() {
+    if (globales === null || asignaciones === null) return;
+    const asignacionesPorId = new Map(asignaciones.map((a) => [a.id, a]));
+    callback(globales.map((receta) => ({ receta, asignacion: asignacionesPorId.get(receta.id) ?? null })));
+  }
+
+  const alFallar = (err) => console.error('[recetas] No se pudo leer en vivo:', err);
+
+  // 'recetas' = la misma colección que usa RecetaControl para el recetario global.
+  const unsubGlobales = onSnapshot(collection(db, 'recetas'), (snap) => {
+    globales = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    emitir();
+  }, alFallar);
+  const unsubLocal = onSnapshot(recetasColRef(local), (snap) => {
+    asignaciones = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    emitir();
+  }, alFallar);
+
+  return () => {
+    unsubGlobales();
+    unsubLocal();
+  };
 }
 
 export async function obtenerAsignacionLocal(local, idRecetaGlobal) {

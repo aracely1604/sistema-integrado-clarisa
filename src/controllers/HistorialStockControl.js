@@ -13,7 +13,7 @@
 import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { HistorialStockModel } from '../models/HistorialStockModel';
-import { proveedorGlobalDocRef } from '../models/LocalModel';
+import { proveedorGlobalDocRef, modificacionesProductoColRef } from '../models/LocalModel';
 
 const HISTORIAL_STOCK_COLLECTION = 'historialStock';
 const USUARIOS_COLLECTION = 'usuarios';
@@ -62,6 +62,39 @@ async function enriquecerMovimiento(movimiento) {
 }
 
 /**
+ * Qué vencimiento aporta un movimiento de TRANSFERENCIA a su local.
+ *
+ * - Movimientos nuevos (`vencimientoVigente: true`): el movimiento es una "foto" del
+ *   vencimiento vigente de ese local en ese momento (ultimaReposicionFecha /
+ *   ultimaReposicionVencimiento). Se ordena por la fecha DEL MOVIMIENTO: así, si el local
+ *   estaba en 0 (o su vencimiento era más viejo), el que llega con la transferencia
+ *   reemplaza al anterior y no queda "pegado" un vencimiento de stock que ya no existe.
+ * - Movimientos antiguos (sin la marca): se ordenan por la fecha de la reposición que
+ *   traían copiada, como antes.
+ *
+ * @returns {{fecha: any, vencimiento: string|null, orden: any}|null}
+ *   `fecha` = fecha de la reposición de origen (para mostrar), `orden` = con qué se compara.
+ */
+export function candidatoDeTransferencia(data) {
+  if (!data) return null;
+  if (data.vencimientoVigente) {
+    return {
+      fecha: data.ultimaReposicionFecha ?? null,
+      vencimiento: data.ultimaReposicionVencimiento ?? null,
+      orden: data.fecha ?? null,
+    };
+  }
+  if (data.ultimaReposicionFecha) {
+    return {
+      fecha: data.ultimaReposicionFecha,
+      vencimiento: data.ultimaReposicionVencimiento ?? null,
+      orden: data.ultimaReposicionFecha,
+    };
+  }
+  return null;
+}
+
+/**
  * Suscripción en vivo al historial de UN producto DENTRO de UN local,
  * del movimiento más reciente al más antiguo. El callback recibe cada
  * movimiento ya enriquecido (proveedorNombre/proveedorEmpresa/usuarioNombre).
@@ -74,20 +107,23 @@ async function enriquecerMovimiento(movimiento) {
  * @param {string} local
  * @param {string} idProducto
  * @param {(movimientos: object[]) => void} callback
+ * @param {{limite?: number|null}} [opciones] - si trae `limite`, solo se leen (y cobran)
+ *        los `limite` movimientos más recientes; sin límite se lee todo el historial.
  * @returns {function} para cancelar la suscripción
  */
-export function suscribirHistorialProductoLocal(local, idProducto, callback) {
+export function suscribirHistorialProductoLocal(local, idProducto, callback, opciones = {}) {
   if (!local || !idProducto) {
     callback([]);
     return () => {};
   }
 
-  const q = query(
-    collection(db, HISTORIAL_STOCK_COLLECTION),
+  const restricciones = [
     where('local', '==', local),
     where('idProducto', '==', idProducto),
     orderBy('fecha', 'desc'),
-  );
+  ];
+  if (opciones.limite) restricciones.push(limit(opciones.limite));
+  const q = query(collection(db, HISTORIAL_STOCK_COLLECTION), ...restricciones);
 
   const unsubscribe = onSnapshot(q, async (snap) => {
     // Se preservan los campos que la transferencia copia de la última reposición
@@ -102,6 +138,121 @@ export function suscribirHistorialProductoLocal(local, idProducto, callback) {
   });
 
   return unsubscribe;
+}
+
+/**
+ * Suscripción en vivo a la ÚLTIMA reposición conocida de un producto en un local:
+ * proveedor, fecha y vencimiento. Reemplaza el cálculo que antes se hacía
+ * recorriendo todo el historial: ahora son 2 consultas de 1 documento cada una
+ * (la última reposición propia y la última transferencia, que trae copiada la
+ * reposición del local de origen). Gana la de fecha de reposición más reciente.
+ *
+ * ⚠️ Pide un índice compuesto: local Asc, idProducto Asc, tipoMovimiento Asc,
+ * fecha Desc (la consola del navegador da el link para crearlo en un clic).
+ *
+ * @param {string} local
+ * @param {string} idProducto
+ * @param {(r: {fecha: any, vencimiento: string|null, proveedorNombre: string|null, proveedorEmpresa: string|null}|null) => void} callback
+ *        recibe null si el producto nunca ha tenido una reposición conocida
+ * @returns {function} para cancelar la suscripción
+ */
+export function suscribirUltimaReposicionProducto(local, idProducto, callback) {
+  if (!local || !idProducto) {
+    callback(null);
+    return () => {};
+  }
+
+  const col = collection(db, HISTORIAL_STOCK_COLLECTION);
+  const ultimoDe = (tipo) => query(
+    col,
+    where('local', '==', local),
+    where('idProducto', '==', idProducto),
+    where('tipoMovimiento', '==', tipo),
+    orderBy('fecha', 'desc'),
+    limit(1),
+  );
+
+  const aMillis = (f) => (f && typeof f.toMillis === 'function' ? f.toMillis() : 0);
+  let repo;   // undefined = todavía no llegó la primera respuesta
+  let transf;
+  let cancelado = false;
+
+  const emitir = async () => {
+    if (repo === undefined || transf === undefined) return;
+
+    const candidatos = [];
+    if (repo?.fecha) {
+      candidatos.push({ fecha: repo.fecha, vencimiento: repo.fechaVencimiento ?? null, orden: repo.fecha });
+    }
+    const deTransferencia = candidatoDeTransferencia(transf);
+    if (deTransferencia) candidatos.push(deTransferencia);
+    candidatos.sort((a, b) => aMillis(b.orden) - aMillis(a.orden));
+    const mejor = candidatos[0] ?? null;
+
+    const proveedor = await obtenerDatosProveedor(repo?.idProveedor);
+    if (cancelado) return;
+
+    callback(mejor ? {
+      fecha: mejor.fecha,
+      vencimiento: mejor.vencimiento,
+      proveedorNombre: proveedor?.nombre ?? null,
+      proveedorEmpresa: proveedor?.empresa ?? null,
+    } : null);
+  };
+
+  const alError = (cual) => (error) => {
+    console.error(`[historialStock] Falló la consulta de última ${cual}:`, error);
+    if (cual === 'reposicion') repo = null; else transf = null;
+    emitir();
+  };
+
+  const u1 = onSnapshot(ultimoDe('reposicion'), (snap) => { repo = snap.docs[0]?.data() ?? null; emitir(); }, alError('reposicion'));
+  const u2 = onSnapshot(ultimoDe('transferencia'), (snap) => { transf = snap.docs[0]?.data() ?? null; emitir(); }, alError('transferencia'));
+
+  return () => { cancelado = true; u1(); u2(); };
+}
+
+/**
+ * Suscripción en vivo al historial de MODIFICACIONES (stock mínimo / precio) de
+ * UN producto dentro de UN local, de la más reciente a la más antigua:
+ *   locales/{local}/productos/{idProducto}/modificaciones
+ * Cada elemento: { id, fecha, usuario, usuarioNombre, cambios: [{campo, anterior, nuevo}] }
+ * (usuarioNombre se resuelve desde el uid, igual que en el historial de movimientos).
+ * Ordena por un solo campo, así que no pide índice compuesto.
+ *
+ * @param {string} local
+ * @param {string} idProducto
+ * @param {(modificaciones: object[]) => void} callback
+ * @param {{limite?: number|null}} [opciones] - igual que en el historial de movimientos
+ * @returns {function} para cancelar la suscripción
+ */
+export function suscribirModificacionesProducto(local, idProducto, callback, opciones = {}) {
+  if (!local || !idProducto) {
+    callback([]);
+    return () => {};
+  }
+
+  const restricciones = [orderBy('fecha', 'desc')];
+  if (opciones.limite) restricciones.push(limit(opciones.limite));
+  const q = query(modificacionesProductoColRef(local, idProducto), ...restricciones);
+
+  return onSnapshot(
+    q,
+    async (snap) => {
+      const base = snap.docs.map((d) => {
+        const data = d.data();
+        return { id: d.id, ...data, cambios: Array.isArray(data.cambios) ? data.cambios : [] };
+      });
+      const conUsuario = await Promise.all(
+        base.map(async (m) => ({ ...m, usuarioNombre: await obtenerNombreUsuario(m.usuario) })),
+      );
+      callback(conUsuario);
+    },
+    (error) => {
+      console.error('[modificaciones] Falló la consulta del historial de modificaciones:', error);
+      callback([]);
+    },
+  );
 }
 
 /**
@@ -162,8 +313,9 @@ function suscribirConRespaldo({ etiqueta, principal, respaldo, preparar, alRecib
  *    reposición del local de ORIGEN (ultimaReposicionFecha /
  *    ultimaReposicionVencimiento), así un producto que llegó por
  *    transferencia también tiene vencimiento.
- * Gana la de fecha de reposición más reciente (no la del movimiento más
- * reciente: una transferencia de hoy puede traer una reposición vieja).
+ * Gana la de fecha de reposición más reciente (una transferencia de hoy puede traer
+ * una reposición vieja), salvo las transferencias nuevas, que son una "foto" del
+ * vencimiento vigente y se ordenan por la fecha del movimiento (ver candidatoDeTransferencia).
  *
  * @param {string} local
  * @param {(porProducto: Map<string, {fechaVencimiento: string, fecha: any}>) => void} callback
@@ -189,17 +341,19 @@ export function suscribirVencimientosProximos(local, callback) {
       const data = d.data();
       let candidato = null;
       if (data.tipoMovimiento === 'reposicion' && data.fechaVencimiento) {
-        candidato = { fechaVencimiento: data.fechaVencimiento, fecha: data.fecha ?? null };
-      } else if (data.tipoMovimiento === 'transferencia' && data.ultimaReposicionVencimiento) {
-        candidato = {
-          fechaVencimiento: data.ultimaReposicionVencimiento,
-          fecha: data.ultimaReposicionFecha ?? null,
-        };
+        candidato = { fechaVencimiento: data.fechaVencimiento, fecha: data.fecha ?? null, orden: data.fecha ?? null };
+      } else if (data.tipoMovimiento === 'transferencia') {
+        const c = candidatoDeTransferencia(data);
+        // Una "foto" sin vencimiento SÍ cuenta: significa que el stock que llegó no tiene
+        // fecha conocida y reemplaza a un vencimiento anterior que ya no corresponde.
+        if (c && (c.vencimiento || data.vencimientoVigente)) {
+          candidato = { fechaVencimiento: c.vencimiento, fecha: c.fecha, orden: c.orden };
+        }
       }
       if (!candidato) return;
 
       const actual = porProducto.get(data.idProducto);
-      if (!actual || aMillis(candidato.fecha) > aMillis(actual.fecha)) {
+      if (!actual || aMillis(candidato.orden) > aMillis(actual.orden)) {
         porProducto.set(data.idProducto, candidato);
       }
     });

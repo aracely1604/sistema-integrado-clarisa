@@ -72,6 +72,11 @@ export function productosColRef(local) {
   return coleccionLocalRef(local, 'productos');
 }
 
+/** Ref al historial de modificaciones de UN producto: locales/{local}/productos/{idProducto}/modificaciones */
+export function modificacionesProductoColRef(local, idProducto) {
+  return collection(db, NODO_LOCALES, local, 'productos', idProducto, 'modificaciones');
+}
+
 /** Ref a las recetas de un local: locales/{local}/recetas */
 export function recetasColRef(local) {
   return coleccionLocalRef(local, 'recetas');

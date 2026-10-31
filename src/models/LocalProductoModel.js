@@ -5,6 +5,9 @@
 // acá solo vive la info operativa de ESE local: stock actual, stock mínimo,
 // precio de venta y si está activo o no en este local específico.
 //
+// También guarda la oferta del producto en este local: `oferta` (precio de oferta,
+// 0 = sin oferta definida) y `ofertaActiva` (si la oferta está vigente o no).
+//
 // El nombre, categoría, código de barras y unidad de medida del producto
 // NO se repiten acá: se consultan desde el nodo global cuando se necesiten
 // (ver controllers/ProductoControl.js).
@@ -16,6 +19,8 @@ export class LocalProductoModel {
     stockMinimo   = 0,
     precioVenta   = 0,
     activo        = true,
+    oferta        = 0,
+    ofertaActiva  = false,
     creadoEn      = null,
     actualizadoEn = null,
   } = {}) {
@@ -24,6 +29,8 @@ export class LocalProductoModel {
     this.stockMinimo   = Number(stockMinimo) || 0;
     this.precioVenta   = Number(precioVenta) || 0;
     this.activo        = activo;
+    this.oferta        = Number(oferta) || 0;
+    this.ofertaActiva  = Boolean(ofertaActiva);
     this.creadoEn      = creadoEn ?? new Date().toISOString();
     this.actualizadoEn = new Date().toISOString();
   }
@@ -34,6 +41,8 @@ export class LocalProductoModel {
       stockMinimo:   this.stockMinimo,
       precioVenta:   this.precioVenta,
       activo:        this.activo,
+      oferta:        this.oferta,
+      ofertaActiva:  this.ofertaActiva,
       creadoEn:      this.creadoEn,
       actualizadoEn: this.actualizadoEn,
     };
@@ -46,6 +55,8 @@ export class LocalProductoModel {
       stockMinimo:   data.stockMinimo   ?? 0,
       precioVenta:   data.precioVenta   ?? 0,
       activo:        data.activo        ?? true,
+      oferta:        data.oferta        ?? 0,
+      ofertaActiva:  data.ofertaActiva  ?? false,
       creadoEn:      data.creadoEn      ?? null,
       actualizadoEn: data.actualizadoEn ?? null,
     });
