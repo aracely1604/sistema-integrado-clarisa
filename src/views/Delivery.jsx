@@ -37,6 +37,16 @@ const fechaPedido = (pedido) => {
   const fecha = valor?.toDate?.() || new Date(valor || 0);
   return Number.isNaN(fecha.getTime()) ? 0 : fecha.getTime();
 };
+const agregarEventoHistorial = (pedido, evento) => {
+  const historial = Array.isArray(pedido.historialEstados) ? pedido.historialEstados : [];
+  const inicial = historial.length ? [] : [{
+    estado: pedido.estado || 'recibido',
+    fecha: pedido.creadoEn?.toDate?.()?.toISOString?.() || (pedido.creadoEn?.seconds ? new Date(pedido.creadoEn.seconds * 1000).toISOString() : pedido.creadoEn || pedido.createdAt || pedido.fecha || new Date().toISOString()),
+    actorNombre: 'Sistema',
+    actorRol: 'sistema',
+  }];
+  return [...historial, ...inicial, evento];
+};
 
 // Tour guiado del panel de repartos (HU-50). Los pasos cuyo elemento no exista se omiten
 // (por ejemplo, el vehículo si aún no lo has completado, o el detalle de un pedido si no hay pedidos).
@@ -134,6 +144,7 @@ function Delivery({ notify }) {
           estado: 'listo_despacho',
           tomadoEn: serverTimestamp(),
           actualizadoEn: serverTimestamp(),
+          historialEstados: agregarEventoHistorial(pedidoActual, { estado: 'listo_despacho', fecha: new Date().toISOString(), actorNombre: datosRepartidor.repartidorNombre, actorRol: 'delivery' }),
           ...datosRepartidor,
         });
       });
@@ -179,7 +190,10 @@ function Delivery({ notify }) {
         const actual = captura.data();
         if (actual.repartidorId !== repartidorId) throw new Error('Este pedido no está asignado a tu cuenta.');
         if (normalizarEstado(actual.estado) !== 'listo_despacho') throw new Error('El pedido ya no está listo para despacho.');
-        transaccion.update(referencia, { estado: 'en_camino', actualizadoEn: serverTimestamp(), ...datosRepartidor });
+        transaccion.update(referencia, {
+          estado: 'en_camino', actualizadoEn: serverTimestamp(), ...datosRepartidor,
+          historialEstados: agregarEventoHistorial(actual, { estado: 'en_camino', fecha: new Date().toISOString(), actorNombre: datosRepartidor.repartidorNombre, actorRol: 'delivery' }),
+        });
       });
       notify('Pedido marcado En camino.', 'success');
     } catch (error) {
@@ -213,6 +227,7 @@ function Delivery({ notify }) {
           estado: 'entregado',
           actualizadoEn: serverTimestamp(),
           entregadoEn: serverTimestamp(),
+          historialEstados: agregarEventoHistorial(pedidoActual, { estado: 'entregado', fecha: new Date().toISOString(), actorNombre: datosRepartidor.repartidorNombre, actorRol: 'delivery' }),
           ...datosRepartidor,
         });
       });

@@ -273,6 +273,21 @@
   }
 }
 
+.report-options-extra { display: grid; gap: 22px; margin-top: 18px; padding: 0; border: 0; background: transparent; }
+.report-options-extra > .report-field { display: grid; justify-items: start; gap: 10px; }
+.report-options-extra .report-date-heading { margin-top: 8px; }
+.autoconsumo-report-panel, .cash-history-report { margin-top: 20px; padding: 24px 26px; }
+.cash-history-report .report-download { margin-top: 22px; }
+.cash-history-report .analytics-head { align-items: center; }
+.cash-report-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin: 14px 0; padding: 12px 14px; border-radius: 8px; background: #f1f5f9; color: #0f172a; }
+.cash-report-list .open-cash-row { align-items: flex-start; }
+.cash-report-list .cash-day-summary { margin-top: 8px; }
+
+@media (max-width: 600px) {
+  .cash-history-report .analytics-head { align-items: stretch; flex-direction: column; }
+  .cash-report-summary { flex-direction: column; }
+}
+
 @media (max-width: 600px) {
   .tutorial-fab {
     right: 20px;

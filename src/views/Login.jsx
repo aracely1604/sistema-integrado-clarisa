@@ -90,7 +90,8 @@ function Login({ navigate, notify }) {
     const opcion = obtenerOpcionRol(valorAsignado || 'cajero_almacen');
     const usuarioAceptado = {
       uid,
-      user: solicitud.user || solicitud.email || solicitud.correo || email,
+      user: [solicitud.nombre, solicitud.apellido].filter(Boolean).join(' ') || solicitud.user || email,
+      email: String(solicitud.email || solicitud.correo || solicitud.user || email).trim().toLowerCase(),
       nombre: solicitud.nombre || '',
       apellido: solicitud.apellido || '',
       rut: solicitud.rut || '',
@@ -216,7 +217,8 @@ function Login({ navigate, notify }) {
       const uid = credenciales.user.uid;
       const solicitud = {
         uid,
-        user: correo,
+        user: `${nombre} ${apellido}`.trim(),
+        email: correo,
         nombre,
         apellido,
         rut,

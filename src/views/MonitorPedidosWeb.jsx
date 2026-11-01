@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../controllers/AuthContext';
 import '../styles/views/monitor-pedidos-web.css';
 
 const normalizar = (valor) => String(valor || '').trim().toLowerCase().replaceAll(' ', '_').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -16,8 +17,14 @@ const estadoGrupo = (pedido) => {
   if (estado.startsWith('recib') || estado.startsWith('pendient') || estado === 'nuevo') return 'recibido';
   return 'recibido';
 };
+const formatearFechaHora = (valor) => {
+  const fecha = valor?.toDate?.() || (valor?.seconds ? new Date(valor.seconds * 1000) : new Date(valor || 0));
+  return Number.isNaN(fecha.getTime()) || fecha.getTime() === 0 ? 'Hora no registrada' : fecha.toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+};
+const fechaISO = (valor) => valor?.toDate?.()?.toISOString?.() || (valor?.seconds ? new Date(valor.seconds * 1000).toISOString() : valor || new Date().toISOString());
 
 export default function MonitorPedidosWeb({ setMostrarMonitor, notify = () => {} }) {
+  const { usuario: cajero } = useAuth();
   const [pedidos, setPedidos] = useState([]);
   const [clientesMap, setClientesMap] = useState({});
   const [filtro, setFiltro] = useState('todos');
@@ -57,7 +64,25 @@ export default function MonitorPedidosWeb({ setMostrarMonitor, notify = () => {}
   const cantidadPendientes = pedidos.filter((pedido) => ['recibido', 'pendiente'].includes(estadoGrupo(pedido))).length;
   const actualizarEstado = async (pedido, nuevoEstado) => {
     try {
-      await updateDoc(doc(db, 'pedidos', pedido.id), { estado: nuevoEstado, actualizadoEn: serverTimestamp() });
+      const actorNombre = [cajero?.nombre, cajero?.apellido].filter(Boolean).join(' ') || cajero?.user || cajero?.email || 'Cajero';
+      await runTransaction(db, async (transaccion) => {
+        const referencia = doc(db, 'pedidos', pedido.id);
+        const captura = await transaccion.get(referencia);
+        if (!captura.exists()) throw new Error('El pedido ya no existe.');
+        const actual = captura.data();
+        const eventos = Array.isArray(actual.historialEstados) ? actual.historialEstados : [];
+        const inicial = eventos.length ? [] : [{
+          estado: actual.estado || 'recibido',
+          fecha: fechaISO(actual.creadoEn || actual.createdAt || actual.fecha),
+          actorNombre: 'Sistema',
+          actorRol: 'sistema',
+        }];
+        transaccion.update(referencia, {
+          estado: nuevoEstado,
+          actualizadoEn: serverTimestamp(),
+          historialEstados: [...eventos, ...inicial, { estado: nuevoEstado, fecha: new Date().toISOString(), actorNombre, actorRol: 'cajero' }],
+        });
+      });
       notify(`Pedido actualizado: ${nuevoEstado.replaceAll('_', ' ')}.`, 'success');
     } catch (error) {
       console.error('Error al actualizar estado:', error);
@@ -95,10 +120,19 @@ export default function MonitorPedidosWeb({ setMostrarMonitor, notify = () => {}
           const codigo = pedido.codigo || pedido.codigoPedido || pedido.id.slice(-6).toUpperCase();
           const productos = pedido.productos || pedido.items || [];
           const entrega = pedido.entrega || {};
+          const repartidor = pedido.repartidorNombre || pedido.repartidor?.nombre || pedido.repartidor?.user || '';
+          const vehiculo = pedido.repartidorAuto || pedido.vehiculoRepartidor || {};
+          const historialPedido = Array.isArray(pedido.historialEstados) && pedido.historialEstados.length
+            ? pedido.historialEstados
+            : [
+                { estado: 'recibido', fecha: pedido.creadoEn || pedido.createdAt || pedido.fecha, actorNombre: 'Sistema', actorRol: 'sistema' },
+                ...(pedido.actualizadoEn ? [{ estado: pedido.estado || 'recibido', fecha: pedido.actualizadoEn, actorNombre: repartidor || 'Sistema', actorRol: repartidor ? 'delivery' : 'sistema' }] : []),
+              ];
           return <article className={`online-order-card ${elegido ? 'selected' : ''}`} key={pedido.id}>
             <div className="online-order-card-top"><span className="online-order-code">#{codigo}</span><span className={`online-order-status ${grupo === 'recibido' ? 'status-pendiente' : `status-${grupo}`}`}>{grupo === 'recibido' ? 'Pendiente' : pedido.estado || 'Pendiente'}</span></div>
             <h3>{obtenerNombreCliente(pedido)}</h3>
             <p className="online-order-meta">{modalidadPedido(pedido) === 'retiro' ? 'Retiro en el local' : 'Delivery'} · {productos.length} producto(s)</p>
+            {modalidadPedido(pedido) === 'delivery' && <p className="online-order-driver"><strong>Repartidor:</strong> {repartidor || 'Aún no asignado'}</p>}
             <strong className="online-order-total">${Number(pedido.total || pedido.montoTotal || 0).toLocaleString('es-CL')}</strong>
             <div className="online-order-actions">
               <button className="btn btn-secondary" onClick={() => setPedidoSeleccionado(elegido ? '' : pedido.id)}>{elegido ? 'Ocultar detalle' : 'Ver detalle'}</button>
@@ -109,8 +143,10 @@ export default function MonitorPedidosWeb({ setMostrarMonitor, notify = () => {}
               <p><strong>Código:</strong> {codigo}</p><p><strong>Modalidad:</strong> {modalidadPedido(pedido) === 'retiro' ? 'Retiro en el local' : 'Delivery'}</p>
               {modalidadPedido(pedido) !== 'retiro' && <p><strong>Dirección:</strong> {entrega.direccion || pedido.direccion || pedido.domicilio || 'No registrada'}</p>}
               <p><strong>Teléfono:</strong> {entrega.telefono || pedido.telefono || 'No registrado'}</p>
+              {modalidadPedido(pedido) === 'delivery' && <div className="online-order-driver-detail"><h4>Repartidor asignado</h4><p><strong>Nombre:</strong> {repartidor || 'Aún no asignado'}</p><p><strong>Vehículo:</strong> {[vehiculo.marca || vehiculo.marcaAuto, vehiculo.color, vehiculo.patente].filter(Boolean).join(' · ') || 'Sin datos registrados'}</p></div>}
               <h4>Productos</h4><ul>{productos.map((producto, index) => <li key={producto.id || `${producto.nombre}-${index}`}><span>{producto.cantidad || 1} × {producto.nombre || producto.producto}</span><strong>${Number(producto.precio || 0).toLocaleString('es-CL')}</strong></li>)}</ul>
               <p className="online-detail-total"><strong>Total</strong><strong>${Number(pedido.total || pedido.montoTotal || 0).toLocaleString('es-CL')}</strong></p>
+              <div className="online-order-history"><h4>Historial del pedido</h4><ol>{historialPedido.map((evento, index) => <li key={`${evento.estado}-${evento.fecha || index}`}><strong>{String(evento.estado || 'estado actualizado').replaceAll('_', ' ')}</strong><span>{evento.actorNombre || evento.actorRol || 'Sistema'} · {formatearFechaHora(evento.fecha || evento.createdAt)}</span></li>)}</ol></div>
             </section>}
           </article>;
         })}

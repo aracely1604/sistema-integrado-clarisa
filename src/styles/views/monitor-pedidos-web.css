@@ -22,12 +22,23 @@
 .status-recibido, .status-pendiente { color: #334155; background: #f1f5f9; }.status-preparando { color: #1d4ed8; background: #dbeafe; }.status-en_camino { color: #6d28d9; background: #ede9fe; }.status-entregado { color: #047857; background: #d1fae5; }
 .online-order-card h3 { margin: 14px 0 5px; font-size: 18px; }
 .online-order-meta { color: #64748b; margin-bottom: 12px; }
+.online-order-driver { margin: 8px 0 12px; padding: 9px 10px; border-radius: 7px; background: #eff6ff; color: #1e3a8a; font-size: 13px; }
+.online-order-driver-detail { margin: 14px 0; padding: 12px; border: 1px solid #dbeafe; border-radius: 8px; background: #f8fbff; }
+.online-order-driver-detail h4 { margin: 0 0 8px; color: #1e3a8a; }
+.online-order-driver-detail p { margin: 5px 0; }
 .online-order-total { color: #0f766e; font-size: 20px; }
 .online-order-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .online-order-actions .btn { flex: 1; }
 .online-order-detail { margin-top: 16px; padding-top: 14px; border-top: 1px solid #e2e8f0; color: #475569; }
 .online-order-detail h4 { margin: 0 0 10px; color: #0f172a; }
 .online-order-detail p { margin: 7px 0; }
+.online-order-history { margin-top: 16px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
+.online-order-history h4 { margin: 0 0 10px; color: #0f172a; }
+.online-order-history ol { display: grid; gap: 10px; margin: 0; padding: 0 0 0 20px; }
+.online-order-history li { padding-left: 2px; color: #0f766e; }
+.online-order-history li strong, .online-order-history li span { display: block; }
+.online-order-history li strong { color: #0f172a; text-transform: capitalize; }
+.online-order-history li span { margin-top: 3px; color: #64748b; font-size: 12px; }
 .online-order-detail ul { margin: 0; padding: 0; list-style: none; }
 .online-order-detail li, .online-detail-total { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
 .online-detail-total { color: #0f766e; border: 0; }

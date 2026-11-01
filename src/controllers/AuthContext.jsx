@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, doc, getDoc, onSnapshot, query, where, limit, getDocs } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where, limit, getDocs, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { logoutEmpleado, actualizarPresencia } from './AuthControl';
 import { obtenerHorarioLocal, LOCAL_POR_DEFECTO } from '../controllers/LocalControl'; // TODO: ajustar la ruta según donde guardes LocalControl.jsx
@@ -159,7 +159,21 @@ export function AuthProvider({ children }) {
       }
 
       if (snap.exists()) {
-        const datos = snap.data();
+        let datos = snap.data();
+        const nombreCompleto = [datos.nombre, datos.apellido].filter(Boolean).join(' ').trim();
+        const correoUsuario = String(firebaseUser.email || datos.email || (String(datos.user || '').includes('@') ? datos.user : '')).trim().toLowerCase();
+        const datosIdentidad = {
+          ...(nombreCompleto ? { user: nombreCompleto } : {}),
+          ...(correoUsuario ? { email: correoUsuario } : {}),
+        };
+        if (Object.entries(datosIdentidad).some(([campo, valor]) => datos[campo] !== valor)) {
+          try {
+            await updateDoc(usuarioRef, datosIdentidad);
+            datos = { ...datos, ...datosIdentidad };
+          } catch (error) {
+            console.warn('No se pudo normalizar el perfil de usuario en Firebase:', error);
+          }
+        }
         // El horario del local asignado no debe bloquear la consola de reparto:
         // perfiles Delivery suelen tener una asignación de caja heredada.
         if (datos.restriccionHorario && !esAdministrador(datos) && !esRepartidor(datos)) {
@@ -189,7 +203,8 @@ export function AuthProvider({ children }) {
               ...datos,
               uid: firebaseUser.uid,
               perfilId: usuarioRef.id,
-              email: firebaseUser.email,
+              email: firebaseUser.email || datos.email,
+              user: [datos.nombre, datos.apellido].filter(Boolean).join(' ').trim() || datos.user || firebaseUser.email,
               rol: String(datos.rol || '').trim().toLowerCase(),
               esAdmin,
               horarioLocal,

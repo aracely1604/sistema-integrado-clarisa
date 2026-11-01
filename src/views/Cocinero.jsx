@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import Reloj from './Reloj';
 import { db } from '../firebase';
@@ -9,6 +9,7 @@ import TourGuiado from '../components/TourGuiado';
 import '../styles/views/cocinero.css';
 
 const normalizar = (estado) => String(estado || 'recibido').toLowerCase().trim().replaceAll(' ', '_').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const fechaISO = (valor) => valor?.toDate?.()?.toISOString?.() || (valor?.seconds ? new Date(valor.seconds * 1000).toISOString() : valor || new Date().toISOString());
 
 // Tour guiado del panel de cocina (HU-50). Los pasos cuyo elemento no exista se omiten
 // (por ejemplo, el detalle de un pedido cuando no hay pedidos por preparar).
@@ -41,7 +42,29 @@ export default function Cocinero({ notify }) {
   const cambiarEstado = async (pedido, estado) => {
     setActualizando(pedido.id);
     try {
-      await updateDoc(doc(db, 'pedidos', pedido.id), { estado, actualizadoEn: serverTimestamp() });
+      await runTransaction(db, async (transaccion) => {
+        const referencia = doc(db, 'pedidos', pedido.id);
+        const captura = await transaccion.get(referencia);
+        if (!captura.exists()) throw new Error('El pedido ya no existe.');
+        const actual = captura.data();
+        const eventos = Array.isArray(actual.historialEstados) ? actual.historialEstados : [];
+        const inicial = eventos.length ? [] : [{
+          estado: actual.estado || 'recibido',
+          fecha: fechaISO(actual.creadoEn || actual.createdAt || actual.fecha),
+          actorNombre: 'Sistema',
+          actorRol: 'sistema',
+        }];
+        transaccion.update(referencia, {
+          estado,
+          actualizadoEn: serverTimestamp(),
+          historialEstados: [...eventos, ...inicial, {
+            estado,
+            fecha: new Date().toISOString(),
+            actorNombre: [usuario?.nombre, usuario?.apellido].filter(Boolean).join(' ') || usuario?.user || usuario?.email || 'Cocinero',
+            actorRol: 'cocinero',
+          }],
+        });
+      });
       notify(`Pedido actualizado: ${estado.replaceAll('_', ' ')}.`, 'success');
     } catch (error) {
       console.error(error); notify('No se pudo actualizar el pedido.', 'error');

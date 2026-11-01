@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDocs, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import jsPDF from 'jspdf';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
@@ -41,7 +41,7 @@ const normalizarMetodoPago = (venta) => {
 
 const obtenerFechaVenta = (venta) => {
   const valorFecha = venta.fecha || venta.createdAt || venta.date || venta.dia;
-  const fecha = valorFecha ? new Date(valorFecha) : new Date();
+  const fecha = valorFecha?.toDate?.() || (valorFecha?.seconds ? new Date(valorFecha.seconds * 1000) : valorFecha ? new Date(valorFecha) : new Date());
   return Number.isNaN(fecha.getTime()) ? new Date() : fecha;
 };
 
@@ -70,7 +70,7 @@ const clavePeriodo = (fecha, periodo) => {
 const obtenerMonto = (venta) => Number(venta.total || venta.monto || venta.valor || 0);
 
 const formatearFechaHora = (valor) => {
-  const fecha = valor ? new Date(valor) : new Date();
+  const fecha = valor?.toDate?.() || (valor?.seconds ? new Date(valor.seconds * 1000) : valor ? new Date(valor) : new Date());
   return fecha.toLocaleString('es-CL', {
     dateStyle: 'short',
     timeStyle: 'medium',
@@ -81,6 +81,20 @@ const unirPorId = (localesGuardados, remotos) => {
   const mapa = new Map();
   localesGuardados.forEach((item) => mapa.set(item.id, item));
   remotos.forEach((item) => mapa.set(item.id, item));
+  return [...mapa.values()];
+};
+
+const claveCaja = (caja) => caja.id || caja.cajaId || [caja.local, caja.usuario || caja.uid, caja.abiertaDesde || caja.fecha || 'sin-fecha'].join('::');
+const cajaEstaAbierta = (caja) => {
+  const estado = String(caja.estado || '').trim().toLowerCase();
+  return !['cerrada', 'cerrado', 'finalizada', 'finalizado'].includes(estado)
+    && caja.activa !== false
+    && caja.abierta !== false;
+};
+const unirCajas = (localesGuardados, remotas) => {
+  const mapa = new Map();
+  localesGuardados.forEach((caja) => mapa.set(claveCaja(caja), caja));
+  remotas.forEach((caja) => mapa.set(claveCaja(caja), caja));
   return [...mapa.values()];
 };
 
@@ -137,8 +151,21 @@ const prepararSeriesMetodosPago = (ventas, periodo) => {
 
 const fechaClaveChile = (valor) => {
   if (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valor)) return valor;
-  const fecha = valor instanceof Date ? valor : new Date(valor || Date.now());
+  const fecha = valor?.toDate?.() || (valor?.seconds ? new Date(valor.seconds * 1000) : valor instanceof Date ? valor : new Date(valor || Date.now()));
   return Number.isNaN(fecha.getTime()) ? '' : new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(fecha);
+};
+
+const coincidePeriodoReporte = (valorFecha, { periodo, fecha, mes, anio }) => {
+  const clave = fechaClaveChile(valorFecha);
+  if (!clave) return false;
+  if (periodo === 'mensual') return !mes || clave.slice(0, 7) === mes;
+  if (periodo === 'anual') return !anio || Number(clave.slice(0, 4)) === Number(anio);
+  if (periodo === 'semanal') {
+    if (!fecha) return true;
+    return obtenerInicioSemana(new Date(`${clave}T12:00:00`)).toISOString().slice(0, 10)
+      === obtenerInicioSemana(new Date(`${fecha}T12:00:00`)).toISOString().slice(0, 10);
+  }
+  return !fecha || clave === fecha;
 };
 
 const prepararSerieAutoconsumosDiarios = (registros) => {
@@ -219,6 +246,7 @@ function Admin() {
   const [tourActivo, setTourActivo] = useState(false); // tour guiado manual (botón "?" flotante)
   const [ventas, setVentas] = useState([]);
   const [cajas, setCajas] = useState([]);
+  const [historialCajas, setHistorialCajas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [autoconsumos, setAutoconsumos] = useState([]);
   const [firmasAutoconsumo, setFirmasAutoconsumo] = useState([]);
@@ -250,6 +278,7 @@ function Admin() {
   }, []);
 
   useEffect(() => {
+    let cancelarEscuchaCajas = () => {};
     const cargarDatos = async () => {
       const ventasLocales = JSON.parse(localStorage.getItem('ventas')) || [];
       const cajasLocales = JSON.parse(localStorage.getItem('cajas')) || [];
@@ -257,7 +286,8 @@ function Admin() {
       const firmasLocales = JSON.parse(localStorage.getItem('firmasAutoconsumo')) || [];
 
       setVentas(ventasLocales);
-      setCajas(cajasLocales);
+      setCajas(cajasLocales.filter(cajaEstaAbierta));
+      setHistorialCajas(cajasLocales);
       setAutoconsumos(autoconsumosLocales);
       setFirmasAutoconsumo(firmasLocales);
 
@@ -269,16 +299,6 @@ function Admin() {
         localStorage.setItem('ventas', JSON.stringify(ventasUnidas));
       } catch (error) {
         console.error('No se pudieron cargar ventas de Firebase:', error);
-      }
-
-      try {
-        const cajasFirebase = await getDocs(query(collection(db, 'cajas'), where('estado', '==', 'abierta')));
-        const cajasRemotas = cajasFirebase.docs.map((documento) => ({ id: documento.id, ...documento.data() }));
-        const cajasUnidas = unirPorId(cajasLocales, cajasRemotas).filter((caja) => caja.estado !== 'cerrada');
-        setCajas(cajasUnidas);
-        localStorage.setItem('cajas', JSON.stringify(cajasUnidas));
-      } catch (error) {
-        console.error('No se pudieron cargar cajas de Firebase:', error);
       }
 
       try {
@@ -317,12 +337,31 @@ function Admin() {
       setAutoconsumos(JSON.parse(localStorage.getItem('autoconsumos')) || []);
       setFirmasAutoconsumo(JSON.parse(localStorage.getItem('firmasAutoconsumo')) || []);
     };
+    const actualizarCajasLocales = () => {
+      const cajasLocales = JSON.parse(localStorage.getItem('cajas')) || [];
+      setCajas(cajasLocales.filter(cajaEstaAbierta));
+      setHistorialCajas((actuales) => unirCajas(actuales, cajasLocales));
+    };
     window.addEventListener('ventas-actualizadas', actualizarVentasLocales);
     window.addEventListener('autoconsumos-actualizados', actualizarAutoconsumosLocales);
+    window.addEventListener('cajas-actualizadas', actualizarCajasLocales);
+    cancelarEscuchaCajas = onSnapshot(collection(db, 'cajas'), (snapshot) => {
+      const cajasLocales = JSON.parse(localStorage.getItem('cajas')) || [];
+      const cajasRemotas = snapshot.docs.map((documento) => ({ id: documento.id, ...documento.data() }));
+      const todasLasCajas = unirCajas(cajasLocales, cajasRemotas);
+      const cajasAbiertas = todasLasCajas
+        .filter(cajaEstaAbierta)
+        .sort((a, b) => new Date(b.abiertaDesde || b.fecha || 0).getTime() - new Date(a.abiertaDesde || a.fecha || 0).getTime());
+      setHistorialCajas(todasLasCajas);
+      setCajas(cajasAbiertas);
+      localStorage.setItem('cajas', JSON.stringify(cajasAbiertas));
+    }, (error) => console.error('No se pudo escuchar el historial de cajas:', error));
 
     return () => {
+      cancelarEscuchaCajas();
       window.removeEventListener('ventas-actualizadas', actualizarVentasLocales);
       window.removeEventListener('autoconsumos-actualizados', actualizarAutoconsumosLocales);
+      window.removeEventListener('cajas-actualizadas', actualizarCajasLocales);
     };
   }, []);
 
@@ -331,6 +370,7 @@ function Admin() {
     const cajasActualizadas = cajas.filter((item) => item.id !== caja.id);
 
     setCajas(cajasActualizadas);
+    setHistorialCajas((actuales) => actuales.map((item) => item.id === caja.id ? { ...item, estado: 'cerrada', cerradaEn, cerradaPor: 'admin' } : item));
     localStorage.setItem('cajas', JSON.stringify(cajasActualizadas));
     window.dispatchEvent(new Event('cajas-actualizadas'));
 
@@ -391,16 +431,20 @@ function Admin() {
   const totalGeneral = ventasNormalizadas.reduce((a, b) => a + b.total, 0);
   const totalFiltrado = ventasFiltradas.reduce((a, b) => a + b.total, 0);
   const hoy = fechaClaveChile(new Date());
+  const filtrosPeriodoReporte = { periodo: reportePeriodo, fecha: fechaReporte, mes: mesReporte, anio: anioReporte };
   const ventasHoy = ventasNormalizadas.filter((venta) => fechaClaveChile(venta.fecha || venta.createdAt || venta.date || venta.dia) === hoy);
   const totalHoy = ventasHoy.reduce((suma, venta) => suma + venta.total, 0);
   const autoconsumosHoy = autoconsumos.filter((registro) => fechaClaveChile(registro.fecha || registro.createdAt || registro.date || registro.dia) === hoy);
   const totalAutoconsumosHoy = autoconsumosHoy.reduce((suma, registro) => suma + Number(registro.total || 0), 0);
-  const autoconsumosPorLocal = locales.map((local) => ({
+  const firmasHoy = firmasAutoconsumo.filter((firma) => fechaClaveChile(firma.fecha || firma.firmadaEn) === hoy && firma.aceptada && firma.firmaDigital);
+  const autoconsumosPorLocalHoy = locales.map((local) => ({
     ...local,
     cantidad: autoconsumosHoy.filter((registro) => normalizarLocal(registro) === local.id).length,
     total: autoconsumosHoy.filter((registro) => normalizarLocal(registro) === local.id).reduce((suma, registro) => suma + Number(registro.total || 0), 0),
   }));
-  const firmasHoy = firmasAutoconsumo.filter((firma) => fechaClaveChile(firma.fecha || firma.firmadaEn) === hoy && firma.aceptada && firma.firmaDigital);
+  const autoconsumosReporte = autoconsumos
+    .filter((registro) => reporteLocal === 'todos' || normalizarLocal(registro) === reporteLocal)
+    .filter((registro) => coincidePeriodoReporte(registro.fecha || registro.createdAt || registro.date || registro.dia, filtrosPeriodoReporte));
   const serieAutoconsumosDiarios = prepararSerieAutoconsumosDiarios(autoconsumos);
   const ventasPorLocalHoy = locales.map((local) => {
     const ventasLocal = ventasHoy.filter((venta) => venta.localNormalizado === local.id);
@@ -426,6 +470,15 @@ function Admin() {
       efectivoEnCaja: fondoInicial + ventasEfectivo,
     };
   });
+  const resumenCajasReporte = historialCajas
+    .filter((caja) => reporteLocal === 'todos' || normalizarLocal(caja) === reporteLocal)
+    .filter((caja) => coincidePeriodoReporte(caja.abiertaDesde || caja.fecha || caja.cerradaEn, filtrosPeriodoReporte))
+    .map((caja) => {
+      const ventasDeCaja = ventasNormalizadas.filter((venta) => venta.cajaId === caja.id);
+      const ventasEfectivo = ventasDeCaja.filter((venta) => venta.metodoPagoNormalizado === 'efectivo').reduce((suma, venta) => suma + venta.total, 0);
+      const fondoInicial = Number(caja.efectivoInicial || 0);
+      return { ...caja, totalVentas: ventasDeCaja.reduce((suma, venta) => suma + venta.total, 0), fondoInicial, efectivoEnCaja: fondoInicial + ventasEfectivo };
+    });
   const totalMetodos = metodosPago.map((metodo) => ({
     ...metodo,
     total: ventasFiltradas
@@ -439,6 +492,8 @@ function Admin() {
   const aniosReporte = [...new Set([
     new Date().getFullYear(),
     ...ventasNormalizadas.map((venta) => obtenerFechaVenta(venta).getFullYear()),
+    ...autoconsumos.map((registro) => Number(fechaClaveChile(registro.fecha || registro.createdAt || registro.date || registro.dia).slice(0, 4))).filter(Boolean),
+    ...historialCajas.map((caja) => Number(fechaClaveChile(caja.abiertaDesde || caja.fecha || caja.cerradaEn).slice(0, 4))).filter(Boolean),
   ])].sort((a, b) => b - a);
 
   const filtrarVentasReporte = () => {
@@ -472,10 +527,37 @@ function Admin() {
     return 'Todas las fechas';
   };
 
+  const controlesReporteCompartidos = () => (
+    <div className="report-options report-options-extra">
+      <div className="report-field">
+        <h4>Periodo</h4>
+        <div className="period-toggle">
+          {[['diario', 'Diario'], ['semanal', 'Semanal'], ['mensual', 'Mensual'], ['anual', 'Anual']].map(([id, label]) => (
+            <button type="button" className={reportePeriodo === id ? 'active' : ''} onClick={() => setReportePeriodo(id)} key={id}>{label}</button>
+          ))}
+        </div>
+        <h4 className="report-date-heading">Seleccionar fecha</h4>
+        <p className="muted">{reportePeriodo === 'diario' ? 'Selecciona el día del que deseas descargar el reporte.' : reportePeriodo === 'semanal' ? 'Selecciona un día de la semana que deseas consultar.' : reportePeriodo === 'mensual' ? 'Selecciona el mes que deseas consultar.' : 'Selecciona el año que deseas consultar.'}</p>
+        <div className="report-date-control">
+          {reportePeriodo === 'mensual' ? <input type="month" value={mesReporte} onChange={(evento) => setMesReporte(evento.target.value)} className="field" />
+            : reportePeriodo === 'anual' ? <select value={anioReporte} onChange={(evento) => setAnioReporte(evento.target.value)} className="field">{aniosReporte.map((anio) => <option value={anio} key={anio}>{anio}</option>)}</select>
+              : <input type="date" value={fechaReporte} onChange={(evento) => setFechaReporte(evento.target.value)} className="field" />}
+        </div>
+        <p className="report-selected-period">Reporte seleccionado: {descripcionFiltroReporte()}</p>
+      </div>
+      <div className="report-field">
+        <h4>Local</h4>
+        <div className="local-selector in-chart">
+          {opcionesReporteLocales.map((local) => <button type="button" className={reporteLocal === local.id ? 'active' : ''} onClick={() => setReporteLocal(local.id)} key={local.id}>{local.nombre}</button>)}
+        </div>
+      </div>
+    </div>
+  );
+
   const generarPDF = () => {
     const ventasReporte = filtrarVentasReporte();
     const total = ventasReporte.reduce((suma, venta) => suma + venta.total, 0);
-    const usuariosPorCorreo = new Map(usuarios.map((usuario) => [String(usuario.user || '').toLowerCase(), usuario]));
+    const usuariosPorCorreo = new Map(usuarios.map((usuario) => [String(usuario.email || (String(usuario.user || '').includes('@') ? usuario.user : '')).toLowerCase(), usuario]));
     const doc = new jsPDF({ orientation: 'landscape' });
     const anchoPagina = doc.internal.pageSize.getWidth();
     const margen = 14;
@@ -548,7 +630,7 @@ function Admin() {
     doc.save(`reporte-ventas-${reportePeriodo}.pdf`);
   };
 
-  const generarPDFAutoconsumo = (registros, trabajador = 'general') => {
+  const generarPDFAutoconsumo = (registros, trabajador = 'general', periodo = 'Todas las fechas') => {
     const doc = new jsPDF();
     const ancho = doc.internal.pageSize.getWidth();
     const alto = doc.internal.pageSize.getHeight();
@@ -563,7 +645,7 @@ function Admin() {
       doc.text('RESUMEN DE AUTOCONSUMO', margen, 12);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.text(`Fecha: ${new Date().toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })} · Trabajador: ${trabajador}`, margen, 20);
+      doc.text(`Periodo: ${periodo} · Trabajador: ${trabajador}`, margen, 20);
       doc.setTextColor(15, 23, 42);
       y = 36;
     };
@@ -595,7 +677,67 @@ function Admin() {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.text(`Total: $${total.toLocaleString('es-CL')} · ${registros.length} registro(s)`, margen, y + 5);
-    doc.save(`autoconsumo-${trabajador === 'general' ? hoy : 'trabajador'}-${hoy}.pdf`);
+    const nombrePeriodo = String(periodo).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || hoy;
+    doc.save(`autoconsumo-${trabajador === 'general' ? 'general' : 'trabajador'}-${nombrePeriodo}.pdf`);
+  };
+
+  const generarPDFCajas = () => {
+    const documento = new jsPDF({ orientation: 'landscape' });
+    const ancho = documento.internal.pageSize.getWidth();
+    const margen = 12;
+    const totalVentasReporte = resumenCajasReporte.reduce((suma, caja) => suma + caja.totalVentas, 0);
+    const cabecera = () => {
+      documento.setFillColor(15, 118, 110);
+      documento.rect(0, 0, ancho, 27, 'F');
+      documento.setTextColor(255, 255, 255);
+      documento.setFont('helvetica', 'bold');
+      documento.setFontSize(16);
+      documento.text('REPORTE DE CONTROL DE CAJAS', margen, 12);
+      documento.setFont('helvetica', 'normal');
+      documento.setFontSize(9);
+      documento.text(`${nombreLocalReporte(reporteLocal)} · ${nombrePeriodoReporte(reportePeriodo)}: ${descripcionFiltroReporte()}`, margen, 20);
+      documento.setTextColor(15, 23, 42);
+      documento.setFont('helvetica', 'bold');
+      documento.text(`Cajas: ${resumenCajasReporte.length} · Ventas asociadas: $${totalVentasReporte.toLocaleString('es-CL')}`, margen, 36);
+      documento.setFillColor(241, 245, 249);
+      documento.rect(margen, 42, ancho - margen * 2, 10, 'F');
+      documento.setFontSize(8);
+      documento.text('Local', margen + 2, 49);
+      documento.text('Responsable', margen + 35, 49);
+      documento.text('Estado', margen + 82, 49);
+      documento.text('Apertura', margen + 112, 49);
+      documento.text('Cierre', margen + 157, 49);
+      documento.text('Fondo inicial', margen + 200, 49);
+      documento.text('Ventas', margen + 235, 49);
+      documento.text('Efectivo final', margen + 260, 49);
+    };
+    cabecera();
+    if (resumenCajasReporte.length === 0) {
+      documento.setFont('helvetica', 'normal');
+      documento.setTextColor(100, 116, 139);
+      documento.text('No hay cajas registradas para el periodo y local seleccionados.', margen, 64);
+    } else {
+      let y = 61;
+      resumenCajasReporte.forEach((caja) => {
+        if (y > 190) { documento.addPage(); cabecera(); y = 61; }
+        documento.setDrawColor(226, 232, 240);
+        documento.line(margen, y + 3, ancho - margen, y + 3);
+        documento.setTextColor(15, 23, 42);
+        documento.setFont('helvetica', 'normal');
+        documento.setFontSize(7.5);
+        documento.text(limpiarTextoPDF(caja.localNombre || caja.local, 17), margen + 2, y);
+        documento.text(limpiarTextoPDF([caja.nombre, caja.apellido].filter(Boolean).join(' ') || caja.usuario, 25), margen + 35, y);
+        documento.text(caja.estado || 'abierta', margen + 82, y);
+        documento.text(caja.abiertaDesde ? formatearFechaHora(caja.abiertaDesde) : '-', margen + 112, y);
+        documento.text(caja.cerradaEn ? formatearFechaHora(caja.cerradaEn) : 'Abierta', margen + 157, y);
+        documento.text(`$${caja.fondoInicial.toLocaleString('es-CL')}`, margen + 200, y);
+        documento.text(`$${caja.totalVentas.toLocaleString('es-CL')}`, margen + 235, y);
+        documento.text(`$${caja.efectivoEnCaja.toLocaleString('es-CL')}`, margen + 260, y);
+        y += 9;
+      });
+    }
+    const periodoArchivo = String(descripcionFiltroReporte()).toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'general';
+    documento.save(`control-cajas-${periodoArchivo}.pdf`);
   };
 
   return (
@@ -730,14 +872,14 @@ function Admin() {
       </section>
 
       <section data-tour="admin-autoconsumo" className="analytics-panel autoconsumo-dashboard">
-        <div className="analytics-head"><div><p className="eyebrow">Autoconsumo personal</p><h2>Control y trazabilidad del día</h2><p className="muted">Registros identificados por trabajador, credencial y firma digital.</p></div><button type="button" className="btn btn-secondary" onClick={() => generarPDFAutoconsumo(autoconsumosHoy)}>Descargar autoconsumos PDF</button></div>
+        <div className="analytics-head"><div><p className="eyebrow">Autoconsumo personal</p><h2>Control y trazabilidad del día</h2><p className="muted">Registros identificados por trabajador, credencial y firma digital.</p></div><button type="button" className="btn btn-secondary" onClick={() => generarPDFAutoconsumo(autoconsumosReporte, 'general', descripcionFiltroReporte())}>Descargar autoconsumos PDF</button></div>
         <div className="autoconsumo-kpis">
           <div><span>Autoconsumos hoy</span><strong>{autoconsumosHoy.length}</strong></div>
           <div><span>Monto referencial</span><strong>${totalAutoconsumosHoy.toLocaleString('es-CL')}</strong></div>
           <div><span>Firmas diarias</span><strong>{firmasHoy.length}</strong></div>
         </div>
         <div className="daily-local-summary">
-          {autoconsumosPorLocal.map((local) => <div className="daily-local-row" key={local.id}><span>{local.nombre}</span><small>{local.cantidad} registros</small><strong>${local.total.toLocaleString('es-CL')}</strong></div>)}
+          {autoconsumosPorLocalHoy.map((local) => <div className="daily-local-row" key={local.id}><span>{local.nombre}</span><small>{local.cantidad} registros</small><strong>${local.total.toLocaleString('es-CL')}</strong></div>)}
         </div>
         <div className="autoconsumo-chart">
           <div className="chart-title"><h3>Gráfico de consumo diario</h3><span>Últimos 8 días con registros</span></div>
@@ -750,6 +892,10 @@ function Admin() {
             return <article key={registro.id} className="autoconsumo-row"><div><strong>{registro.trabajadorNombre || 'Trabajador/a'}</strong><span>{registro.localNombre || registro.local} · Credencial {registro.credencial || 'virtual'}</span><small>{(registro.productos || []).map((producto) => `${producto.cantidad}× ${producto.nombre}`).join(', ') || 'Sin detalle'} · {formatearFechaHora(obtenerFechaVenta(registro))}</small></div><div className="autoconsumo-row-actions"><strong>${Number(registro.total || 0).toLocaleString('es-CL')}</strong><small className={tieneFirma ? 'signature-ok' : 'signature-pending'}>{tieneFirma ? 'Firmado' : 'No firmado'}</small><button type="button" className="btn btn-secondary btn-small autoconsumo-eye" aria-label={`Ver resumen de ${registro.trabajadorNombre || 'trabajador'}`} title="Ver resumen de consumo" onClick={() => setTrabajadorConsumo({ registro, firma })}>◉</button></div></article>;
           })}
         </div>
+        <section className="report-panel autoconsumo-report-panel">
+          <div className="analytics-head"><div><p className="eyebrow">Reportes</p><h2>Descargar reporte PDF</h2></div></div>
+          {controlesReporteCompartidos()}
+        </section>
       </section>
 
       {trabajadorConsumo && (() => {
@@ -779,17 +925,6 @@ function Admin() {
           </div>
         </div>
 
-        <p className="daily-summary-title">Ventas acumuladas hoy por local</p>
-        <div className="daily-local-summary">
-          {ventasPorLocalHoy.map((local) => (
-            <div className="daily-local-row" key={local.id}>
-              <span>{local.nombre}</span>
-              <small>{local.cantidad} ventas hoy</small>
-              <strong>${local.total.toLocaleString('es-CL')}</strong>
-            </div>
-          ))}
-        </div>
-
         <div className="open-cash-list">
           {cajas.length === 0 ? (
             <p className="muted">No hay cajas abiertas.</p>
@@ -797,7 +932,7 @@ function Admin() {
             cajas.map((caja) => {
               const resumen = resumenCajasHoy.find((item) => item.id === caja.id);
               return (
-                <div className="open-cash-row" key={caja.id}>
+                <div className="open-cash-row" key={claveCaja(caja)}>
                   <div>
                     <strong>{caja.localNombre || caja.local}</strong>
                     <span>{caja.nombre ? `${caja.nombre} ${caja.apellido}` : caja.usuario}</span>
@@ -816,6 +951,15 @@ function Admin() {
             })
           )}
         </div>
+
+        <section className="report-panel cash-history-report">
+          <div className="analytics-head">
+            <div><p className="eyebrow">Reportes</p><h2>Descargar reporte PDF</h2></div>
+          </div>
+          {controlesReporteCompartidos()}
+          <button type="button" className="btn btn-primary report-download" onClick={generarPDFCajas}>Descargar reporte PDF</button>
+        </section>
+
       </section>
 
       <section data-tour="admin-graficos" className="analytics-panel">

@@ -112,7 +112,8 @@ function Portal({ navigate, notify }) {
     const aprobadoEn = new Date().toISOString();
     const usuarioAprobado = {
       uid: solicitud.uid,
-      user: solicitud.user,
+      user: [solicitud.nombre, solicitud.apellido].filter(Boolean).join(' ') || solicitud.user || solicitud.email || '',
+      email: String(solicitud.email || solicitud.correo || (String(solicitud.user || '').includes('@') ? solicitud.user : '')).trim().toLowerCase(),
       nombre: solicitud.nombre,
       apellido: solicitud.apellido,
       rut: solicitud.rut,
@@ -311,7 +312,7 @@ function Portal({ navigate, notify }) {
                       <div className="request-data">
                         <strong>{solicitud.nombre} {solicitud.apellido}</strong>
                         <span>RUT: {solicitud.rut}</span>
-                        <span>Correo: {solicitud.user}</span>
+                        <span>Correo: {solicitud.email || solicitud.correo || (String(solicitud.user || '').includes('@') ? solicitud.user : '-')}</span>
                         <span>Teléfono: {solicitud.telefono || '-'}</span>
                       </div>
                     </div>
