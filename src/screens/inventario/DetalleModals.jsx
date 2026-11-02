@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import BarcodeScanner from '../../components/BarcodeScanner';
 import { useTheme } from '../../context/ThemeContext';
 import {
   FiX, FiAlertOctagon, FiClock, FiClipboard,
@@ -29,6 +30,10 @@ import {
 } from '../../models/RecetaModel';
 import { validarImagen, TAMANO_MAX_MB } from '../../controllers/ImagenControl';
 import { CATEGORIAS, UNIDADES_MEDIDA, convertirBaseAIngreso } from './gestionProductosData';
+import { useCategorias } from '../../controllers/useCategorias';
+import { agregarCategoria, validarNombreCategoria, normalizarCategoria } from '../../controllers/CategoriaControl';
+import { buscarProductoExterno, descargarImagenExterna, elegirCategoriaExterna } from '../../controllers/ProductoExternoControl';
+import { generarCodigoInterno, esCodigoInterno } from '../../controllers/CodigoInternoControl';
 import { cambiarOfertaActivaProductoLocal, registrarMermaPorVencimiento } from '../../controllers/LocalProductoControl';
 import '../../css/DetalleModals.css';
 import '../../css/GestionProductos.css'; // marco de pantalla completa (gp-overlay, gp-topbar...)
@@ -1502,8 +1507,110 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo, pa
 //     global antes de seguir.
 //  2) "formulario": si el código no existe, se completan los datos base
 //     y se guarda el producto.
+// ─── "Otra categoría": crea una categoría nueva (sin números) y la selecciona ──
+function NuevaCategoria({ onCreada, disabled = false, sugerencia = null }) {
+  const [abierto, setAbierto]     = useState(false);
+  const [desdeSugerencia, setDesdeSugerencia] = useState(false);
+  const [texto, setTexto]         = useState('');
+  const [error, setError]         = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  // Si el escaneo trae una categoría que no existe en el sistema, se abre sola con el nombre escrito.
+  useEffect(() => {
+    if (!sugerencia?.texto) return;
+    setTexto(sugerencia.texto.replace(/\p{N}/gu, ''));
+    setError('');
+    setDesdeSugerencia(true);
+    setAbierto(true);
+  }, [sugerencia]);
+
+  function cerrar() {
+    setDesdeSugerencia(false);
+    setAbierto(false);
+    setTexto('');
+    setError('');
+  }
+
+  async function agregar() {
+    const mensaje = validarNombreCategoria(texto);
+    if (mensaje) { setError(mensaje); return; }
+    setGuardando(true);
+    try {
+      const nombre = await agregarCategoria(texto, CATEGORIAS);
+      onCreada(nombre);
+      cerrar();
+    } catch (err) {
+      setError(err?.errores?.categoria ?? 'No se pudo guardar la categoría. Intenta nuevamente.');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  if (!abierto) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setAbierto(true)}
+        className="inv-modal-dia-toggle"
+        style={{ marginTop: 8, borderStyle: 'dashed' }}
+      >
+        + Otra categoría
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {desdeSugerencia && (
+        <p className="inv-modal-hint-inline" style={{ color: '#8A6D1D', display: 'block', marginBottom: 6 }}>
+          La categoría «{sugerencia?.texto}» no existe en el sistema. Se sugiere crearla: revisa el nombre
+          y presiona “Agregar”, o cancela y elige otra.
+        </p>
+      )}
+      <div className="inv-modal-row" style={{ gap: 8 }}>
+        <input
+          className="inv-modal-input"
+          style={{ flex: 1, ...(error ? { borderColor: '#E24B4A' } : null) }}
+          type="text"
+          autoFocus
+          maxLength={40}
+          placeholder="Nombre de la nueva categoría"
+          value={texto}
+          // No deja escribir números (ni pegarlos)
+          onChange={(e) => { setTexto(e.target.value.replace(/\p{N}/gu, '')); setError(''); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); agregar(); }   // evita enviar el formulario
+            if (e.key === 'Escape') { e.stopPropagation(); cerrar(); }
+          }}
+        />
+        <button
+          type="button"
+          className="inv-modal-btn inv-modal-btn-primary"
+          style={{ flex: '0 0 auto', padding: '0 14px' }}
+          onClick={agregar}
+          disabled={guardando}
+        >
+          {guardando ? 'Guardando...' : 'Agregar'}
+        </button>
+        <button
+          type="button"
+          className="inv-modal-btn inv-modal-btn-secondary"
+          style={{ flex: '0 0 auto', padding: '0 14px' }}
+          onClick={cerrar}
+          disabled={guardando}
+        >
+          Cancelar
+        </button>
+      </div>
+      {error && <p className="inv-modal-errortext">{error}</p>}
+    </div>
+  );
+}
+
 export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
-  const FORM_INIT = { nombre: '', categoria: CATEGORIAS[0], codigoBarra: '', unidadMedida: 'unidad' };
+  const FORM_INIT = { nombre: '', categoria: '', codigoBarra: '', unidadMedida: '' };
+  const categorias = useCategorias(CATEGORIAS);
 
   const [tab, setTab] = useState('nuevo'); // 'nuevo' | 'editar'
   const [mensajeExito, mostrarExito, ocultarExito] = useMensajeExito();
@@ -1511,8 +1618,14 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   const [paso, setPaso]                       = useState('codigo'); // 'codigo' | 'formulario'
   const [codigoInput, setCodigoInput]         = useState('');
   const [verificando, setVerificando]         = useState(false);
+  const [generando, setGenerando]             = useState(false);
+  const [categoriaPropuesta, setCategoriaPropuesta] = useState(null); // { texto, id } → abre "Otra categoría"
+  const [imagenExterna, setImagenExterna]   = useState(null);          // File sugerido por Open Food Facts
+  const consultaRef = useRef(0);                                         // descarta imágenes de consultas viejas
   const [errorCodigo, setErrorCodigo]         = useState('');
   const [productoExistente, setProductoExistente] = useState(null);
+  // Resultado de la búsqueda externa: { tipo: 'encontrado'|'noEncontrado'|'error', fuente, faltantes: [...] }
+  const [avisoBusqueda, setAvisoBusqueda] = useState(null);
 
   const [form, setForm]           = useState(FORM_INIT);
   const [errors, setErrors]       = useState({});
@@ -1525,6 +1638,8 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   const [editErrors, setEditErrors]           = useState({});
   const [editGuardando, setEditGuardando]     = useState(false);
   const [busquedaCodigo, setBusquedaCodigo]   = useState('');
+  const codigoInputRef   = useRef(null);
+  const busquedaInputRef = useRef(null);
 
   // Imágenes elegidas (File) todavía sin subir; se suben al guardar.
   const [imagenNueva, setImagenNueva] = useState(null);
@@ -1558,28 +1673,68 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     setCodigoInput('');
     setErrorCodigo('');
     setProductoExistente(null);
+    setAvisoBusqueda(null);
+    setCategoriaPropuesta(null);
+    setImagenExterna(null);
+    consultaRef.current += 1;
     setForm(FORM_INIT);
     setImagenNueva(null);
     setErrors({});
     onClose();
   }
 
-  // Simula la lectura con pistola para la búsqueda de la pestaña "Editar" —
-  // reemplazar por la integración real del lector/cámara (igual que handleEscanear).
+  // Los botones "Escanear código de barras" solo dejan el foco en el campo de código;
+  // la lectura real la hace <BarcodeScanner> (pistola tipo teclado, termina con Enter).
   function handleEscanearBusqueda() {
-    setBusquedaCodigo('7891234560099');
+    busquedaInputRef.current?.focus();
   }
 
-  // Simula la lectura con pistola — reemplazar por la integración real del lector/cámara
   function handleEscanear() {
-    setCodigoInput('7891234560099');
+    codigoInputRef.current?.focus();
+  }
+
+  // Lectura de la pistola según la pestaña/paso visible:
+  //  · Registrar → paso "código": escribe el código y verifica automáticamente
+  //  · Editar → lista: escribe el código en el filtro de búsqueda
+  function handleScan(codigoLeido) {
+    const codigo = limpiarCodigo(codigoLeido);
+    if (!codigo) return;
+    if (tab === 'nuevo' && paso === 'codigo') {
+      setCodigoInput(codigo);
+      verificarCodigo(codigo);
+    } else if (tab === 'editar' && !productoSeleccionado) {
+      setBusquedaCodigo(codigo);
+    }
+  }
+
+  const escanerActivo = visible && !verificando && !generando && (
+    (tab === 'nuevo' && paso === 'codigo')
+    || (tab === 'editar' && !productoSeleccionado && productosOrdenados.length > 0)
+  );
+
+  // Genera un código interno (EAN-13 que empieza con 29) para productos sin código de barras.
+  async function handleGenerarCodigo() {
     setErrorCodigo('');
     setProductoExistente(null);
+    setGenerando(true);
+    try {
+      setCodigoInput(await generarCodigoInterno());
+    } catch (err) {
+      setErrorCodigo(err?.message ?? 'No se pudo generar el código. Intenta nuevamente.');
+    } finally {
+      setGenerando(false);
+    }
   }
 
-  async function handleVerificar(e) {
+  function handleVerificar(e) {
     e.preventDefault();
-    const codigo = codigoInput.trim();
+    verificarCodigo(codigoInput);
+  }
+
+  // Misma lógica que antes del botón "Verificar código", pero recibe el código
+  // explícito (el estado aún no se actualizó cuando llega un escaneo).
+  async function verificarCodigo(valor) {
+    const codigo = String(valor ?? '').trim();
     if (!codigo) {
       setErrorCodigo('Ingresa o escanea un código de barras');
       return;
@@ -1593,7 +1748,47 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
         setProductoExistente(existente);
         return;
       }
-      setForm(prev => ({ ...prev, codigoBarra: codigo }));
+      // No está en el catálogo: se intenta autocompletar desde Open Food Facts.
+      // Lo que no se encuentre queda en blanco, con un aviso, para ingresarlo a mano.
+      const interno = esCodigoInterno(codigo);
+      const { datos, fallo } = interno ? { datos: null, fallo: false } : await buscarProductoExterno(codigo);
+      // Categoría: 1) igual a una existente en la BD, 2) mapeada a una existente,
+      // 3) si no existe en el sistema, se propone crearla (se abre "Otra categoría" ya escrita).
+      let categoriaElegida = '';
+      let propuesta = null;
+      if (datos) {
+        const externas = datos.categoriasExternas ?? [];
+        const igual = categorias.find((c) => externas.some((e) => normalizarCategoria(e) === normalizarCategoria(c)));
+        if (igual) categoriaElegida = igual;
+        else if (datos.categoria && categorias.includes(datos.categoria)) categoriaElegida = datos.categoria;
+        else if (externas.length > 0) propuesta = { texto: elegirCategoriaExterna(externas), id: Date.now() };
+      }
+      const nuevoForm = {
+        codigoBarra: codigo,
+        nombre: datos?.nombre ?? '',
+        categoria: categoriaElegida,
+        unidadMedida: datos?.unidadMedida ?? '',
+      };
+      const faltantes = ['nombre', 'categoria', 'unidadMedida']
+        .filter((campo) => !nuevoForm[campo] && !(campo === 'categoria' && propuesta));
+      setForm(prev => ({ ...prev, ...nuevoForm }));
+      setCategoriaPropuesta(propuesta);
+      setImagenNueva(null);
+      setImagenExterna(null);
+      setAvisoBusqueda({
+        tipo: interno ? 'interno' : (datos ? 'encontrado' : (fallo ? 'error' : 'noEncontrado')),
+        fuente: datos?.fuente,
+        faltantes,
+      });
+      // La foto se descarga en segundo plano: el formulario no espera por ella.
+      const idConsulta = ++consultaRef.current;
+      if (datos?.imagenUrl) {
+        descargarImagenExterna(datos.imagenUrl).then((archivo) => {
+          if (!archivo || idConsulta !== consultaRef.current || validarImagen(archivo)) return;
+          setImagenExterna(archivo);
+          setImagenNueva((actual) => actual ?? archivo);   // no pisa una imagen que el usuario ya eligió
+        });
+      }
       setPaso('formulario');
     } catch (err) {
       setErrorCodigo('No se pudo verificar el código. Intenta nuevamente.');
@@ -1604,6 +1799,9 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
 
   function handleVolverACodigo() {
     setPaso('codigo');
+    setAvisoBusqueda(null);
+    setCategoriaPropuesta(null);
+    consultaRef.current += 1;
     setErrors({});
   }
 
@@ -1618,6 +1816,9 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
       setImagenNueva(null);
       setCodigoInput('');
       setProductoExistente(null);
+      setAvisoBusqueda(null);
+      setCategoriaPropuesta(null);
+      setImagenExterna(null);
       setPaso('codigo');
       mostrarExito('Producto creado correctamente');
     } catch (err) {
@@ -1689,6 +1890,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
 
   return (
     <div className="inv-modal-overlay" onClick={handleClose}>
+      <BarcodeScanner onScan={handleScan} enabled={escanerActivo} minLength={6} bloquearEnter />
       <div className="inv-modal-sheet inv-modal-sheet-tall" onClick={(e) => e.stopPropagation()}>
         <div className="inv-modal-handle" />
         <div className="inv-modal-row-between" style={{ marginBottom: 6 }}>
@@ -1737,6 +1939,19 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
               Usa la pistola lectora o ingresa el código manualmente abajo
             </p>
 
+            <p className="inv-modal-hint-inline" style={{ textAlign: 'center', marginBottom: 12, display: 'block', color: '#8A6D1D' }}>
+              Productos a granel (kg o lt): no tienen código de barras. Genera uno propio con el botón.
+            </p>
+            <button
+              type="button"
+              className="inv-modal-btn inv-modal-btn-secondary"
+              style={{ width: '100%', marginBottom: 12 }}
+              onClick={handleGenerarCodigo}
+              disabled={generando || verificando}
+            >
+              {generando ? 'Generando...' : 'Generar código interno'}
+            </button>
+
             <div className="inv-modal-formgroup">
               <label className="inv-modal-formlabel">
                 Código de barras <span style={{ color: '#E24B4A' }}>*</span>
@@ -1747,6 +1962,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                 type="text"
                 inputMode="numeric"
                 placeholder="Ej: 7891234560012"
+                ref={codigoInputRef}
                 value={codigoInput}
                 onChange={(e) => {
                   setCodigoInput(limpiarCodigo(e.target.value));
@@ -1798,6 +2014,28 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
               <FiChevronLeft size={16} /> Cambiar código
             </button>
 
+            {avisoBusqueda && (
+              <div
+                className="inv-modal-row"
+                style={{
+                  gap: 10, padding: '10px 12px', borderRadius: 10, marginBottom: 12,
+                  border: `1px solid ${avisoBusqueda.tipo === 'encontrado' ? '#639922' : '#F2C94C'}`,
+                  background: avisoBusqueda.tipo === 'encontrado' ? 'rgba(99, 153, 34, 0.10)' : 'rgba(242, 201, 76, 0.12)',
+                }}
+              >
+                {avisoBusqueda.tipo === 'encontrado'
+                  ? <FiCheckCircle size={16} color="#639922" />
+                  : <FiAlertTriangle size={16} color="#8A6D1D" />}
+                <p style={{ margin: 0, fontSize: 13 }}>
+                  {avisoBusqueda.tipo === 'encontrado' && `Datos sugeridos desde ${avisoBusqueda.fuente}; la unidad de medida quedó en “Unidad”. `}
+                  {avisoBusqueda.tipo === 'noEncontrado' && 'No se encontró información de este producto. Debes ingresar los datos manualmente. '}
+                  {avisoBusqueda.tipo === 'interno' && 'Código interno, de uso exclusivo de los locales. Ingresa los datos del producto manualmente. '}
+                  {avisoBusqueda.tipo === 'error' && 'No se pudo consultar la base de datos de productos. Debes ingresar los datos manualmente. '}
+                  <strong>Revisa que los datos estén correctos antes de guardar el producto.</strong>
+                </p>
+              </div>
+            )}
+
             {errors.general && <p className="inv-modal-errortext" style={{ marginBottom: 10 }}>{errors.general}</p>}
 
             <div className="inv-modal-formgroup">
@@ -1820,6 +2058,11 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
               <p className="inv-modal-hint-inline" style={{ marginTop: 4, display: 'block' }}>
                 Ingrese nombre del producto junto a su medida
               </p>
+              {avisoBusqueda?.faltantes.includes('nombre') && !form.nombre.trim() && !errors.nombre && (
+                <p className="inv-modal-hint-inline" style={{ color: '#8A6D1D', marginTop: 4, display: 'block' }}>
+                  No se encontró el nombre del producto. Debe ingresarse manualmente.
+                </p>
+              )}
               {errors.nombre && <p className="inv-modal-errortext">{errors.nombre}</p>}
             </div>
 
@@ -1828,7 +2071,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                 Categoría <span style={{ color: '#E24B4A' }}>*</span>
               </label>
               <div className="inv-modal-row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                {CATEGORIAS.map((cat) => (
+                {categorias.map((cat) => (
                   <button
                     key={cat}
                     type="button"
@@ -1839,6 +2082,16 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                   </button>
                 ))}
               </div>
+              <NuevaCategoria
+                disabled={guardando}
+                sugerencia={categoriaPropuesta}
+                onCreada={(nombre) => { setForm(prev => ({ ...prev, categoria: nombre })); setCategoriaPropuesta(null); }}
+              />
+              {avisoBusqueda?.faltantes.includes('categoria') && !form.categoria && !errors.categoria && (
+                <p className="inv-modal-hint-inline" style={{ color: '#8A6D1D', marginTop: 4, display: 'block' }}>
+                  No se encontró la categoría. Debe seleccionarse manualmente (o crear una con “Otra categoría”).
+                </p>
+              )}
               {errors.categoria && <p className="inv-modal-errortext">{errors.categoria}</p>}
             </div>
 
@@ -1848,6 +2101,9 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
               </label>
               <p className="inv-modal-hint-inline" style={{ marginBottom: 6, display: 'block' }}>
                 Cómo se vende este producto: por unidad, por litro o por kilo
+              </p>
+              <p className="inv-modal-hint-inline" style={{ marginBottom: 6, display: 'block', color: '#8A6D1D' }}>
+                Los productos a granel (kg o lt) no traen código de barras: genera un código interno en el paso anterior.
               </p>
               <div className="inv-modal-row" style={{ gap: 6, flexWrap: 'wrap' }}>
                 {UNIDADES_MEDIDA.map((u) => (
@@ -1861,6 +2117,11 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                   </button>
                 ))}
               </div>
+              {avisoBusqueda?.faltantes.includes('unidadMedida') && !form.unidadMedida && !errors.unidadMedida && (
+                <p className="inv-modal-hint-inline" style={{ color: '#8A6D1D', marginTop: 4, display: 'block' }}>
+                  No se encontró la unidad de medida. Debe seleccionarse manualmente.
+                </p>
+              )}
               {errors.unidadMedida && <p className="inv-modal-errortext">{errors.unidadMedida}</p>}
             </div>
 
@@ -1872,6 +2133,11 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                 error={errors.imagen}
                 disabled={guardando}
               />
+              {imagenNueva && imagenNueva === imagenExterna && (
+                <p className="inv-modal-hint-inline" style={{ marginTop: 6, display: 'block', color: '#8A6D1D' }}>
+                  Imagen sugerida por Open Food Facts. Revisa que corresponda al producto, puedes cambiarla o quitarla.
+                </p>
+              )}
             </div>
 
             <div className="inv-modal-row" style={{ gap: 10, marginTop: 6, marginBottom: 8 }}>
@@ -1914,6 +2180,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                     type="text"
                     inputMode="numeric"
                     placeholder="Ej: 7891234560012"
+                    ref={busquedaInputRef}
                     value={busquedaCodigo}
                     onChange={(e) => setBusquedaCodigo(limpiarCodigo(e.target.value))}
                   />
@@ -2003,7 +2270,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                 Categoría <span style={{ color: '#E24B4A' }}>*</span>
               </label>
               <div className="inv-modal-row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                {CATEGORIAS.map((cat) => (
+                {categorias.map((cat) => (
                   <button
                     key={cat}
                     type="button"
@@ -2014,6 +2281,10 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                   </button>
                 ))}
               </div>
+              <NuevaCategoria
+                disabled={editGuardando}
+                onCreada={(nombre) => setEditForm(prev => ({ ...prev, categoria: nombre }))}
+              />
               {editErrors.categoria && <p className="inv-modal-errortext">{editErrors.categoria}</p>}
             </div>
 

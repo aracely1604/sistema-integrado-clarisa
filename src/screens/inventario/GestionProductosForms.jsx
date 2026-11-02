@@ -809,10 +809,10 @@ export function ActualizarStockModal({
   return (
     <ModalShell isDesktop={isDesktop} onClose={onClose} title="Actualizar stock">
       <div className="gp-form-wrap">
-        <button className="gp-scan-box" onClick={onEscanear}>
+        <button className="gp-scan-box" type="button" onClick={onEscanear}>
           <span className="gp-scan-icon">▦</span>
           <span className="gp-scan-title">Escanear código de barras</span>
-          <span className="gp-scan-sub">Usa la pistola o haz clic para simular</span>
+          <span className="gp-scan-sub">Escanea con la pistola: el código se ingresa solo</span>
         </button>
 
         <div className="gp-or-divider">— o ingresa manualmente —</div>
@@ -968,10 +968,10 @@ export function RegistrarModal({
   return (
     <ModalShell isDesktop={isDesktop} onClose={onClose} title="Registrar producto">
       <div className="gp-form-wrap">
-        <button className="gp-scan-box" onClick={onEscanear}>
+        <button className="gp-scan-box" type="button" onClick={onEscanear}>
           <span className="gp-scan-icon">▦</span>
           <span className="gp-scan-title">Escanear código de barras</span>
-          <span className="gp-scan-sub">Usa la pistola o haz clic para simular</span>
+          <span className="gp-scan-sub">Escanea con la pistola: el código se ingresa solo</span>
         </button>
 
         <div className="gp-or-divider">— o ingresa manualmente —</div>

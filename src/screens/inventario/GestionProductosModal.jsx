@@ -1,4 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useCategorias } from '../../controllers/useCategorias';
+import BarcodeScanner from '../../components/BarcodeScanner';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../controllers/AuthContext';
 import {
@@ -90,6 +92,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   const { usuario } = useAuth();
   const width = useWindowWidth();
   const isDesktop = width >= DESKTOP_BREAKPOINT;
+  const categorias = useCategorias(CATEGORIAS); // incluye las creadas con "Otra categoría"
 
   // ── Productos EN TIEMPO REAL ─────────────────────────────────────────────
   // locales/{local}/productos vive el stock/precio/activo de este local;
@@ -101,6 +104,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   const [filtroProveedor, setFiltroProveedor] = useState(null);
   const [pickerVisible, setPickerVisible] = useState(false); // 'categoria' | 'proveedor' | false
   const [vista, setVista] = useState('list'); // 'list' | 'grid'
+  const buscadorRef = useRef(null);
 
   // Modales
   const [modalDetalle, setModalDetalle] = useState(false);
@@ -310,16 +314,21 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     }
   }
 
-  // Simula escaneo de pistola (en producción: usar la API real del lector/cámara)
-  function simularEscaneo(contexto) {
-    if (contexto === 'actualizar') {
-      setUpdCodigo('7891234560012');
-      window.alert('Escaneado — Código: 7891234560012 — Arroz Premium 1kg');
-    } else {
-      const codigoSimulado = '7891234560012';
-      setRegCodigo(codigoSimulado);
-      buscarProductoGlobalPorCodigo(codigoSimulado);
+  // Pistola lectora (se comporta como teclado y termina con Enter).
+  // El destino depende de qué pantalla esté abierta:
+  //  · Actualizar stock  → escribe el código en el formulario
+  //  · Registrar producto → escribe el código y busca en el catálogo global
+  //  · Detalle (móvil) / Transferir / filtros → se ignora
+  //  · Pantalla principal → escribe el código en el buscador
+  function manejarEscaneo(codigo) {
+    if (modalActualizar) { setUpdCodigo(codigo); return; }
+    if (modalRegistrar) {
+      setRegCodigo(codigo);
+      buscarProductoGlobalPorCodigo(codigo);
+      return;
     }
+    if (modalTransferir || (!isDesktop && modalDetalle) || pickerVisible) return;
+    setBusqueda(codigo);
   }
 
   function resetRegistrar() {
@@ -554,6 +563,8 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   return (
     <div className="gp-overlay" style={themeVars}>
 
+      <BarcodeScanner onScan={manejarEscaneo} minLength={6} bloquearEnter />
+
       {/* Header */}
       <div className="gp-topbar">
         <div className="gp-topbar-row">
@@ -575,6 +586,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       <div className="gp-search-wrap">
         <div className="gp-search-row">
           <input
+            ref={buscadorRef}
             className="gp-search-input"
             placeholder="Buscar por nombre o código..."
             value={busqueda}
@@ -583,7 +595,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
           {busqueda.length > 0 && (
             <button className="gp-search-clear-btn" onClick={() => setBusqueda('')} aria-label="Limpiar búsqueda">✕</button>
           )}
-          <button className="gp-search-scan-btn" onClick={() => setBusqueda('7891234560012')} aria-label="Simular escaneo">▦</button>
+          <button className="gp-search-scan-btn" onClick={() => buscadorRef.current?.focus()} aria-label="Escanear con la pistola" title="Escanea un producto con la pistola">▦</button>
         </div>
       </div>
 
@@ -640,7 +652,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         isDesktop={isDesktop}
         tipo={pickerVisible}
         valorActual={pickerVisible === 'categoria' ? filtroCategoria : filtroProveedor}
-        opciones={pickerVisible === 'categoria' ? CATEGORIAS : proveedores}
+        opciones={pickerVisible === 'categoria' ? categorias : proveedores}
         onSelect={(opcion) => {
           if (pickerVisible === 'categoria') setFiltroCategoria(opcion);
           else setFiltroProveedor(opcion);
@@ -740,7 +752,6 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         visible={modalActualizar}
         onClose={() => { setModalActualizar(false); resetActualizar(); }}
         onConfirmar={confirmarActualizacion}
-        onEscanear={() => simularEscaneo('actualizar')}
         codigo={updCodigo} setCodigo={setUpdCodigo}
         cantidad={updCantidad} setCantidad={setUpdCantidad}
         tipoMovimiento={updTipoMovimiento} setTipoMovimiento={setUpdTipoMovimiento}
@@ -763,7 +774,6 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         visible={modalRegistrar}
         onClose={() => { setModalRegistrar(false); resetRegistrar(); }}
         onGuardar={guardarProducto}
-        onEscanear={() => simularEscaneo('registrar')}
         codigo={regCodigo} setCodigo={setRegCodigo}
         onBuscarCodigo={() => buscarProductoGlobalPorCodigo()}
         buscando={regBuscando}

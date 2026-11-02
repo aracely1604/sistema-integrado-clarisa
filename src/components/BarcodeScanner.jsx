@@ -6,8 +6,15 @@ import { useEffect, useRef } from 'react';
  * tras una pausa, para que una lectura incompleta no contamine la siguiente.
  *
  * Uso: <BarcodeScanner onScan={(codigo) => console.log(codigo)} />
+ * Opcional: minLength={6} bloquearEnter para formularios con botones.
  */
-export default function BarcodeScanner({ onScan, timeoutMs = 100, enabled = true }) {
+export default function BarcodeScanner({
+  onScan,
+  timeoutMs = 100,
+  enabled = true,
+  minLength = 1,          // largo mínimo para considerarlo una lectura (evita falsos positivos al teclear)
+  bloquearEnter = false,  // evita que el Enter del lector active el botón/formulario que tenga el foco
+}) {
   const onScanRef = useRef(onScan);
 
   // Mantiene actualizada la función sin reinstalar el listener del teclado.
@@ -33,7 +40,10 @@ export default function BarcodeScanner({ onScan, timeoutMs = 100, enabled = true
       if (event.key === 'Enter' || event.key === '\r' || event.key === '\n') {
         const codigo = buffer.trim();
         limpiarBuffer();
-        if (codigo) onScanRef.current?.(codigo);
+        if (codigo && codigo.length >= minLength) {
+          if (bloquearEnter) event.preventDefault();
+          onScanRef.current?.(codigo);
+        }
         return;
       }
 
@@ -54,7 +64,7 @@ export default function BarcodeScanner({ onScan, timeoutMs = 100, enabled = true
       window.removeEventListener('keydown', manejarTecla);
       limpiarBuffer();
     };
-  }, [enabled, timeoutMs]);
+  }, [enabled, timeoutMs, minLength, bloquearEnter]);
 
   // No captura el foco: permite seguir usando los formularios normalmente.
   return null;
