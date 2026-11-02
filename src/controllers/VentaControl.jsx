@@ -32,7 +32,8 @@ const cantidadADescontar = (linea) => (
 // Cruza locales/{local}/productos con el nodo global "productos" y entrega
 // objetos listos para el punto de venta:
 //   { id, nombre, categoria, codigoBarra, unidadMedida,
-//     precio, stockActual, stockMinimo, usoReceta }
+//     precio, precioNormal, enOferta, stockActual, stockMinimo, usoReceta }
+// `precio` es `oferta` cuando ofertaActiva es true (y oferta > 0); si no, `precioVenta`.
 // Solo incluye los productos ACTIVOS en ese local. Como es en vivo, el stock
 // que ve el cajero se actualiza solo cuando alguien vende o ajusta inventario.
 export function suscribirProductosVenta(localId, callback) {
@@ -44,13 +45,18 @@ export function suscribirProductosVenta(localId, callback) {
       .filter((lp) => lp.activo && globales.has(lp.idProducto))
       .map((lp) => {
         const g = globales.get(lp.idProducto);
+        // Si la oferta está activa (y tiene un precio válido) ese es el precio de venta;
+        // si no, se usa el precio de venta normal.
+        const enOferta = lp.ofertaActiva === true && lp.oferta > 0;
         return {
           id:           lp.idProducto,
           nombre:       g.nombre,
           categoria:    g.categoria,
           codigoBarra:  g.codigoBarra,
           unidadMedida: g.unidadMedida,
-          precio:       lp.precioVenta,
+          precio:       enOferta ? lp.oferta : lp.precioVenta,
+          precioNormal: lp.precioVenta,
+          enOferta,
           stockActual:  lp.stockActual,
           stockMinimo:  lp.stockMinimo,
           usoReceta:    lp.usoReceta,
