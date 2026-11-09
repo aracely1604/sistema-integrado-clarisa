@@ -116,3 +116,13 @@
   margin-top: 7px;
   display: block;
 }
+
+.pos-product-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px 0 4px; color: #64748b; font-weight: 700; }
+.pos-product-pagination button { display: grid; place-items: center; min-width: 38px; min-height: 38px; border: 1px solid #dbe4ee; border-radius: 9px; color: #0f766e; background: #fff; font-size: 20px; cursor: pointer; }
+.pos-product-pagination button:disabled { color: #94a3b8; background: #f1f5f9; cursor: not-allowed; }
+
+.pos-category-filter { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; color: #475569; font-weight: 700; }
+.pos-category-filter .field { width: min(100%, 280px); margin: 0; }
+@media (max-width: 560px) { .pos-category-filter { align-items: stretch; flex-direction: column; } .pos-category-filter .field { width: 100%; } }
+
+.payment-minimum-note { display: block; margin: -4px 0 10px; color: #64748b; font-size: 13px; }

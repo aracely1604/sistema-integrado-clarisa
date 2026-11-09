@@ -87,6 +87,8 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
   const [granelId, setGranelId] = useState(null);     // producto a granel abierto en la pestaña flotante
   const [granelMonto, setGranelMonto] = useState('');  // monto ($) escrito en la pestaña flotante
   const [seccionProductoActiva, setSeccionProductoActiva] = useState(SECCION_UNITARIOS);
+  const [paginaProductos, setPaginaProductos] = useState(0);
+  const [categoriaProductoActiva, setCategoriaProductoActiva] = useState('Todas');
   const [aceptaFirma, setAceptaFirma] = useState(false);
   const [firmaDibujada, setFirmaDibujada] = useState(false);
   const firmaCanvasRef = useRef(null);
@@ -616,9 +618,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
     );
 
     if (!producto) {
-      setCodigoNuevoPendiente(codigoBuscado);
-      setDestinoProductoNuevo(mostrarAutoconsumo ? 'autoconsumo' : 'venta');
-      setFormProductoNuevo({ nombre: '', categoria: '', unidadMedida: 'unidad', precioVenta: '', stockInicial: '1' });
+      notify('Producto no encontrado.', 'error');
       return;
     }
 
@@ -792,6 +792,11 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
 
     if (!metodoPago) {
       notify('Selecciona un método de pago.', 'error');
+      return;
+    }
+
+    if (['Transferencia', 'Débito', 'Debito'].includes(metodoPago) && total < 1000) {
+      notify('El monto mínimo para pagar con transferencia o débito es $1.000.', 'error');
       return;
     }
 
@@ -1075,12 +1080,24 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
         <div data-tour="caja-productos" className="work-panel">
           <div className="pos-products-heading">
             <nav className="pos-product-tabs" aria-label="Secciones de productos">
-              {seccionesProductos.map((seccion) => <button type="button" key={seccion.titulo} className={seccionProductoActiva === seccion.titulo ? 'active' : ''} aria-pressed={seccionProductoActiva === seccion.titulo} onClick={() => setSeccionProductoActiva(seccion.titulo)}>{seccion.titulo}</button>)}
+              {seccionesProductos.map((seccion) => <button type="button" key={seccion.titulo} className={seccionProductoActiva === seccion.titulo ? 'active' : ''} aria-pressed={seccionProductoActiva === seccion.titulo} onClick={() => { setSeccionProductoActiva(seccion.titulo); setPaginaProductos(0); setCategoriaProductoActiva('Todas'); }}>{seccion.titulo}</button>)}
             </nav>
           </div>
           <div className="pos-product-browser">
+            {(() => {
+              const productosSeccion = seccionesProductos.find((seccion) => seccion.titulo === seccionProductoActiva)?.items || [];
+              const categoriasDisponibles = [...new Set(productosSeccion.map((producto) => producto.categoria).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+              const productosFiltrados = categoriaProductoActiva === 'Todas' ? productosSeccion : productosSeccion.filter((producto) => producto.categoria === categoriaProductoActiva);
+              const paginas = Math.max(1, Math.ceil(productosFiltrados.length / 3));
+              return <>
+            {categoriasDisponibles.length > 0 && <label className="pos-category-filter">Categoría
+              <select className="field" value={categoriaProductoActiva} onChange={(event) => { setCategoriaProductoActiva(event.target.value); setPaginaProductos(0); }}>
+                <option value="Todas">Todas las categorías</option>
+                {categoriasDisponibles.map((categoria) => <option key={categoria} value={categoria}>{categoria}</option>)}
+              </select>
+            </label>}
             <div className="product-grid">
-            {(seccionActual?.items || []).map((producto) => {
+            {productosFiltrados.slice(paginaProductos * 3, paginaProductos * 3 + 3).map((producto) => {
               if (seccionProductoActiva === SECCION_RECETAS) {
                 const receta = producto;
                 const estado = estadoReceta(receta, catalogoLocal);
@@ -1137,6 +1154,13 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
               );
             })}
             </div>
+            {productosFiltrados.length > 3 && <nav className="pos-product-pagination" aria-label="Páginas de productos">
+              <button type="button" onClick={() => setPaginaProductos((pagina) => Math.max(0, pagina - 1))} disabled={paginaProductos === 0} aria-label="Página anterior">←</button>
+              <span>{paginaProductos + 1} de {paginas}</span>
+              <button type="button" onClick={() => setPaginaProductos((pagina) => Math.min(paginas - 1, pagina + 1))} disabled={paginaProductos >= paginas - 1} aria-label="Página siguiente">→</button>
+            </nav>}
+            </>;
+            })()}
           </div>
           {(seccionActual?.items || []).length === 0 && <p className="muted">No hay productos en esta sección.</p>}
         </div>
@@ -1233,6 +1257,10 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
               ))}
             </select>
 
+            {['Transferencia', 'Débito', 'Debito'].includes(metodoPago) && (
+              <small className="payment-minimum-note">Mínimo $1.000</small>
+            )}
+
             {metodoPago === 'Efectivo' && (
               <label className="cash-paid-field" htmlFor={`monto-efectivo-${localId}`}>
                 Monto pagado
@@ -1252,7 +1280,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
               </label>
             )}
 
-            <button className="btn btn-primary btn-full" onClick={registrarPago} disabled={!cajaAbierta || carrito.length === 0 || guardandoVenta}>
+            <button className="btn btn-primary btn-full" onClick={registrarPago} disabled={!cajaAbierta || carrito.length === 0 || guardandoVenta || (['Transferencia', 'Débito', 'Debito'].includes(metodoPago) && total < 1000)}>
               {guardandoVenta ? 'Registrando...' : 'Registrar pago'}
             </button>
           </div>

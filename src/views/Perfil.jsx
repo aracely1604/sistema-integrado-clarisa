@@ -13,6 +13,10 @@ function Perfil({ notify, compact = false }) {
   const [telefono, setTelefono] = useState(sesion?.telefono || '');
   const [guardando, setGuardando] = useState(false);
   const [historial, setHistorial] = useState([]);
+  const [paginaHistorial, setPaginaHistorial] = useState(0);
+  const movimientosPorPagina = 3;
+  const paginasHistorial = Math.max(1, Math.ceil(historial.length / movimientosPorPagina));
+  const historialVisible = historial.slice(paginaHistorial * movimientosPorPagina, (paginaHistorial + 1) * movimientosPorPagina);
 
   useEffect(() => {
     if (!sesion) return;
@@ -60,8 +64,15 @@ function Perfil({ notify, compact = false }) {
         <p><strong>RUT:</strong> {sesion.rut || '—'}</p><p><strong>Teléfono:</strong> {sesion.telefono || 'Sin registrar'}</p>
         <p><strong>Rol:</strong> {sesion.rol || '—'}{sesion.local ? ` · ${sesion.local}` : ''}</p>
         <details className="profile-history-details">
-          <summary>Historial ({historial.length})</summary>
-          {historial.length ? historial.map((registro) => <article className="profile-history-row" key={registro.id}><strong>{registro.tipo === 'autoconsumo' || registro.trabajadorId ? 'Autoconsumo' : 'Venta'} · ${Number(registro.total || 0).toLocaleString('es-CL')}</strong><small>{registro.localNombre || registro.local || 'Local'} · {new Date(registro.fecha || 0).toLocaleString('es-CL')}</small><span>{(registro.productos || []).map((producto) => `${producto.cantidad || 1}× ${producto.nombre}`).join(', ')}</span></article>) : <p className="muted">Aún no hay movimientos asociados a tu cuenta.</p>}
+          <summary>Mostrar historial ({historial.length})</summary>
+          {historial.length ? <>
+            {historialVisible.map((registro) => <article className="profile-history-row" key={registro.id}><strong>{registro.tipo === 'autoconsumo' || registro.trabajadorId ? 'Autoconsumo' : 'Venta'} · ${Number(registro.total || 0).toLocaleString('es-CL')}</strong><small>{registro.localNombre || registro.local || 'Local'} · {new Date(registro.fecha || 0).toLocaleString('es-CL')}</small><span>{(registro.productos || []).map((producto) => `${producto.cantidad || 1}× ${producto.nombre}`).join(', ')}</span></article>)}
+            {historial.length > movimientosPorPagina && <nav className="profile-history-pagination" aria-label="Páginas del historial">
+              <button type="button" onClick={() => setPaginaHistorial((pagina) => Math.max(0, pagina - 1))} disabled={paginaHistorial === 0} aria-label="Página anterior">←</button>
+              <span>{paginaHistorial + 1} de {paginasHistorial}</span>
+              <button type="button" onClick={() => setPaginaHistorial((pagina) => Math.min(paginasHistorial - 1, pagina + 1))} disabled={paginaHistorial >= paginasHistorial - 1} aria-label="Página siguiente">→</button>
+            </nav>}
+          </> : <p className="muted">Aún no hay movimientos asociados a tu cuenta.</p>}
         </details>
       </div>
       {abierto && <div className="profile-modal-backdrop"><form className="profile-modal" onSubmit={guardarTelefono} role="dialog" aria-modal="true"><div className="modal-head"><h2>Editar perfil</h2><button className="icon-btn" type="button" onClick={() => setAbierto(false)}>×</button></div><label>Teléfono<input className="field" type="tel" value={telefono} onChange={(event) => setTelefono(event.target.value)} /></label><div className="modal-actions"><button className="btn btn-secondary" type="button" onClick={() => setAbierto(false)}>Cancelar</button><button className="btn btn-primary" type="submit" disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button></div></form></div>}
