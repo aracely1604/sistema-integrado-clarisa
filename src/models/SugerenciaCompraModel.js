@@ -7,6 +7,8 @@
 // local; se llena solo con cada reposición). Solo cuentan los proveedores ACTIVOS asignados al local.
 // Para cada producto se elige como "mejor" el proveedor que visita primero.
 
+import { nombreProveedor } from './ProveedorModel';
+
 const ORDEN_NIVEL = { out: 0, critical: 1, low: 2 };
 
 /**
@@ -31,6 +33,7 @@ export function textoProximaVisita(diasHasta) {
  * @param {Array<{id, nombre, qty, min, unit, nivel, idsProveedores}>} params.alertas
  *        productos en alerta; `nivel` es 'out' | 'critical' | 'low' (el resto se ignora)
  * @param {Array<{id, nombre, empresa, dias, activo}>} params.proveedores  proveedores asignados al local
+ *        (en pantalla se muestra la empresa; ver nombreProveedor)
  * @param {number} params.hoyIdx
  * @returns {{
  *   porProducto: Map<string, {proveedores: object[], mejor: object|null}>,
@@ -58,9 +61,11 @@ export function calcularSugerenciasCompra({ alertas, proveedores, hoyIdx }) {
       .map((id) => activos.get(id))
       .filter(Boolean)
       .map((p) => ({
-        id: p.id, nombre: p.nombre, empresa: p.empresa, diasHasta: diasHastaProximaVisita(p.dias, hoyIdx),
+        id: p.id,
+        etiqueta: nombreProveedor(p), // lo que se muestra: la empresa
+        diasHasta: diasHastaProximaVisita(p.dias, hoyIdx),
       }))
-      .sort((a, b) => (a.diasHasta - b.diasHasta) || a.nombre.localeCompare(b.nombre, 'es'));
+      .sort((a, b) => (a.diasHasta - b.diasHasta) || a.etiqueta.localeCompare(b.etiqueta, 'es'));
 
     porProducto.set(alerta.id, { proveedores: candidatos, mejor: candidatos[0] ?? null });
 

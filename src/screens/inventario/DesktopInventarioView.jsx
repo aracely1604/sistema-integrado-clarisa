@@ -4,6 +4,7 @@ import { FiChevronDown, FiCheckCircle, FiInbox, FiTruck } from 'react-icons/fi';
 import { LOCAL_LABELS, HOY_IDX } from './inventarioData';
 import { getLevel, getVencLevel, nextVisitOffset, formatearPrecioCorto } from './inventarioHelpers';
 import { calcularSugerenciasCompra, textoProximaVisita } from '../../models/SugerenciaCompraModel';
+import { nombreProveedor, getInitials } from '../../models/ProveedorModel';
 
 import { Badge } from './InventarioShared';
 import {
@@ -39,7 +40,7 @@ function LineaSugerenciaCompra({ sugerencia }) {
     <div style={{ ...base, color: visitaHoy ? '#633806' : base.color, fontWeight: visitaHoy ? 600 : 400 }}>
       <FiTruck size={12} />
       <span>
-        Comprar a <b>{mejor.nombre}</b> · visita {textoProximaVisita(mejor.diasHasta)}
+        Comprar a <b>{mejor.etiqueta}</b> · visita {textoProximaVisita(mejor.diasHasta)}
         {proveedores.length > 1 ? ` (+${proveedores.length - 1} más)` : ''}
       </span>
     </div>
@@ -101,6 +102,18 @@ export default function DesktopInventarioView({
   const provHoy        = provLocal.filter(p => p.dias.includes(HOY_IDX));
   const provProximos   = [...provLocal].sort((a, b) => nextVisitOffset(a.dias) - nextVisitOffset(b.dias));
   const totalProvLocal = provLocal.length;
+
+  // Copia SOLO para mostrar, para los componentes que dibujan al proveedor por su cuenta
+  // (CalendarioSemanal y FloatingVisitanHoy): ahí el "nombre" y las iniciales deben ser los de la
+  // empresa. Es una copia: los modales y las listas de arriba siguen usando el proveedor original.
+  const paraMostrar = (p) => ({
+    id: p.id, empresa: p.empresa, telefono: p.telefono, dias: p.dias, locales: p.locales, activo: p.activo,
+    nombre: nombreProveedor(p),
+    initials: getInitials(nombreProveedor(p)),
+    tipo: p.empresa,
+  });
+  const provLocalVista = provLocal.map(paraMostrar);
+  const provHoyVista = provHoy.map(paraMostrar);
   // Productos en alerta de stock que además están vencidos (reposición bloqueada hasta
   // eliminar su stock) o por vencer (solo se recomienda priorizar su venta al reponer).
   const vencPorId = new Map(vencLocal.map(i => [i.id, i]));
@@ -237,7 +250,7 @@ export default function DesktopInventarioView({
           <div data-tour="inv-agenda" className="div-kpi-card div-kpi-agenda">
             <span className="div-section-label" style={{ marginBottom: 8, display: 'block' }}>AGENDA SEMANAL</span>
             <CalendarioSemanal
-              proveedores={provLocal}
+              proveedores={provLocalVista}
               compact
               onDiaPress={() => setAgendaHoyModal(true)}
             />
@@ -364,10 +377,9 @@ export default function DesktopInventarioView({
         items={provProximos}
         renderItem={p => (
           <button type="button" key={p.id} onClick={() => setModalProv(p)} className="div-kpi-prov-row">
-            <span className="div-kpi-prov-avatar">{p.initials}</span>
+            <span className="div-kpi-prov-avatar">{getInitials(nombreProveedor(p))}</span>
             <span className="div-kpi-prov-info">
-              <span className="div-kpi-prov-nombre">{p.nombre}</span>
-              <span className="div-kpi-prov-empresa">{p.empresa}</span>
+              <span className="div-kpi-prov-nombre">{nombreProveedor(p)}</span>
               <span className="div-kpi-prov-hint">Presiona para mas información</span>
             </span>
             <Badge label={`En ${nextVisitOffset(p.dias)} días`} level="info" />
@@ -385,10 +397,9 @@ export default function DesktopInventarioView({
           ? <p className="div-agenda-empty">Ningún proveedor visita hoy</p>
           : provHoy.map(p => (
               <button type="button" key={p.id} onClick={() => setModalProv(p)} className="div-kpi-prov-row" style={{ marginBottom: 10 }}>
-                <span className="div-kpi-prov-avatar">{p.initials}</span>
+                <span className="div-kpi-prov-avatar">{getInitials(nombreProveedor(p))}</span>
                 <span className="div-kpi-prov-info">
-                  <span className="div-kpi-prov-nombre">{p.nombre}</span>
-                  <span className="div-kpi-prov-empresa">{p.empresa}</span>
+                  <span className="div-kpi-prov-nombre">{nombreProveedor(p)}</span>
                   <span className="div-kpi-prov-hint">Presiona para mas información</span>
                 </span>
                 {(sugerencias.porProveedor.get(p.id)?.length ?? 0) > 0 && (
@@ -415,7 +426,7 @@ export default function DesktopInventarioView({
           setVisitanHoyVisible(false);
           setVisitanHoyDismissedToday(true);
         }}
-        provHoy={provHoy}
+        provHoy={provHoyVista}
       />
 
       {/*

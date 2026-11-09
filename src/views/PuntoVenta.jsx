@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { collection, doc, getDoc, getDocs, limit, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../controllers/AuthContext';
-import { suscribirProductosVenta, registrarVentaConStock, registrarAutoconsumoConStock } from '../controllers/VentaControl.jsx';
+import { suscribirProductosVenta, suscribirRecetasVenta, registrarVentaConStock, registrarAutoconsumoConStock } from '../controllers/VentaControl.jsx';
+import { estadoReceta, crearLineaReceta, faltantesDeStock, quitarIngredienteDelCarrito } from '../models/VentaModel';
 import { crearProductoGlobal, obtenerProductoPorCodigoBarra } from '../controllers/ProductoControl';
 import { ajustarStockLocal, actualizarProductoLocal, cambiarEstadoProductoLocal, crearProductoEnLocal, obtenerProductoLocal } from '../controllers/LocalProductoControl';
 import BarcodeScanner from '../components/BarcodeScanner';
-import { CATEGORIAS, UNIDADES_MEDIDA, convertirACantidadBase, unidadBaseDesdeUnidadMedida, etiquetaUnidadIngreso } from '../screens/inventario/gestionProductosData';
+import { CATEGORIAS, UNIDADES_MEDIDA, convertirACantidadBase, unidadBaseDesdeUnidadMedida, etiquetaUnidadIngreso, formatStock } from '../screens/inventario/gestionProductosData';
 import TourGuiado from '../components/TourGuiado';
 import '../styles/views/pointOfSale.css';
 
@@ -58,6 +59,7 @@ const crearPasosTourCaja = (esComidaRapida) => [
 
 function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metodosBase }) {
   const [catalogoLocal, setProductos] = useState([]);
+  const [recetasVenta, setRecetasVenta] = useState([]); // recetas activas de este local (en vivo)
   // Todo lo que se muestra y se vende en caja (unitarios, granel y recetas) pasa primero por
   // este filtro: solo aparecen los productos con usoReceta en false. `catalogoLocal` conserva
   // la lista completa solo para que el escáner distinga "no existe" de "no está a la venta".
@@ -106,6 +108,14 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
   useEffect(() => {
     setProductos([]);
     const desuscribir = suscribirProductosVenta(localId, setProductos);
+    return desuscribir;
+  }, [localId]);
+
+  // Recetas asignadas y activas en este local. Se actualizan solas si cambia la receta,
+  // su asignación o su estado.
+  useEffect(() => {
+    setRecetasVenta([]);
+    const desuscribir = suscribirRecetasVenta(localId, setRecetasVenta);
     return desuscribir;
   }, [localId]);
 
@@ -256,12 +266,12 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
     && new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date(registro.fecha || Date.now())) === diaLocalChile
   ));
   const totalPersonalHoy = consumosPersonalesHoy.reduce((suma, registro) => suma + Number(registro.total || 0), 0);
-  const esProductoReceta = (p) => Boolean(p.recetaId || p.tipo === 'receta' || p.esReceta || p.ingredientesBase?.length);
   // Unitarios: unidadMedida "unidad". A granel: g/ml. (`productos` ya viene sin los de usoReceta.)
+  // Recetas: las asignadas y activas en este local (no son productos: descuentan sus ingredientes).
   const seccionesProductos = [
-    { titulo: SECCION_UNITARIOS, items: productos.filter((p) => !esProductoReceta(p) && !esGranel(p)) },
-    { titulo: SECCION_GRANEL, items: productos.filter((p) => !esProductoReceta(p) && esGranel(p)) },
-    { titulo: SECCION_RECETAS, items: productos.filter(esProductoReceta) },
+    { titulo: SECCION_UNITARIOS, items: productos.filter((p) => !esGranel(p)) },
+    { titulo: SECCION_GRANEL, items: productos.filter((p) => esGranel(p)) },
+    { titulo: SECCION_RECETAS, items: recetasVenta },
   ];
   const seccionActual = seccionesProductos.find((seccion) => seccion.titulo === seccionProductoActiva);
 
@@ -437,6 +447,47 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
       console.error('Error al guardar cierre de caja en Firebase:', error);
       notify('Caja cerrada localmente, pero no se pudo actualizar en Firebase.', 'error');
     }
+  };
+
+  // Texto de un faltante de stock, siempre en kg / lt (nunca en g / ml).
+  const textoFaltante = (f) => {
+    const producto = catalogoLocal.find((p) => p.id === f.id);
+    const base = producto ? unidadBaseDe(producto) : 'uds';
+    return `${f.nombre} (disponible: ${formatStock(f.disponible, base)}, necesario: ${formatStock(f.pedido, base)})`;
+  };
+
+  // Receta: se agrega al carrito igual que un producto. El stock se valida contra TODO el carrito
+  // (los ingredientes que comparten producto se suman); el descuento real ocurre una sola vez,
+  // al registrar el pago.
+  const agregarReceta = (receta) => {
+    if (!cajaAbierta) {
+      notify('Debes abrir caja antes de agregar productos.', 'error');
+      return;
+    }
+
+    const estado = estadoReceta(receta, catalogoLocal);
+    if (!estado.configurada) {
+      const detalle = estado.sinConfigurar.length > 0 ? ` Revisa: ${estado.sinConfigurar.join(', ')}.` : '';
+      notify(`${receta.nombre} no está totalmente configurada.${detalle}`, 'error');
+      return;
+    }
+
+    const nuevaLinea = crearLineaReceta(receta, catalogoLocal);
+    const indiceExistente = carrito.findIndex((item) => (
+      item.esReceta
+      && item.id === receta.id
+      && item.ingredientes.join('|') === nuevaLinea.ingredientes.join('|')
+    ));
+    const siguiente = indiceExistente === -1
+      ? [...carrito, nuevaLinea]
+      : carrito.map((item, index) => (index === indiceExistente ? { ...item, cantidad: item.cantidad + 1 } : item));
+
+    const faltantes = faltantesDeStock(siguiente, catalogoLocal);
+    if (faltantes.length > 0) {
+      notify(`Stock insuficiente para ${receta.nombre}: ${faltantes.map(textoFaltante).join(', ')}.`, 'error');
+      return;
+    }
+    setCarrito(siguiente);
   };
 
   const agregarProducto = (producto) => {
@@ -677,6 +728,20 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
   // contra el stock en vivo del producto.
   const sumarUno = (indexProducto) => {
     const item = carrito[indexProducto];
+
+    if (item.esReceta) {
+      const siguiente = carrito.map((linea, index) => (
+        index === indexProducto ? { ...linea, cantidad: linea.cantidad + 1 } : linea
+      ));
+      const faltantes = faltantesDeStock(siguiente, catalogoLocal);
+      if (faltantes.length > 0) {
+        notify(`Stock insuficiente para ${item.nombre}: ${faltantes.map(textoFaltante).join(', ')}.`, 'error');
+        return;
+      }
+      setCarrito(siguiente);
+      return;
+    }
+
     const productoVivo = productos.find((producto) => producto.id === item.id);
     const enCarrito = carrito
       .filter((linea) => linea.id === item.id)
@@ -705,11 +770,13 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
   };
 
   const quitarIngrediente = (indexProducto, ingrediente) => {
-    setCarrito((actual) => actual.map((item, index) => (
-      index === indexProducto
-        ? { ...item, ingredientes: item.ingredientes.filter((nombre) => nombre !== ingrediente) }
-        : item
-    )));
+    const linea = carrito[indexProducto];
+    if (linea?.esReceta && linea.ingredientes.length <= 1) {
+      notify('Una receta necesita al menos un ingrediente. Si no la quieres, elimina la línea.', 'error');
+      return;
+    }
+    // Con varias unidades en la línea, el cambio es solo para UNA (ver VentaModel).
+    setCarrito((actual) => quitarIngredienteDelCarrito(actual, indexProducto, ingrediente));
   };
 
   const registrarPago = async () => {
@@ -760,6 +827,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
         cantidad: item.cantidad || 1,
         subtotal: item.precio * (item.cantidad || 1),
         ingredientes: item.ingredientes || [],
+        ...(item.esReceta ? { esReceta: true, ingredientesReceta: item.ingredientesReceta } : {}),
       })),
       total,
       metodoPago,
@@ -784,7 +852,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
     } catch (error) {
       if (error.faltantes) {
         const detalle = error.faltantes
-          .map((f) => `${f.nombre} (disponible: ${f.disponible}, pedido: ${f.pedido})`)
+          .map(textoFaltante)
           .join(', ');
         notify(`Stock insuficiente: ${detalle}. Ajusta el carrito.`, 'error');
       } else {
@@ -1013,6 +1081,37 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
           <div className="pos-product-browser">
             <div className="product-grid">
             {(seccionActual?.items || []).map((producto) => {
+              if (seccionProductoActiva === SECCION_RECETAS) {
+                const receta = producto;
+                const estado = estadoReceta(receta, catalogoLocal);
+                const sinStock = estado.configurada && estado.preparables <= 0;
+                return (
+                  <button
+                    className="product-button"
+                    onClick={() => agregarReceta(receta)}
+                    disabled={!cajaAbierta || sinStock}
+                    key={receta.id}
+                  >
+                    {/* Espacio para la foto de la receta (se llena cuando exista imagenUrl) */}
+                    <div style={{
+                      width: '100%', aspectRatio: '4 / 3', borderRadius: 8, overflow: 'hidden',
+                      background: 'rgba(127,127,127,0.12)', display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', fontSize: 28, marginBottom: 6,
+                    }}>
+                      {receta.imagenUrl
+                        ? <img src={receta.imagenUrl} alt={receta.nombre} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <span aria-hidden="true">🍽️</span>}
+                    </div>
+                    <span>{receta.nombre}</span>
+                    <strong>${receta.precio.toLocaleString('es-CL')}</strong>
+                    <small className="product-stock">
+                      {!estado.configurada
+                        ? '⚠ Sin configurar'
+                        : sinStock ? 'Sin stock' : `Se pueden preparar: ${estado.preparables}`}
+                    </small>
+                  </button>
+                );
+              }
               // Si el producto es g/ml el stock se guarda en g/ml, pero siempre se muestra en kg/lt.
               const base = unidadBaseDe(producto);
               const granel = base === 'g' || base === 'ml';
@@ -1072,7 +1171,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
                         : `$${item.precio.toLocaleString('es-CL')} c/u × ${item.cantidad || 1}`}
                     </small>
                     {item.esGranel && <small className="muted">Toca para editar el monto</small>}
-                    {esComidaRapida && item.ingredientesBase?.length > 0 && (
+                    {item.esReceta && item.ingredientesBase?.length > 0 && (
                       <>
                         {item.ingredientes.length > 0 && (
                           <div className="ingredient-list" aria-label={`Ingredientes de ${item.nombre}`}>
@@ -1082,7 +1181,7 @@ function PuntoVenta({ localId, localNombre, usuario, notify, metodosPago = metod
                                 className="ingredient-chip"
                                 key={ingrediente}
                                 onClick={() => quitarIngrediente(index, ingrediente)}
-                                title={`Quitar ${ingrediente}`}
+                                title={item.cantidad > 1 ? `Quitar ${ingrediente} de una unidad` : `Quitar ${ingrediente}`}
                               >
                                 {ingrediente} <span aria-hidden="true">×</span>
                               </button>

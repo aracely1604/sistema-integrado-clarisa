@@ -4,6 +4,7 @@ import { useAuth, localesAsignados } from '../../controllers/AuthContext';
 import { crearProductoEnLocal } from '../../controllers/LocalProductoControl';
 import { LOCAL_LABELS, LOCALES_LIST } from './inventarioData';
 import { svgCode128, esCode128B } from './code128';
+import { svgCodigoComercial } from './barcodeSvg';
 import {
   unidadBaseDesdeUnidadMedida, convertirACantidadBase, etiquetaUnidadIngreso,
 } from './gestionProductosData';
@@ -126,6 +127,16 @@ export default function RegistroEnLocalesFlujo({ producto, onTerminar }) {
 
   // ── 1) Producto creado ──
   if (paso === 'creado') {
+    // Código de barras dibujado: los internos (GR-####) en Code 128; los comerciales con su propia
+    // simbología (EAN-13, UPC-A o EAN-8); cualquier otro código cae a Code 128 si es posible.
+    const codigo = producto.codigoBarra;
+    let svgBarras = null;
+    try {
+      if (producto.esGranel && esCode128B(codigo)) svgBarras = svgCode128(codigo);
+      else svgBarras = svgCodigoComercial(codigo) ?? (esCode128B(codigo) ? svgCode128(codigo) : null);
+    } catch {
+      svgBarras = null;
+    }
     return overlay(
       <>
         <div style={{ textAlign: 'center', padding: '12px 0 8px' }}>
@@ -138,11 +149,11 @@ export default function RegistroEnLocalesFlujo({ producto, onTerminar }) {
           <p style={{ margin: '2px 0 0', fontSize: 22, fontWeight: 700, letterSpacing: 1, fontFamily: 'monospace' }}>
             {producto.codigoBarra}
           </p>
-          {producto.esGranel && esCode128B(producto.codigoBarra) && (
-            // svgCode128 solo genera el SVG a partir de GR-#### (texto validado): seguro como HTML
+          {svgBarras && (
+            // Ambos SVG se generan solo a partir del código ya validado: seguros como HTML
             <div
-              style={{ width: 240, maxWidth: '100%', margin: '10px auto 0' }}
-              dangerouslySetInnerHTML={{ __html: svgCode128(producto.codigoBarra) }}
+              style={{ width: 240, maxWidth: '100%', margin: '10px auto 0', background: '#fff', borderRadius: 6, overflow: 'hidden' }}
+              dangerouslySetInnerHTML={{ __html: svgBarras }}
             />
           )}
           {producto.esGranel && (

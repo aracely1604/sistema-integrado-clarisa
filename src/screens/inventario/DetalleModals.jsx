@@ -16,7 +16,7 @@ import {
   actualizarDiasProveedorLocal, cambiarEstadoProveedor,
   suscribirProveedoresPorLocal, suscribirProveedoresGlobales,
 } from '../../controllers/ProveedorControl';
-import { getInitials } from '../../models/ProveedorModel';
+import { getInitials, nombreProveedor } from '../../models/ProveedorModel';
 import {
   crearProductoGlobal, actualizarProductoGlobal, obtenerProductoPorCodigoBarra,
   suscribirProductosGlobales, validarNombreProducto, validarProducto,
@@ -29,7 +29,7 @@ import {
   validarReceta, esRecetaValida,
 } from '../../models/RecetaModel';
 import { validarImagen, TAMANO_MAX_MB } from '../../controllers/ImagenControl';
-import { CATEGORIAS, UNIDADES_MEDIDA, convertirBaseAIngreso, unidadBaseDesdeUnidadMedida } from './gestionProductosData';
+import { CATEGORIAS, UNIDADES_MEDIDA, convertirBaseAIngreso } from './gestionProductosData';
 import { useCategorias } from '../../controllers/useCategorias';
 import { agregarCategoria, validarNombreCategoria, normalizarCategoria } from '../../controllers/CategoriaControl';
 import { buscarProductoExterno, descargarImagenExterna, elegirCategoriaExterna } from '../../controllers/ProductoExternoControl';
@@ -626,8 +626,7 @@ export function ModalDetalleProveedor({ proveedor, onClose, stockSugerido, local
           <div className="inv-modal-row">
             <span className="inv-avatar-lg">{proveedor.initials}</span>
             <div style={{ marginLeft: 12 }}>
-              <h2 className="inv-modal-title">{proveedor.nombre}</h2>
-              <p className="inv-modal-provtipo">{proveedor.empresa}</p>
+              <h2 className="inv-modal-title">{nombreProveedor(proveedor)}</h2>
             </div>
           </div>
           <button type="button" className="inv-modal-close" onClick={onClose} aria-label="Cerrar">
@@ -638,7 +637,7 @@ export function ModalDetalleProveedor({ proveedor, onClose, stockSugerido, local
         <div className="inv-modal-scroll">
           <div className="inv-modal-infotable">
             {[
-              { k: 'Empresa',        v: proveedor.empresa },
+              { k: 'Contacto',       v: proveedor.nombre },
               { k: 'Teléfono',       v: proveedor.telefono },
               { k: 'Días de visita', v: proveedor.dias.map(d => DIAS[d]).join(' · ') },
             ].map((row, i) => (
@@ -958,10 +957,9 @@ export function ModalGestionProveedores({ visible, onClose }) {
                     }}
                   >
                     <div className="inv-modal-row" style={{ gap: 10 }}>
-                      <span className="inv-avatar-lg" style={{ width: 34, height: 34, fontSize: 13 }}>{getInitials(p.nombre)}</span>
+                      <span className="inv-avatar-lg" style={{ width: 34, height: 34, fontSize: 13 }}>{getInitials(nombreProveedor(p))}</span>
                       <div>
-                        <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5 }}>{p.nombre}</p>
-                        <p style={{ margin: 0, fontSize: 12, color: 'var(--c-textSecondary, #7F8C8D)' }}>{p.empresa}</p>
+                        <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5 }}>{nombreProveedor(p)}</p>
                       </div>
                     </div>
                     <FiChevronRight size={16} color="var(--c-textSecondary, #7F8C8D)" />
@@ -1261,10 +1259,9 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo, pa
                     }}
                   >
                     <div className="inv-modal-row" style={{ gap: 10 }}>
-                      <span className="inv-avatar-lg" style={{ width: 34, height: 34, fontSize: 13 }}>{getInitials(p.nombre)}</span>
+                      <span className="inv-avatar-lg" style={{ width: 34, height: 34, fontSize: 13 }}>{getInitials(nombreProveedor(p))}</span>
                       <div>
-                        <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5 }}>{p.nombre}</p>
-                        <p style={{ margin: 0, fontSize: 12, color: 'var(--c-textSecondary, #7F8C8D)' }}>{p.empresa}</p>
+                        <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5 }}>{nombreProveedor(p)}</p>
                       </div>
                     </div>
                     <FiChevronRight size={16} color="var(--c-textSecondary, #7F8C8D)" />
@@ -1290,10 +1287,9 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo, pa
             {erroresAsignar.general && <p className="inv-modal-errortext" style={{ marginBottom: 10 }}>{erroresAsignar.general}</p>}
 
             <div className="inv-modal-row" style={{ gap: 10, marginBottom: 14 }}>
-              <span className="inv-avatar-lg">{getInitials(proveedorParaAsignar.nombre)}</span>
+              <span className="inv-avatar-lg">{getInitials(nombreProveedor(proveedorParaAsignar))}</span>
               <div>
-                <p style={{ margin: 0, fontWeight: 600 }}>{proveedorParaAsignar.nombre}</p>
-                <p style={{ margin: 0, fontSize: 12.5, color: 'var(--c-textSecondary, #7F8C8D)' }}>{proveedorParaAsignar.empresa}</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>{nombreProveedor(proveedorParaAsignar)}</p>
               </div>
             </div>
 
@@ -1352,8 +1348,7 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo, pa
                     <div className="inv-modal-row" style={{ gap: 10 }}>
                       <span className="inv-avatar-lg" style={{ width: 34, height: 34, fontSize: 13 }}>{p.initials}</span>
                       <div>
-                        <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5 }}>{p.nombre}</p>
-                        <p style={{ margin: 0, fontSize: 12, color: 'var(--c-textSecondary, #7F8C8D)' }}>{p.empresa}</p>
+                        <p style={{ margin: 0, fontWeight: 600, fontSize: 13.5 }}>{nombreProveedor(p)}</p>
                       </div>
                     </div>
                     <div className="inv-modal-row" style={{ gap: 8 }}>
@@ -1384,9 +1379,9 @@ export function ModalNuevoProveedor({ visible, onClose, onGuardar, localFijo, pa
             <div className="inv-modal-row" style={{ gap: 10, marginBottom: 14 }}>
               <span className="inv-avatar-lg">{proveedorSeleccionado.initials}</span>
               <div>
-                <p style={{ margin: 0, fontWeight: 600 }}>{proveedorSeleccionado.nombre}</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>{nombreProveedor(proveedorSeleccionado)}</p>
                 <p style={{ margin: 0, fontSize: 12.5, color: 'var(--c-textSecondary, #7F8C8D)' }}>
-                  {proveedorSeleccionado.empresa} · {proveedorSeleccionado.telefono}
+                  {proveedorSeleccionado.telefono}
                 </p>
               </div>
             </div>
@@ -1724,7 +1719,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     || (tab === 'editar' && !productoSeleccionado && productosOrdenados.length > 0)
   );
 
-  // Producto a granel (kg / lt): no tiene código de barras. Se salta la verificación y se va
+  // Producto a granel / sin código de barras (kg, lt o unidad). Se salta la verificación y se va
   // directo al formulario; el código Code 128 "GR-0000" se asigna al guardar (así no se
   // gastan números si el usuario cancela).
   function handleRegistrarGranel() {
@@ -1835,11 +1830,6 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   async function handleGuardar(e) {
     e.preventDefault();
     setErrors({});
-    // A granel solo tiene sentido si se vende por kilo o litro
-    if (modoGranel && unidadBaseDesdeUnidadMedida(form.unidadMedida) === 'uds') {
-      setErrors({ unidadMedida: 'Un producto a granel se vende por kilo o por litro' });
-      return;
-    }
     setGuardando(true);
     try {
       let datos = form;
@@ -1988,7 +1978,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
             </p>
 
             <p className="inv-modal-hint-inline" style={{ textAlign: 'center', marginBottom: 12, display: 'block', color: '#8A6D1D' }}>
-              Productos a granel (kg o lt): no tienen código de barras. Se les asigna uno propio
+              Productos a granel o sin código de barras (por kg, lt o unidad): se les asigna uno propio
               (Code 128, formato GR-0000) al guardarlos.
             </p>
             <button
@@ -2182,12 +2172,13 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
               <p className="inv-modal-hint-inline" style={{ marginBottom: 6, display: 'block' }}>
                 Cómo se vende este producto: por unidad, por litro o por kilo
               </p>
-              <p className="inv-modal-hint-inline" style={{ marginBottom: 6, display: 'block', color: '#8A6D1D' }}>
-                Los productos a granel (kg o lt) no traen código de barras: usa “Registrar producto a granel” en el paso anterior.
-              </p>
+              {!modoGranel && (
+                <p className="inv-modal-hint-inline" style={{ marginBottom: 6, display: 'block', color: '#8A6D1D' }}>
+                  Los productos a granel (kg o lt) no traen código de barras: usa “Registrar producto a granel” en el paso anterior.
+                </p>
+              )}
               <div className="inv-modal-row" style={{ gap: 6, flexWrap: 'wrap' }}>
                 {UNIDADES_MEDIDA
-                  .filter((u) => !modoGranel || unidadBaseDesdeUnidadMedida(u.value) !== 'uds')
                   .map((u) => (
                   <button
                     key={u.value}

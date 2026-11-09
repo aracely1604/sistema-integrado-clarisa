@@ -6,6 +6,7 @@ import {
 } from './gestionProductosData';
 import CampoFechaVencimiento from './CampoFechaVencimiento';
 import { normalizarCodigo } from './codigoBarraUtils';
+import { nombreProveedor } from '../../models/ProveedorModel';
 import {
   suscribirHistorialProductoLocal, suscribirModificacionesProducto, suscribirUltimaReposicionProducto,
 } from '../../controllers/HistorialStockControl';
@@ -271,8 +272,8 @@ export function DetalleContenido({ producto, onActualizar, onTransferir, onToggl
 
   const ultimoProveedorLabel = cargandoUltimaRepo
     ? 'Cargando...'
-    : ultimaRepo?.proveedorNombre
-      ? `${ultimaRepo.proveedorNombre}${ultimaRepo.proveedorEmpresa ? ' — ' + ultimaRepo.proveedorEmpresa : ''}`
+    : ultimaRepo?.proveedorNombre || ultimaRepo?.proveedorEmpresa
+      ? nombreProveedor({ nombre: ultimaRepo.proveedorNombre, empresa: ultimaRepo.proveedorEmpresa })
       : 'Sin proveedor';
   const ultimaActualizacionLabel = cargandoUltimaRepo
     ? 'Cargando...'
@@ -576,8 +577,8 @@ function ListaMovimientos({ producto, historial, cargando, verTodos, onToggleVer
                 <DetalleRow k={`Stock anterior (${etiqueta})`} v={formatStock(mov.stockAnterior, producto.unidad || 'uds')} />
                 <DetalleRow k={`Stock nuevo (${etiqueta})`} v={formatStock(mov.stockNuevo, producto.unidad || 'uds')} />
                 <DetalleRow k={`Cantidad del movimiento (${etiqueta})`} v={formatStock(mov.cantidad, producto.unidad || 'uds')} />
-                {mov.proveedorNombre && (
-                  <DetalleRow k="Proveedor" v={`${mov.proveedorNombre} — ${mov.proveedorEmpresa || 'sin empresa'}`} />
+                {(mov.proveedorNombre || mov.proveedorEmpresa) && (
+                  <DetalleRow k="Proveedor" v={nombreProveedor({ nombre: mov.proveedorNombre, empresa: mov.proveedorEmpresa })} />
                 )}
                 {mov.fechaVencimiento && <DetalleRow k="Fecha de vencimiento" v={mov.fechaVencimiento} />}
                 {mov.localRelacionado && <DetalleRow k="Local relacionado" v={mov.localRelacionado} />}
@@ -1005,10 +1006,10 @@ export function ActualizarStockModal({
                 {(() => {
                   // Arriba, los proveedores que ya repusieron ESTE producto en este local; abajo, el resto.
                   const idsSugeridos = new Set(productoEncontrado?.idsProveedores ?? []);
-                  const porNombre = (a, b) => a.nombre.localeCompare(b.nombre, 'es');
+                  const porNombre = (a, b) => nombreProveedor(a).localeCompare(nombreProveedor(b), 'es');
                   const sugeridos = proveedores.filter((p) => idsSugeridos.has(p.id)).sort(porNombre);
                   const otros = proveedores.filter((p) => !idsSugeridos.has(p.id)).sort(porNombre);
-                  const opcion = (p) => <option key={p.id} value={p.id}>{p.nombre}</option>;
+                  const opcion = (p) => <option key={p.id} value={p.id}>{nombreProveedor(p)}</option>;
                   return (
                     <>
                       {sugeridos.length > 0 && (

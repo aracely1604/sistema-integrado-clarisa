@@ -38,6 +38,16 @@ export function diasObjetoToArray(diasObjeto) {
   }, []);
 }
 
+/**
+ * Cómo se llama un proveedor en pantalla: SIEMPRE la empresa (el nombre del contacto solo se usa
+ * donde se muestra explícitamente como contacto). Si por algún motivo no tiene empresa, cae al
+ * nombre del contacto para no mostrar un proveedor sin nombre.
+ * Acepta cualquier objeto con { empresa, nombre } (ProveedorModel, filas de historial, etc.).
+ */
+export function nombreProveedor(proveedor) {
+  return (proveedor?.empresa ?? '').trim() || (proveedor?.nombre ?? '').trim() || 'Proveedor';
+}
+
 export function getInitials(nombre) {
   return (nombre ?? '')
     .trim()
@@ -123,9 +133,9 @@ export class ProveedorModel {
     this.activo = activo;
   }
 
-  /** Iniciales derivadas del nombre (compatibilidad con las tarjetas existentes). */
+  /** Iniciales derivadas del nombre que se muestra (la empresa), no del contacto. */
   get initials() {
-    return getInitials(this.nombre);
+    return getInitials(nombreProveedor(this));
   }
 
   /** Alias de empresa, usado por algunas tarjetas existentes como "tipo". */

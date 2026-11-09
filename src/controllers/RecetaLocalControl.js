@@ -37,6 +37,7 @@ export async function obtenerProductosLocal(local) {
       stockMinimo: datosLocal.stockMinimo ?? 0,
       precioVenta: datosLocal.precioVenta ?? 0,
       activo: datosLocal.activo ?? true,
+      usoReceta: datosLocal.usoReceta ?? false,
     };
   });
 }
@@ -66,6 +67,8 @@ export function suscribirProductosLocalEnriquecidos(local, callback) {
         stockMinimo: lp.stockMinimo,
         precioVenta: lp.precioVenta,
         activo: lp.activo,
+        // Sin este campo la lista de productos de cada ingrediente (solo "Uso para receta") salía vacía.
+        usoReceta: lp.usoReceta,
       };
     });
     callback(productos);
