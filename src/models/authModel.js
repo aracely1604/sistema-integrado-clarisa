@@ -7,17 +7,17 @@ import { auth } from '../firebase';
 export const rutasPorLocal = {
   almacen: 'almacen',
   cafeteria: 'cafeteria',
-  comida_rapida: 'comida_rapida',
+  comidaRapida: 'comidaRapida',
 };
 
 export const opcionesRol = [
   { value: 'admin', label: 'administrador', rol: 'admin', local: 'Administrador' },
 
-  { value: 'cocinero', label: 'cocinero', rol: 'cocinero', local: 'comida_rapida' },
+  { value: 'cocinero', label: 'cocinero', rol: 'cocinero', local: 'comidaRapida' },
 
 
   { value: 'cajero_almacen', label: 'cajero(almacén)', rol: 'cajero', local: 'almacen' },
-  { value: 'cajero_comida_rapida', label: 'cajero(comida rápida)', rol: 'cajero', local: 'comida_rapida' },
+  { value: 'cajero_comida_rapida', label: 'cajero(comida rápida)', rol: 'cajero', local: 'comidaRapida' },
   { value: 'cajero_cafeteria', label: 'cajero(cafetería)', rol: 'cajero', local: 'cafeteria' },
   { value: 'delivery', label: 'delivery', rol: 'delivery', local: 'delivery' },
 ];

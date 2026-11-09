@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   FiChevronDown, FiBox, FiBookOpen, FiTruck, FiFileText,
-  FiUserPlus, FiLogOut, FiAlertTriangle, FiCheckCircle, FiPlusCircle,
+  FiUserPlus, FiLogOut, FiAlertTriangle, FiCheckCircle, FiPlusCircle, FiPrinter,
 } from 'react-icons/fi';
 
 import { useAuth, localesAsignados } from '../../controllers/AuthContext';
@@ -21,9 +21,11 @@ import DesktopInventarioView from './DesktopInventarioView';
 import { LOCAL_LABELS, LOCALES_LIST, HOY_IDX } from './inventarioData';
 import { getLevel, getVencLevel } from './inventarioHelpers';
 import { useInventarioAlertas } from './useInventarioAlertas';
+import { useProveedoresLocal } from './useProveedoresLocal';
 import { LOCAL_ICON_COMPONENTS } from './localIcons';
 
 import ReporteRentabilidad from './ReporteRentabilidad';  
+import CodigosBarrasGranel from './CodigosBarrasGranel';
 
 import '../../css/DesktopLayout.css';
 
@@ -43,9 +45,11 @@ export default function DesktopLayout({ state, actions }) {
   const [modalRecetaGlobalVisible, setModalRecetaGlobalVisible] = useState(false);
 
   const [reporteRentabilidadVisible, setReporteRentabilidadVisible] = useState(false);
+  // Códigos de barras para imprimir (productos a granel)
+  const [codigosGranelVisible, setCodigosGranelVisible] = useState(false);
 
   const {
-    activeLocal, proveedores, modalStock, modalVenc, modalProv, modalNuevoProv,
+    activeLocal, modalStock, modalVenc, modalProv, modalNuevoProv,
     recetasData, productosData, inventarioReciente,
     visitanHoyVisible, visitanHoyDismissedToday,
   } = state;
@@ -54,6 +58,10 @@ export default function DesktopLayout({ state, actions }) {
     setModalNuevoProv, handleGuardarProveedor, setRecetasData, setProductosData,
     setVisitanHoyVisible, setVisitanHoyDismissedToday,
   } = actions;
+
+  // Proveedores del local activo, EN VIVO desde Firestore. Ya no se usa `state.proveedores`
+  // (que venía de la lista de ejemplo de inventarioData.js).
+  const proveedores = useProveedoresLocal(activeLocal);
 
   const [localExpanded, setLocalExpanded] = useState(activeLocal);
   // Local desde el que se abrió el modal de proveedores o reporte (puede diferir de activeLocal)
@@ -223,6 +231,15 @@ export default function DesktopLayout({ state, actions }) {
             <span>Registrar producto</span>
           </button>
 
+          <button
+            type="button"
+            className="dl-sb-bottom-btn"
+            onClick={() => setCodigosGranelVisible(true)}
+          >
+            <FiPrinter size={13} />
+            <span>Códigos de barras (granel)</span>
+          </button>
+
           {!esCajero && (
             <button
               type="button"
@@ -344,6 +361,16 @@ export default function DesktopLayout({ state, actions }) {
             activeLocal={localDelModal}
             localLabels={LOCAL_LABELS}
           />
+        </FloatingSheet>
+      )}
+
+      {codigosGranelVisible && (
+        <FloatingSheet
+          visible={codigosGranelVisible}
+          onClose={() => setCodigosGranelVisible(false)}
+          title="Códigos de barras · productos a granel"
+        >
+          <CodigosBarrasGranel />
         </FloatingSheet>
       )}
 

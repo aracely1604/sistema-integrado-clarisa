@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   FiMenu, FiBox, FiBookOpen, FiTruck, FiArrowRight,
   FiCheckCircle, FiUserPlus, FiFileText, FiLogOut,
-  FiPlusCircle,
+  FiPlusCircle, FiPrinter,
 } from 'react-icons/fi';
 
 import { useAuth, localesAsignados } from '../../controllers/AuthContext';
@@ -11,6 +11,7 @@ import { useTheme } from '../../context/ThemeContext';
 import SessionWarningBanner from '../../controllers/SessionWarningBanner';
 import GestionProductosModal from './GestionProductosModal';
 import GestionRecetasModal from './GestionRecetasModal';
+import CodigosBarrasGranel from './CodigosBarrasGranel';
 
 import { Badge, ToggleSwitch } from './InventarioShared';
 import {
@@ -48,6 +49,8 @@ export default function MobileLayout({ state, actions }) {
   const [kpiProveedores,  setKpiProveedores]  = useState(false);
   const [reporteModal,    setReporteModal]    = useState(false);
   const [proveedoresGlobalVisible, setProveedoresGlobalVisible] = useState(false);
+  // Códigos de barras para imprimir (productos a granel)
+  const [codigosGranelVisible, setCodigosGranelVisible] = useState(false);
   // Local que disparó el modal de nuevo proveedor o reporte desde el drawer
   const [localDelModal,   setLocalDelModal]   = useState(null);
   // Modal del nodo global de productos (datos base: nombre, categoría, código, unidad)
@@ -224,6 +227,15 @@ export default function MobileLayout({ state, actions }) {
             >
               <FiPlusCircle size={15} />
               <span>Registrar producto</span>
+            </button>
+
+            <button
+              type="button"
+              className="ml-drawer-btn"
+              onClick={() => setCodigosGranelVisible(true)}
+            >
+              <FiPrinter size={15} />
+              <span>Códigos de barras (granel)</span>
             </button>
 
             {!esCajero && (
@@ -608,6 +620,14 @@ export default function MobileLayout({ state, actions }) {
         activeLocal={localDelModal ?? activeLocal}
         localLabels={LOCAL_LABELS}
       />
+
+      <FloatingSheet
+        visible={codigosGranelVisible}
+        onClose={() => setCodigosGranelVisible(false)}
+        title="Códigos de barras · productos a granel"
+      >
+        <CodigosBarrasGranel />
+      </FloatingSheet>
 
       <FloatingSheet
         visible={kpiMetricas}

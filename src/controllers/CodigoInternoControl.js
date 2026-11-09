@@ -7,6 +7,8 @@
 //  · Los números salen de un contador en Firestore (configuracion/codigosInternos),
 //    que se incrementa en una transacción: dos personas generando a la vez nunca
 //    reciben el mismo.
+//  · Productos a granel: Code 128 "GR-0000" (generarCodigoGranel), con su propio contador
+//    (configuracion/codigosGranel). Los antiguos EAN-13 "29…" siguen siendo válidos.
 //  · Aun así, cada código se compara contra el catálogo global por si alguien ya
 //    registró a mano uno parecido; si existe, se salta al siguiente.
 
@@ -19,6 +21,7 @@ const LARGO_SECUENCIA = 10;   // 2 + 10 + dígito verificador = 13 dígitos
 const MAX_INTENTOS = 20;
 
 const contadorRef = () => doc(db, 'configuracion', 'codigosInternos');
+const contadorGranelRef = () => doc(db, 'configuracion', 'codigosGranel');
 
 function digitoVerificadorEan13(doce) {
   let suma = 0;
@@ -48,6 +51,26 @@ export async function generarCodigoInterno() {
     const numero = await siguienteNumero();
     const doce = PREFIJO + String(numero).padStart(LARGO_SECUENCIA, '0');
     const codigo = doce + digitoVerificadorEan13(doce);
+    if (!(await obtenerProductoPorCodigoBarra(codigo))) return codigo;
+  }
+  throw new Error('No se pudo generar un código disponible. Intenta nuevamente.');
+}
+// ── Productos a granel: Code 128 "GR-0000" ──────────────────────────────────
+async function siguienteNumeroGranel() {
+  return runTransaction(db, async (tx) => {
+    const ref = contadorGranelRef();
+    const snap = await tx.get(ref);
+    const siguiente = (snap.exists() ? Number(snap.data()?.ultimo) || 0 : 0) + 1;
+    tx.set(ref, { ultimo: siguiente, actualizadoEn: new Date().toISOString() });
+    return siguiente;
+  });
+}
+
+// Devuelve "GR-0001", "GR-0002"... (4 dígitos; pasa a 5 si algún día se superan 9999).
+export async function generarCodigoGranel() {
+  for (let intento = 0; intento < MAX_INTENTOS; intento += 1) {
+    const numero = await siguienteNumeroGranel();
+    const codigo = `GR-${String(numero).padStart(4, '0')}`;
     if (!(await obtenerProductoPorCodigoBarra(codigo))) return codigo;
   }
   throw new Error('No se pudo generar un código disponible. Intenta nuevamente.');

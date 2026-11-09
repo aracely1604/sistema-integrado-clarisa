@@ -14,11 +14,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { suscribirProductosLocalEnriquecidos } from '../../controllers/RecetaLocalControl';
 import { suscribirVencimientosProximos, suscribirMovimientosHoy } from '../../controllers/HistorialStockControl';
-import { cambiarOfertaActivaProductoLocal, suscribirProductosLocal } from '../../controllers/LocalProductoControl';
+import {
+  cambiarOfertaActivaProductoLocal, suscribirProductosLocal, sincronizarProveedoresDeProducto,
+} from '../../controllers/LocalProductoControl';
 import {
   unidadBaseDesdeUnidadMedida, convertirBaseAIngreso, etiquetaUnidadIngreso,
 } from './gestionProductosData';
-import { DIAS_VENCIMIENTO_MAX, getVencLevel, formatearPrecio } from './inventarioHelpers';
+import { DIAS_VENCIMIENTO_MAX, getLevel, getVencLevel, formatearPrecio } from './inventarioHelpers';
 import { diasHastaVencimiento, formatFechaVencimiento } from './VencimientoUtils';
 
 const DURACION_AVISO_MS = 8000;
@@ -106,7 +108,11 @@ export function useInventarioAlertas(local) {
   const productos = useMemo(() => productosEnriquecidos.map((p) => {
     const propio = datosLocal.get(p.id);
     return propio
-      ? { ...p, precioVenta: propio.precioVenta, oferta: propio.oferta, ofertaActiva: propio.ofertaActiva }
+      ? {
+          ...p,
+          precioVenta: propio.precioVenta, oferta: propio.oferta, ofertaActiva: propio.ofertaActiva,
+          idsProveedores: propio.idsProveedores, // null = producto sin reconstruir desde el historial
+        }
       : p;
   }), [productosEnriquecidos, datosLocal]);
   const vencimientosPorProducto = vencEst.local === local ? vencEst.mapa : SIN_VENCIMIENTOS;
@@ -168,8 +174,27 @@ export function useInventarioAlertas(local) {
       // progreso visual tenga un tope con sentido.
       max: Math.max(min * 2, 1),
       unit: etiquetaUnidadIngreso(unidadBase),
+      // Proveedores que ya repusieron este producto en este local (null = pendiente de reconstruir).
+      idsProveedores: p.idsProveedores ?? null,
     };
   }), [productos, local]);
+
+  // ─── Proveedores de productos antiguos ──────────────────────────────────
+  // Los productos creados antes del campo `idsProveedores` no lo tienen. Para los que están en
+  // alerta de stock se reconstruye UNA vez desde su historial de reposiciones (la suscripción en
+  // vivo recoge el resultado sola). Se intenta una sola vez por producto y sesión.
+  const proveedoresSincronizados = useRef(new Set());
+  useEffect(() => {
+    stockData.forEach((item) => {
+      if (item.idsProveedores !== null) return;
+      if (!['out', 'critical', 'low'].includes(getLevel(item))) return;
+      const clave = `${local}:${item.id}`;
+      if (proveedoresSincronizados.current.has(clave)) return;
+      proveedoresSincronizados.current.add(clave);
+      sincronizarProveedoresDeProducto(local, item.id)
+        .catch((error) => console.error(`[proveedores] No se pudieron reconstruir los de "${item.nombre}":`, error));
+    });
+  }, [stockData, local]);
 
   // ─── VENCIMIENTOS_DATA-shaped ───────────────────────────────────────────
   // `dia` está en las dependencias: a medianoche los días restantes se recalculan solos.
