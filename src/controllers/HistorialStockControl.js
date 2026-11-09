@@ -16,6 +16,11 @@ import { HistorialStockModel } from '../models/HistorialStockModel';
 import { proveedorGlobalDocRef, modificacionesProductoColRef } from '../models/LocalModel';
 
 const HISTORIAL_STOCK_COLLECTION = 'historialStock';
+
+// El autoconsumo es parte de VENTAS (colección `ventas`, tipo 'autoconsumo'), no del inventario.
+// Los registros antiguos que quedaron en historialStock se ocultan de todo lo que muestra
+// movimientos de inventario.
+const esMovimientoDeInventario = (data) => data?.tipoMovimiento !== 'autoconsumo';
 const USUARIOS_COLLECTION = 'usuarios';
 
 // Caches simples en memoria: un mismo proveedor o usuario suele repetirse
@@ -128,7 +133,7 @@ export function suscribirHistorialProductoLocal(local, idProducto, callback, opc
   const unsubscribe = onSnapshot(q, async (snap) => {
     // Se preservan los campos que la transferencia copia de la última reposición
     // del local de origen, por si el modelo no los incluye en fromFirebase.
-    const base = snap.docs.map((d) => ({
+    const base = snap.docs.filter((d) => esMovimientoDeInventario(d.data())).map((d) => ({
       ...HistorialStockModel.fromFirebase(d.id, d.data()),
       ultimaReposicionFecha: d.data().ultimaReposicionFecha ?? null,
       ultimaReposicionVencimiento: d.data().ultimaReposicionVencimiento ?? null,
@@ -382,7 +387,7 @@ export function suscribirVencimientosProximos(local, callback) {
 
 /**
  * Suscripción en vivo a los movimientos de stock registrados HOY en un local
- * (cualquier tipo: reposición, transferencia, devolución).
+ * (reposición, transferencia, devolución, merma). El autoconsumo no cuenta: es parte de ventas.
  *
  * ⚠️ Combina 1 igualdad (local) + un rango (fecha) — también puede pedir
  * índice compuesto según tu proyecto.
@@ -404,7 +409,11 @@ export function suscribirMovimientosHoy(local, callback) {
 
   const col = collection(db, HISTORIAL_STOCK_COLLECTION);
   const alRecibir = (docs) => {
-    callback(docs.map((d) => HistorialStockModel.fromFirebase(d.id, d.data())));
+    callback(
+      docs
+        .filter((d) => esMovimientoDeInventario(d.data()))
+        .map((d) => HistorialStockModel.fromFirebase(d.id, d.data())),
+    );
   };
 
   return suscribirConRespaldo({

@@ -16,7 +16,7 @@
 
 import {
   doc, getDoc, updateDoc, setDoc, query, onSnapshot,
-  collection, runTransaction, serverTimestamp, where, orderBy, limit, getDocs, writeBatch,
+  collection, runTransaction, serverTimestamp, where, orderBy, limit, getDocs, writeBatch, arrayUnion,
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { db } from '../firebase';
@@ -82,6 +82,8 @@ export async function obtenerProductoLocal(local, idProducto) {
 
 // ─── Registrar un producto global dentro de este local ──────────────────────
 // stockActual siempre arranca en 0; stockMinimo y precioVenta vienen del form.
+// `form.oferta` (precio de oferta) es opcional: vacío o 0 = sin oferta definida. Sea cual sea,
+// la oferta nace DESACTIVADA (ofertaActiva: false): se activa después desde el detalle.
 // (Esto NO es un "movimiento de stock" — no genera historialStock.)
 export async function crearProductoEnLocal(local, idProducto, form) {
   if (!idProducto) {
@@ -91,6 +93,13 @@ export async function crearProductoEnLocal(local, idProducto, form) {
   }
 
   validarProductoLocal(form);
+
+  const precioOferta = esVacio(form.oferta) ? 0 : Number(form.oferta);
+  if (precioOferta > 0 && precioOferta >= Number(form.precioVenta)) {
+    const err = new Error('El precio de oferta debe ser menor al precio de venta');
+    err.errores = { oferta: 'El precio de oferta debe ser menor al precio de venta' };
+    throw err;
+  }
 
   const existente = await obtenerProductoLocal(local, idProducto);
   if (existente) {
@@ -105,6 +114,8 @@ export async function crearProductoEnLocal(local, idProducto, form) {
     stockMinimo: form.stockMinimo,
     precioVenta: form.precioVenta,
     activo: true,
+    oferta: precioOferta,
+    ofertaActiva: false,
     usoReceta: Boolean(form.usoReceta),
   });
 
@@ -228,6 +239,14 @@ export async function cambiarEstadoProductoLocal(local, idProducto, activo) {
   await updateDoc(ref, { activo, actualizadoEn: new Date().toISOString() });
 }
 
+// ─── Marcar / desmarcar "uso para receta" de un producto en este local ──────
+// true  = es ingrediente de recetas (no se muestra en caja).
+// false = no es ingrediente (queda disponible para la venta).
+export async function cambiarUsoRecetaProductoLocal(local, idProducto, usoReceta) {
+  const ref = doc(productosColRef(local), idProducto);
+  await updateDoc(ref, { usoReceta: Boolean(usoReceta), actualizadoEn: new Date().toISOString() });
+}
+
 // ─── Activar / desactivar la oferta de un producto en este local ────────────
 // Solo se puede activar si ya tiene un precio de oferta mayor a 0.
 export async function cambiarOfertaActivaProductoLocal(local, idProducto, ofertaActiva) {
@@ -318,6 +337,30 @@ export async function registrarMermaPorVencimiento(local, idProducto, opciones =
   });
 
   return resultado;
+}
+
+// ─── Proveedores que ya repusieron un producto (reconstrucción desde el historial) ──
+// Para productos anteriores al campo `idsProveedores`: lee SUS reposiciones en ESTE local, saca los
+// proveedores distintos y los guarda en el producto (uniéndolos con los que ya tuviera, por si
+// justo entró una reposición). Se hace una sola vez por producto: después el campo ya existe.
+// Solo usa filtros de igualdad, así que no pide índice compuesto.
+export async function sincronizarProveedoresDeProducto(local, idProducto) {
+  const snap = await getDocs(query(
+    historialStockColRef(),
+    where('local', '==', local),
+    where('idProducto', '==', idProducto),
+    where('tipoMovimiento', '==', 'reposicion'),
+  ));
+  const encontrados = [...new Set(snap.docs.map((d) => d.data().idProveedor).filter(Boolean))];
+
+  const ref = doc(productosColRef(local), idProducto);
+  await runTransaction(db, async (tx) => {
+    const actual = await tx.get(ref);
+    if (!actual.exists()) return;
+    const existentes = Array.isArray(actual.data().idsProveedores) ? actual.data().idsProveedores : [];
+    tx.update(ref, { idsProveedores: [...new Set([...existentes, ...encontrados])] });
+  });
+  return encontrados;
 }
 
 // ─── Suscripción en vivo a todos los productos de un local ─────────────────
@@ -574,7 +617,12 @@ async function ejecutarMovimientoLocalConHistorial({
 
     const stockNuevo = stockAnterior + cantidad; // reposición y devolución siempre suman
 
-    tx.update(ref, { stockActual: stockNuevo, actualizadoEn: new Date().toISOString() });
+    // Una reposición con proveedor deja vinculado a ese proveedor con el producto en este local
+    // (arrayUnion no duplica): de ahí salen las sugerencias de compra.
+    const vinculo = tipoMovimiento === 'reposicion' && idProveedor
+      ? { idsProveedores: arrayUnion(idProveedor) }
+      : {};
+    tx.update(ref, { stockActual: stockNuevo, actualizadoEn: new Date().toISOString(), ...vinculo });
 
     const historial = new HistorialStockModel({
       fecha: serverTimestamp(),

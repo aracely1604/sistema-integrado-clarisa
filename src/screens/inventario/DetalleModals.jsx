@@ -8,7 +8,7 @@ import {
   FiChevronRight, FiUsers, FiUserPlus, FiPlusCircle, FiImage,
 } from 'react-icons/fi';
 import { Badge, LocalChip, ToggleSwitch } from './InventarioShared';
-import { STOCK_DATA, LOCAL_LABELS, LOCAL_COLORS, DIAS, DIAS_SEMANA, HOY_IDX } from './inventarioData';
+import { LOCAL_LABELS, LOCAL_COLORS, DIAS, DIAS_SEMANA, HOY_IDX } from './inventarioData';
 import { getLevel, getPct, getVencLevel, formatearPrecio } from './inventarioHelpers';
 import {
   crearProveedorGlobal, actualizarProveedorGlobal,
@@ -19,7 +19,7 @@ import {
 import { getInitials } from '../../models/ProveedorModel';
 import {
   crearProductoGlobal, actualizarProductoGlobal, obtenerProductoPorCodigoBarra,
-  suscribirProductosGlobales,
+  suscribirProductosGlobales, validarNombreProducto, validarProducto,
 } from '../../controllers/ProductoControl';
 import {
   crearRecetaGlobal, actualizarRecetaGlobal, obtenerRecetasGlobales, existeNombreReceta,
@@ -29,11 +29,15 @@ import {
   validarReceta, esRecetaValida,
 } from '../../models/RecetaModel';
 import { validarImagen, TAMANO_MAX_MB } from '../../controllers/ImagenControl';
-import { CATEGORIAS, UNIDADES_MEDIDA, convertirBaseAIngreso } from './gestionProductosData';
+import { CATEGORIAS, UNIDADES_MEDIDA, convertirBaseAIngreso, unidadBaseDesdeUnidadMedida } from './gestionProductosData';
 import { useCategorias } from '../../controllers/useCategorias';
 import { agregarCategoria, validarNombreCategoria, normalizarCategoria } from '../../controllers/CategoriaControl';
 import { buscarProductoExterno, descargarImagenExterna, elegirCategoriaExterna } from '../../controllers/ProductoExternoControl';
-import { generarCodigoInterno, esCodigoInterno } from '../../controllers/CodigoInternoControl';
+import { esCodigoInterno, generarCodigoGranel } from '../../controllers/CodigoInternoControl'; // esCodigoInterno: códigos antiguos (EAN-13 que empiezan con 29)
+import {
+  normalizarCodigo, validarCodigoBarra, esCodigoGranel,
+} from './codigoBarraUtils';
+import RegistroEnLocalesFlujo from './RegistroEnLocalesFlujo';
 import { cambiarOfertaActivaProductoLocal, registrarMermaPorVencimiento } from '../../controllers/LocalProductoControl';
 import '../../css/DetalleModals.css';
 import '../../css/GestionProductos.css'; // marco de pantalla completa (gp-overlay, gp-topbar...)
@@ -604,16 +608,15 @@ export function ModalDetalleVencimiento({ item, onClose, onAviso }) {
 }
 
 // ─── Modal detalle de proveedor ──────────────────────────────────────────────
-export function ModalDetalleProveedor({ proveedor, onClose }) {
+// `stockSugerido` (opcional): productos EN ALERTA DE STOCK del local activo que este proveedor ya ha
+// repuesto, ya ordenados (sin stock → crítico → bajo), cada uno con `nivel` y `faltante`. Lo calcula
+// la vista de inventario con datos reales. Si no se pasa, no se muestra la sección de sugerencia.
+export function ModalDetalleProveedor({ proveedor, onClose, stockSugerido, localActivo }) {
   if (!proveedor) return null;
   const visitaHoy = proveedor.dias.includes(HOY_IDX);
 
-  const stockRecomendado = STOCK_DATA.filter(item =>
-    proveedor.locales.includes(item.local) && ['critical', 'out', 'low'].includes(getLevel(item))
-  ).sort((a, b) => {
-    const order = { out: 0, critical: 1, low: 2 };
-    return order[getLevel(a)] - order[getLevel(b)];
-  });
+  const mostrarSugerencia = stockSugerido !== undefined;
+  const stockRecomendado = stockSugerido ?? [];
 
   return (
     <div className="inv-modal-overlay" onClick={onClose}>
@@ -658,23 +661,28 @@ export function ModalDetalleProveedor({ proveedor, onClose }) {
             </div>
           )}
 
-          <p className="inv-modal-label" style={{ marginBottom: 10 }}>
+          {mostrarSugerencia && (
+          <>
+          <p className="inv-modal-label" style={{ marginBottom: 4 }}>
             SUGERENCIA DE COMPRA · {stockRecomendado.length} PRODUCTO{stockRecomendado.length !== 1 ? 'S' : ''}
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--c-textSecondary, #7F8C8D)', margin: '0 0 10px' }}>
+            Productos con stock bajo{localActivo ? ` en ${LOCAL_LABELS[localActivo] ?? localActivo}` : ''} que este proveedor ya ha repuesto.
           </p>
 
           {stockRecomendado.length === 0 ? (
             <div className="inv-modal-recom-empty">
               <FiCheckCircle size={20} color="#639922" />
-              <span>Sin stock crítico en los locales de este proveedor</span>
+              <span>Ningún producto de este proveedor tiene stock bajo</span>
             </div>
           ) : (
             <div className="inv-modal-recom-list">
               {stockRecomendado.map(item => {
-                const level       = getLevel(item);
+                const level       = item.nivel ?? getLevel(item);
                 const isCritical  = ['critical', 'out'].includes(level);
                 const accentColor = isCritical ? '#E24B4A' : '#BA7517';
                 const bgColor     = isCritical ? '#FCEBEB' : '#FAEEDA';
-                const faltante    = Math.max(0, item.min - item.qty);
+                const faltante    = item.faltante ?? Math.max(0, item.min - item.qty);
                 const badgeLabel  = level === 'out' ? 'Sin stock' : isCritical ? 'Crítico' : 'Stock bajo';
                 return (
                   <div key={item.id} className="inv-modal-recom-card" style={{ borderLeftColor: accentColor }}>
@@ -702,6 +710,8 @@ export function ModalDetalleProveedor({ proveedor, onClose }) {
                 );
               })}
             </div>
+          )}
+          </>
           )}
         </div>
       </div>
@@ -1618,7 +1628,8 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   const [paso, setPaso]                       = useState('codigo'); // 'codigo' | 'formulario'
   const [codigoInput, setCodigoInput]         = useState('');
   const [verificando, setVerificando]         = useState(false);
-  const [generando, setGenerando]             = useState(false);
+  const [modoGranel, setModoGranel]           = useState(false);  // producto a granel: el código GR-#### se asigna al guardar
+  const [productoCreado, setProductoCreado]   = useState(null);   // dispara el flujo "creado → locales → formularios"
   const [categoriaPropuesta, setCategoriaPropuesta] = useState(null); // { texto, id } → abre "Otra categoría"
   const [imagenExterna, setImagenExterna]   = useState(null);          // File sugerido por Open Food Facts
   const consultaRef = useRef(0);                                         // descarta imágenes de consultas viejas
@@ -1660,9 +1671,8 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     : productosOrdenados;
   const productoSeleccionado = listaGlobal.find(p => p.id === productoEditId) ?? null;
 
-  function limpiarCodigo(valor) {
-    return valor.replace(/\D/g, '');
-  }
+  // Acepta dígitos (códigos comerciales) o el formato interno GR-#### (productos a granel)
+  const limpiarCodigo = normalizarCodigo;
 
   function handleClose() {
     setTab('nuevo');
@@ -1670,6 +1680,8 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     ocultarExito();
     handleVolverALista();
     setPaso('codigo');
+    setModoGranel(false);
+    setProductoCreado(null);
     setCodigoInput('');
     setErrorCodigo('');
     setProductoExistente(null);
@@ -1707,23 +1719,24 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
     }
   }
 
-  const escanerActivo = visible && !verificando && !generando && (
+  const escanerActivo = visible && !verificando && !productoCreado && (
     (tab === 'nuevo' && paso === 'codigo')
     || (tab === 'editar' && !productoSeleccionado && productosOrdenados.length > 0)
   );
 
-  // Genera un código interno (EAN-13 que empieza con 29) para productos sin código de barras.
-  async function handleGenerarCodigo() {
+  // Producto a granel (kg / lt): no tiene código de barras. Se salta la verificación y se va
+  // directo al formulario; el código Code 128 "GR-0000" se asigna al guardar (así no se
+  // gastan números si el usuario cancela).
+  function handleRegistrarGranel() {
     setErrorCodigo('');
     setProductoExistente(null);
-    setGenerando(true);
-    try {
-      setCodigoInput(await generarCodigoInterno());
-    } catch (err) {
-      setErrorCodigo(err?.message ?? 'No se pudo generar el código. Intenta nuevamente.');
-    } finally {
-      setGenerando(false);
-    }
+    setModoGranel(true);
+    setForm({ ...FORM_INIT });
+    setImagenNueva(null);
+    setImagenExterna(null);
+    setCategoriaPropuesta(null);
+    setAvisoBusqueda({ tipo: 'granel', faltantes: [] });
+    setPaso('formulario');
   }
 
   function handleVerificar(e) {
@@ -1734,20 +1747,30 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   // Misma lógica que antes del botón "Verificar código", pero recibe el código
   // explícito (el estado aún no se actualizó cuando llega un escaneo).
   async function verificarCodigo(valor) {
-    const codigo = String(valor ?? '').trim();
-    if (!codigo) {
-      setErrorCodigo('Ingresa o escanea un código de barras');
-      return;
-    }
+    const codigo = normalizarCodigo(valor);
     setErrorCodigo('');
     setProductoExistente(null);
+    // 1) ¿Es un código válido? (formato y dígito verificador)
+    const validacion = validarCodigoBarra(codigo);
+    if (!validacion.valido) {
+      setErrorCodigo(validacion.motivo);
+      return;
+    }
     setVerificando(true);
     try {
+      // 2) ¿Ya existe?
       const existente = await obtenerProductoPorCodigoBarra(codigo);
       if (existente) {
         setProductoExistente(existente);
         return;
       }
+      // Los códigos GR-#### los asigna el sistema al registrar un producto a granel.
+      if (validacion.granel) {
+        setErrorCodigo('Los códigos GR-0000 los asigna el sistema. Usa “Registrar producto a granel” para crear uno nuevo.');
+        return;
+      }
+      // 3) Válido y no existe → recién ahora se pasa al formulario.
+      setModoGranel(false);
       // No está en el catálogo: se intenta autocompletar desde Open Food Facts.
       // Lo que no se encuentre queda en blanco, con un aviso, para ingresarlo a mano.
       const interno = esCodigoInterno(codigo);
@@ -1772,6 +1795,9 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
       const faltantes = ['nombre', 'categoria', 'unidadMedida']
         .filter((campo) => !nuevoForm[campo] && !(campo === 'categoria' && propuesta));
       setForm(prev => ({ ...prev, ...nuevoForm }));
+      // El nombre sugerido por Open Food Facts puede traer símbolos: se avisa para corregirlo
+      const errorNombreSugerido = nuevoForm.nombre ? validarNombreProducto(nuevoForm.nombre) : '';
+      setErrors(errorNombreSugerido ? { nombre: errorNombreSugerido } : {});
       setCategoriaPropuesta(propuesta);
       setImagenNueva(null);
       setImagenExterna(null);
@@ -1798,6 +1824,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   }
 
   function handleVolverACodigo() {
+    setModoGranel(false);
     setPaso('codigo');
     setAvisoBusqueda(null);
     setCategoriaPropuesta(null);
@@ -1808,10 +1835,30 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   async function handleGuardar(e) {
     e.preventDefault();
     setErrors({});
+    // A granel solo tiene sentido si se vende por kilo o litro
+    if (modoGranel && unidadBaseDesdeUnidadMedida(form.unidadMedida) === 'uds') {
+      setErrors({ unidadMedida: 'Un producto a granel se vende por kilo o por litro' });
+      return;
+    }
     setGuardando(true);
     try {
-      const creado = await crearProductoGlobal(form, imagenNueva);
-      onGuardado?.(creado);
+      let datos = form;
+      if (modoGranel) {
+        // Se valida todo ANTES de pedir el código, para no gastar un número GR si hay errores
+        validarProducto({ ...form, codigoBarra: 'GR-0000' });
+        // Contador en Firestore (transacción): dos personas nunca reciben el mismo GR-####
+        const codigo = await generarCodigoGranel();
+        datos = { ...form, codigoBarra: codigo };
+      }
+      const creado = await crearProductoGlobal(datos, imagenNueva);
+      // El flujo posterior necesita el id del producto: si el controller no lo devuelve, se busca por código
+      const completo = creado?.id ? creado : await obtenerProductoPorCodigoBarra(datos.codigoBarra);
+      onGuardado?.(completo);
+      setProductoCreado({
+        ...datos, ...(completo ?? {}),
+        codigoBarra: datos.codigoBarra,
+        esGranel: modoGranel || esCodigoGranel(datos.codigoBarra),
+      });
       setForm(FORM_INIT);
       setImagenNueva(null);
       setCodigoInput('');
@@ -1819,10 +1866,10 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
       setAvisoBusqueda(null);
       setCategoriaPropuesta(null);
       setImagenExterna(null);
+      setModoGranel(false);
       setPaso('codigo');
-      mostrarExito('Producto creado correctamente');
     } catch (err) {
-      setErrors(err?.errores ?? { general: 'No se pudo guardar el producto. Intenta nuevamente.' });
+      setErrors(err?.errores ?? { general: err?.message ?? 'No se pudo guardar el producto. Intenta nuevamente.' });
     } finally {
       setGuardando(false);
     }
@@ -1889,6 +1936,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
   if (!visible) return null;
 
   return (
+    <>
     <div className="inv-modal-overlay" onClick={handleClose}>
       <BarcodeScanner onScan={handleScan} enabled={escanerActivo} minLength={6} bloquearEnter />
       <div className="inv-modal-sheet inv-modal-sheet-tall" onClick={(e) => e.stopPropagation()}>
@@ -1940,16 +1988,17 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
             </p>
 
             <p className="inv-modal-hint-inline" style={{ textAlign: 'center', marginBottom: 12, display: 'block', color: '#8A6D1D' }}>
-              Productos a granel (kg o lt): no tienen código de barras. Genera uno propio con el botón.
+              Productos a granel (kg o lt): no tienen código de barras. Se les asigna uno propio
+              (Code 128, formato GR-0000) al guardarlos.
             </p>
             <button
               type="button"
               className="inv-modal-btn inv-modal-btn-secondary"
               style={{ width: '100%', marginBottom: 12 }}
-              onClick={handleGenerarCodigo}
-              disabled={generando || verificando}
+              onClick={handleRegistrarGranel}
+              disabled={verificando}
             >
-              {generando ? 'Generando...' : 'Generar código interno'}
+              Registrar producto a granel
             </button>
 
             <div className="inv-modal-formgroup">
@@ -1960,7 +2009,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                 className="inv-modal-input"
                 style={errorCodigo ? { borderColor: '#E24B4A' } : undefined}
                 type="text"
-                inputMode="numeric"
+                maxLength={16}
                 placeholder="Ej: 7891234560012"
                 ref={codigoInputRef}
                 value={codigoInput}
@@ -1987,6 +2036,11 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                   <p style={{ margin: 0, fontSize: 12, color: 'var(--c-textSecondary, #7F8C8D)' }}>
                     {productoExistente.nombre} · {productoExistente.categoria}
                   </p>
+                  {productoExistente.codigoBarra !== codigoInput && (
+                    <p style={{ margin: 0, fontSize: 12, color: 'var(--c-textSecondary, #7F8C8D)' }}>
+                      Guardado con el código {productoExistente.codigoBarra}
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -2019,19 +2073,35 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                 className="inv-modal-row"
                 style={{
                   gap: 10, padding: '10px 12px', borderRadius: 10, marginBottom: 12,
-                  border: `1px solid ${avisoBusqueda.tipo === 'encontrado' ? '#639922' : '#F2C94C'}`,
-                  background: avisoBusqueda.tipo === 'encontrado' ? 'rgba(99, 153, 34, 0.10)' : 'rgba(242, 201, 76, 0.12)',
+                  border: `1px solid ${['encontrado', 'granel'].includes(avisoBusqueda.tipo) ? '#639922' : '#F2C94C'}`,
+                  background: ['encontrado', 'granel'].includes(avisoBusqueda.tipo) ? 'rgba(99, 153, 34, 0.10)' : 'rgba(242, 201, 76, 0.12)',
                 }}
               >
-                {avisoBusqueda.tipo === 'encontrado'
+                {['encontrado', 'granel'].includes(avisoBusqueda.tipo)
                   ? <FiCheckCircle size={16} color="#639922" />
                   : <FiAlertTriangle size={16} color="#8A6D1D" />}
                 <p style={{ margin: 0, fontSize: 13 }}>
                   {avisoBusqueda.tipo === 'encontrado' && `Datos sugeridos desde ${avisoBusqueda.fuente}; la unidad de medida quedó en “Unidad”. `}
                   {avisoBusqueda.tipo === 'noEncontrado' && 'No se encontró información de este producto. Debes ingresar los datos manualmente. '}
+                  {avisoBusqueda.tipo === 'granel' && 'Producto a granel: el código Code 128 (GR-0000) se asigna automáticamente al guardar. '}
                   {avisoBusqueda.tipo === 'interno' && 'Código interno, de uso exclusivo de los locales. Ingresa los datos del producto manualmente. '}
                   {avisoBusqueda.tipo === 'error' && 'No se pudo consultar la base de datos de productos. Debes ingresar los datos manualmente. '}
                   <strong>Revisa que los datos estén correctos antes de guardar el producto.</strong>
+                </p>
+              </div>
+            )}
+
+            {!modoGranel && (
+              <div
+                className="inv-modal-row"
+                style={{
+                  gap: 10, padding: '10px 12px', borderRadius: 10, marginBottom: 12,
+                  border: '1px solid #639922', background: 'rgba(99, 153, 34, 0.10)',
+                }}
+              >
+                <FiCheckCircle size={16} color="#639922" />
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>
+                  Código válido y aún no registrado. Completa los datos del producto.
                 </p>
               </div>
             )}
@@ -2040,7 +2110,13 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
 
             <div className="inv-modal-formgroup">
               <label className="inv-modal-formlabel">Código de barras</label>
-              <input className="inv-modal-input" type="text" value={form.codigoBarra} disabled />
+              <input
+                className="inv-modal-input"
+                type="text"
+                value={modoGranel ? '' : form.codigoBarra}
+                placeholder={modoGranel ? 'GR-0000 (se asigna al guardar)' : ''}
+                disabled
+              />
             </div>
 
             <div className="inv-modal-formgroup">
@@ -2053,10 +2129,14 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                 type="text"
                 placeholder="Ej: Coca Cola 2.5 lts"
                 value={form.nombre}
-                onChange={(e) => setForm(prev => ({ ...prev, nombre: e.target.value }))}
+                onChange={(e) => {
+                  const valor = e.target.value;
+                  setForm(prev => ({ ...prev, nombre: valor }));
+                  setErrors(prev => ({ ...prev, nombre: valor.trim() ? (validarNombreProducto(valor) || undefined) : undefined }));
+                }}
               />
               <p className="inv-modal-hint-inline" style={{ marginTop: 4, display: 'block' }}>
-                Ingrese nombre del producto junto a su medida
+                Ingrese nombre del producto junto a su medida. Solo letras y números (ej: Coca Cola 2.5 lts)
               </p>
               {avisoBusqueda?.faltantes.includes('nombre') && !form.nombre.trim() && !errors.nombre && (
                 <p className="inv-modal-hint-inline" style={{ color: '#8A6D1D', marginTop: 4, display: 'block' }}>
@@ -2103,10 +2183,12 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                 Cómo se vende este producto: por unidad, por litro o por kilo
               </p>
               <p className="inv-modal-hint-inline" style={{ marginBottom: 6, display: 'block', color: '#8A6D1D' }}>
-                Los productos a granel (kg o lt) no traen código de barras: genera un código interno en el paso anterior.
+                Los productos a granel (kg o lt) no traen código de barras: usa “Registrar producto a granel” en el paso anterior.
               </p>
               <div className="inv-modal-row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                {UNIDADES_MEDIDA.map((u) => (
+                {UNIDADES_MEDIDA
+                  .filter((u) => !modoGranel || unidadBaseDesdeUnidadMedida(u.value) !== 'uds')
+                  .map((u) => (
                   <button
                     key={u.value}
                     type="button"
@@ -2178,7 +2260,7 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                   <input
                     className="inv-modal-input"
                     type="text"
-                    inputMode="numeric"
+                    maxLength={16}
                     placeholder="Ej: 7891234560012"
                     ref={busquedaInputRef}
                     value={busquedaCodigo}
@@ -2258,8 +2340,9 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
                 type="text"
                 value={editForm.nombre}
                 onChange={(e) => {
-                  setEditForm(prev => ({ ...prev, nombre: e.target.value }));
-                  setEditErrors(prev => ({ ...prev, nombre: undefined }));
+                  const valor = e.target.value;
+                  setEditForm(prev => ({ ...prev, nombre: valor }));
+                  setEditErrors(prev => ({ ...prev, nombre: valor.trim() ? (validarNombreProducto(valor) || undefined) : undefined }));
                 }}
               />
               {editErrors.nombre && <p className="inv-modal-errortext">{editErrors.nombre}</p>}
@@ -2321,6 +2404,12 @@ export function ModalRegistrarProductoGlobal({ visible, onClose, onGuardado }) {
         )}
       </div>
     </div>
+
+    {/* Producto creado → selección de locales → un formulario por local */}
+    {productoCreado && (
+      <RegistroEnLocalesFlujo producto={productoCreado} onTerminar={() => setProductoCreado(null)} />
+    )}
+    </>
   );
 }
 

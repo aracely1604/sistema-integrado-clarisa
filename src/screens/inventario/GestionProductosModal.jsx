@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useCategorias } from '../../controllers/useCategorias';
 import BarcodeScanner from '../../components/BarcodeScanner';
+import { normalizarCodigo } from './codigoBarraUtils';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../controllers/AuthContext';
 import {
@@ -11,15 +12,15 @@ import {
 } from './gestionProductosData';
 import {
   FiltroPickerModal, DetalleContenido, DetalleModal,
-  ActualizarStockModal, RegistrarModal, TransferirModal,
+  ActualizarStockModal, RegistrarModal, TransferirModal, AvisoFlotante,
 } from './GestionProductosForms';
 import {
   obtenerProductoPorCodigoBarra, suscribirProductosGlobales,
 } from '../../controllers/ProductoControl';
 import {
   crearProductoEnLocal, obtenerProductoLocal, suscribirProductosLocal,
-  actualizarProductoLocal, cambiarEstadoProductoLocal, cambiarOfertaActivaProductoLocal,
-  transferirProductoEntreLocales, registrarMovimientoStock,
+  actualizarProductoLocal, cambiarEstadoProductoLocal, cambiarOfertaActivaProductoLocal, cambiarUsoRecetaProductoLocal,
+  transferirProductoEntreLocales, registrarMovimientoStock, sincronizarProveedoresDeProducto,
 } from '../../controllers/LocalProductoControl';
 import { suscribirProveedoresPorLocal } from '../../controllers/ProveedorControl';
 import { suscribirUltimaReposicionProducto } from '../../controllers/HistorialStockControl';
@@ -112,6 +113,10 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   const [modalRegistrar, setModalRegistrar] = useState(false);
   const [modalTransferir, setModalTransferir] = useState(false);
 
+  // Mensaje final centrado con botón Aceptar: { tipo: 'exito' | 'error', titulo?, texto } o null
+  const [aviso, setAviso] = useState(null);
+  const mostrarAviso = (texto, tipo = 'exito', titulo) => setAviso({ texto, tipo, titulo });
+
   // Producto seleccionado
   const [productoActual, setProductoActual] = useState(null);
 
@@ -145,6 +150,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   const [productosGlobales, setProductosGlobales] = useState([]);
   const [regStockMinimo, setRegStockMinimo] = useState('');
   const [regPrecioVenta, setRegPrecioVenta] = useState('');
+  const [regPrecioOferta, setRegPrecioOferta] = useState('');
   const [regUsoReceta, setRegUsoReceta] = useState(false);
   const [regGuardando, setRegGuardando] = useState(false);
   const [regErrors, setRegErrors] = useState({});
@@ -194,6 +200,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       oferta: lp.oferta,
       ofertaActiva: lp.ofertaActiva,
       usoReceta: lp.usoReceta,
+      idsProveedores: lp.idsProveedores, // proveedores que ya repusieron este producto (null = sin reconstruir)
       ultima: lp.actualizadoEn ? new Date(lp.actualizadoEn).toLocaleDateString('es-CL') : '—',
       imagen: null,
     };
@@ -207,12 +214,15 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productos]);
 
-  // Cerrar con tecla Escape
+  // Cerrar con tecla Escape (si hay un aviso abierto, Escape cierra solo el aviso)
   useEffect(() => {
-    const onKeyDown = (e) => { if (e.key === 'Escape') onClose?.(); };
+    const onKeyDown = (e) => {
+      if (e.key !== 'Escape') return;
+      if (aviso) setAviso(null); else onClose?.();
+    };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [onClose, aviso]);
 
   // Si se solicitó desde afuera, abrir directo el formulario de registrar producto
   useEffect(() => {
@@ -225,6 +235,14 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
 
   // Producto encontrado en modal actualizar (para condicionar campos)
   const productoUpdCodigo = productos.find((p) => p.codigo === updCodigo.trim()) || null;
+
+  // Productos anteriores al campo `idsProveedores`: se reconstruye UNA vez desde su historial de
+  // reposiciones para poder mostrar arriba los proveedores sugeridos (el listado en vivo se actualiza solo).
+  useEffect(() => {
+    if (!modalActualizar || !productoUpdCodigo || productoUpdCodigo.idsProveedores !== null) return;
+    sincronizarProveedoresDeProducto(local, productoUpdCodigo.id)
+      .catch((error) => console.error('[proveedores] No se pudieron reconstruir los del producto:', error));
+  }, [modalActualizar, productoUpdCodigo?.id, productoUpdCodigo?.idsProveedores, local]);
 
   // Producto al que se le va a mover stock en el formulario abierto: el encontrado por
   // código ("Actualizar stock") o el del panel de detalle ("Transferir a otro local").
@@ -321,7 +339,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   //  · Detalle (móvil) / Transferir / filtros → se ignora
   //  · Pantalla principal → escribe el código en el buscador
   function manejarEscaneo(codigo) {
-    if (modalActualizar) { setUpdCodigo(codigo); return; }
+    if (modalActualizar) { setUpdCodigo(normalizarCodigo(codigo)); return; }
     if (modalRegistrar) {
       setRegCodigo(codigo);
       buscarProductoGlobalPorCodigo(codigo);
@@ -337,6 +355,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
     setRegProductoGlobal(null);
     setRegStockMinimo('');
     setRegPrecioVenta('');
+    setRegPrecioOferta('');
     setRegUsoReceta(false);
     setRegErrors({});
   }
@@ -422,12 +441,13 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       await crearProductoEnLocal(local, regProductoGlobal.id, {
         stockMinimo: convertirACantidadBase(regStockMinimo, unidadBase),
         precioVenta: regPrecioVenta,
+        oferta: regPrecioOferta,
         usoReceta: regUsoReceta,
       });
       const nombreCreado = regProductoGlobal.nombre;
       resetRegistrar();
       setModalRegistrar(false);
-      window.alert(`"${nombreCreado}" registrado en ${localLabel || 'este local'}`);
+      mostrarAviso(`"${nombreCreado}" se registró en ${localLabel || 'este local'}.`, 'exito', 'Producto registrado');
     } catch (err) {
       setRegErrors(err?.errores ?? { general: 'No se pudo guardar el producto. Intenta nuevamente.' });
     } finally {
@@ -442,11 +462,11 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   // escaneado/ingresado → idProducto, y el disparo de la llamada.
   async function confirmarActualizacion() {
     if (!updCodigo.trim()) {
-      window.alert('Ingresa o escanea un código de barras');
+      mostrarAviso('Ingresa o escanea un código de barras.', 'error', 'Falta el código');
       return;
     }
     if (!productoUpdCodigo) {
-      window.alert('No se encontró un producto con ese código en este local');
+      mostrarAviso('No se encontró un producto con ese código en este local.', 'error', 'Producto no encontrado');
       return;
     }
     setUpdErrors({});
@@ -472,7 +492,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       });
       resetActualizar();
       setModalActualizar(false);
-      window.alert('Movimiento de stock registrado correctamente');
+      mostrarAviso('El movimiento de stock se registró correctamente.', 'exito', 'Movimiento registrado');
     } catch (err) {
       setUpdErrors(err?.errores ?? { general: 'No se pudo registrar el movimiento. Intenta nuevamente.' });
     } finally {
@@ -487,7 +507,18 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       await cambiarEstadoProductoLocal(local, productoActual.id, nuevoActivo);
       setProductoActual((prev) => (prev ? { ...prev, activo: nuevoActivo } : prev));
     } catch (err) {
-      window.alert('No se pudo actualizar el estado. Intenta nuevamente.');
+      mostrarAviso('No se pudo actualizar el estado. Intenta nuevamente.', 'error', 'No se pudo actualizar');
+    }
+  }
+
+  async function toggleUsoReceta() {
+    if (!productoActual) return;
+    const nuevoUso = !productoActual.usoReceta;
+    try {
+      await cambiarUsoRecetaProductoLocal(local, productoActual.id, nuevoUso);
+      setProductoActual((prev) => (prev ? { ...prev, usoReceta: nuevoUso } : prev));
+    } catch (err) {
+      mostrarAviso('No se pudo actualizar el uso para receta. Intenta nuevamente.', 'error', 'No se pudo actualizar');
     }
   }
 
@@ -498,7 +529,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       await cambiarOfertaActivaProductoLocal(local, productoActual.id, nuevaOfertaActiva);
       setProductoActual((prev) => (prev ? { ...prev, ofertaActiva: nuevaOfertaActiva } : prev));
     } catch (err) {
-      window.alert(err?.errores?.general ?? 'No se pudo actualizar la oferta. Intenta nuevamente.');
+      mostrarAviso(err?.errores?.general ?? 'No se pudo actualizar la oferta. Intenta nuevamente.', 'error', 'No se pudo actualizar');
     }
   }
 
@@ -538,7 +569,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
       const destinoLabel = LOCAL_LABELS?.[transLocal] ?? transLocal;
       resetTransferencia();
       setModalTransferir(false);
-      window.alert(`Transferencia realizada — ${formatStock(convertirACantidadBase(cant, unidadBase), unidadBase)} enviados a "${destinoLabel}"`);
+      mostrarAviso(`${formatStock(convertirACantidadBase(cant, unidadBase), unidadBase)} enviados a "${destinoLabel}".`, 'exito', 'Transferencia realizada');
     } catch (err) {
       setTransErrors(err?.errores ?? { general: 'No se pudo realizar la transferencia. Intenta nuevamente.' });
     } finally {
@@ -563,7 +594,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
   return (
     <div className="gp-overlay" style={themeVars}>
 
-      <BarcodeScanner onScan={manejarEscaneo} minLength={6} bloquearEnter />
+      <BarcodeScanner onScan={manejarEscaneo} enabled={!aviso} minLength={6} bloquearEnter />
 
       {/* Header */}
       <div className="gp-topbar">
@@ -699,6 +730,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
                   onTransferir={() => setModalTransferir(true)}
                   onToggleActivo={toggleActivo}
                   onToggleOferta={toggleOferta}
+                  onToggleUsoReceta={toggleUsoReceta}
                   local={local}
                 />
               </>
@@ -743,6 +775,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         onTransferir={() => setModalTransferir(true)}
         onToggleActivo={toggleActivo}
         onToggleOferta={toggleOferta}
+        onToggleUsoReceta={toggleUsoReceta}
         local={local}
       />
 
@@ -783,6 +816,7 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         onSeleccionarGlobal={seleccionarProductoGlobal}
         stockMinimo={regStockMinimo} setStockMinimo={setRegStockMinimo}
         precioVenta={regPrecioVenta} setPrecioVenta={setRegPrecioVenta}
+        precioOferta={regPrecioOferta} setPrecioOferta={setRegPrecioOferta}
         usoReceta={regUsoReceta} setUsoReceta={setRegUsoReceta}
         guardando={regGuardando}
         errors={regErrors}
@@ -804,6 +838,10 @@ export default function GestionProductosModal({ onClose, local, localLabel, auto
         guardando={transGuardando}
         errors={transErrors}
       />
+
+
+      {/* ── Aviso final centrado (reemplaza a window.alert) ─────────────────── */}
+      <AvisoFlotante aviso={aviso} onAceptar={() => setAviso(null)} />
 
     </div>
   );

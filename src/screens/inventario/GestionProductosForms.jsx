@@ -5,13 +5,14 @@ import {
   convertirBaseAIngreso, convertirACantidadBase,
 } from './gestionProductosData';
 import CampoFechaVencimiento from './CampoFechaVencimiento';
+import { normalizarCodigo } from './codigoBarraUtils';
 import {
   suscribirHistorialProductoLocal, suscribirModificacionesProducto, suscribirUltimaReposicionProducto,
 } from '../../controllers/HistorialStockControl';
 
 // ─── Campo de formulario reutilizable ────────────────────────────────────────
 
-export function FormField({ label, value, onChangeText, placeholder, type = 'text' }) {
+export function FormField({ label, value, onChangeText, placeholder, type = 'text', maxLength }) {
   return (
     <div className="gp-form-group">
       <label className="gp-form-label">{label}</label>
@@ -21,6 +22,7 @@ export function FormField({ label, value, onChangeText, placeholder, type = 'tex
         value={value}
         onChange={(e) => onChangeText(e.target.value)}
         placeholder={placeholder}
+        maxLength={maxLength}
         autoCapitalize="none"
       />
     </div>
@@ -45,6 +47,63 @@ function ModalShell({ isDesktop, onClose, title, children, showHandle = true }) 
           <button className="gp-sheet-close" onClick={onClose} aria-label="Cerrar">✕</button>
         </div>
         <div className="gp-sheet-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Aviso flotante centrado (reemplaza a window.alert) ─────────────────────
+// aviso: { tipo: 'exito' | 'error', titulo?: string, texto: string } o null.
+// Usa las variables --gp-* del contenedor de Gestión de productos (con respaldo).
+export function AvisoFlotante({ aviso, onAceptar }) {
+  if (!aviso) return null;
+  const esError = aviso.tipo === 'error';
+  const color = esError ? '#E24B4A' : '#639922';
+  const titulo = aviso.titulo ?? (esError ? 'No se pudo completar' : 'Listo');
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 5000, padding: 20,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0, 0, 0, 0.5)',
+      }}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={titulo}
+        style={{
+          width: '100%', maxWidth: 400, boxSizing: 'border-box', padding: 24, textAlign: 'center',
+          borderRadius: 18, background: 'var(--gp-surface, #fff)', color: 'var(--gp-text-primary, #1B1B1B)',
+          border: '1px solid var(--gp-border, #E4E2DD)', boxShadow: '0 24px 60px rgba(0, 0, 0, 0.35)',
+        }}
+      >
+        <div
+          style={{
+            width: 52, height: 52, margin: '0 auto 12px', borderRadius: '50%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 26, fontWeight: 700, color: '#fff', background: color,
+          }}
+        >
+          {esError ? '!' : '✓'}
+        </div>
+        <p style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 700 }}>{titulo}</p>
+        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.45, color: 'var(--gp-text-secondary, #5F6B6C)' }}>
+          {aviso.texto}
+        </p>
+        <button
+          type="button"
+          autoFocus
+          onClick={onAceptar}
+          style={{
+            width: '100%', marginTop: 20, padding: '13px 16px', fontSize: 14, fontWeight: 600,
+            borderRadius: 12, cursor: 'pointer',
+            border: '1.5px solid var(--gp-btn-bg, #1B1B1B)',
+            background: 'var(--gp-btn-bg, #1B1B1B)', color: 'var(--gp-btn-text, #fff)',
+          }}
+        >
+          Aceptar
+        </button>
       </div>
     </div>
   );
@@ -117,7 +176,7 @@ function StatEditable({ label, value, editando, cambiado, draft, setDraft, onTog
 
 // ─── Contenido de detalle (compartido entre panel desktop y modal móvil) ────
 
-export function DetalleContenido({ producto, onActualizar, onTransferir, onToggleActivo, onToggleOferta, local }) {
+export function DetalleContenido({ producto, onActualizar, onTransferir, onToggleActivo, onToggleOferta, onToggleUsoReceta, local }) {
   // Estado de edición rápida (stock mínimo y precio). Los hooks van antes de
   // cualquier return para respetar las reglas de React.
   const [editMinimo, setEditMinimo] = useState(false);
@@ -343,6 +402,28 @@ export function DetalleContenido({ producto, onActualizar, onTransferir, onToggl
             onClick={onToggleOferta}
             disabled={!producto.ofertaActiva && !tieneOferta}
             aria-label="Alternar oferta activa"
+          >
+            <span className="gp-switch-thumb" />
+          </button>
+        </div>
+      </div>
+
+      {/* Switch de uso para receta: ingrediente de recetas (no se muestra en caja) */}
+      <div className="gp-info-block">
+        <div className="gp-info-row">
+          <div style={{ flex: 1 }}>
+            <div className="gp-info-key">Uso para receta</div>
+            <div className="gp-stat-sub" style={{ marginTop: 2 }}>
+              {producto.usoReceta
+                ? 'Ingrediente de recetas: no se muestra en caja'
+                : 'No es ingrediente: disponible para la venta en caja'}
+            </div>
+          </div>
+          <button
+            className={`gp-switch-track ${producto.usoReceta ? 'gp-switch-on' : 'gp-switch-off'}`}
+            onClick={onToggleUsoReceta}
+            disabled={!onToggleUsoReceta}
+            aria-label="Alternar uso para receta"
           >
             <span className="gp-switch-thumb" />
           </button>
@@ -692,7 +773,7 @@ function DetalleRow({ k, v }) {
 
 // ─── Modal: Detalle (solo se usa en layout móvil, en desktop va en el panel) ─
 
-export function DetalleModal({ isDesktop, visible, producto, onClose, onActualizar, onTransferir, onToggleActivo, onToggleOferta, local }) {
+export function DetalleModal({ isDesktop, visible, producto, onClose, onActualizar, onTransferir, onToggleActivo, onToggleOferta, onToggleUsoReceta, local }) {
   if (isDesktop || !visible) return null;
   return (
     <ModalShell isDesktop={false} onClose={onClose} title={producto?.nombre || ''}>
@@ -702,6 +783,7 @@ export function DetalleModal({ isDesktop, visible, producto, onClose, onActualiz
         onTransferir={onTransferir}
         onToggleActivo={onToggleActivo}
         onToggleOferta={onToggleOferta}
+        onToggleUsoReceta={onToggleUsoReceta}
         local={local}
       />
     </ModalShell>
@@ -729,6 +811,34 @@ const ESTILO_AVISO = {
   rojo:  { background: '#FCEBEB', border: '1px solid #F5A6A6', color: '#791F1F' },
   ambar: { background: '#FAEEDA', border: '1px solid #FAC775', color: '#633806' },
 };
+
+// Producto de "Uso para receta": si viene en paquetes, la Cantidad a ingresar es lo que trae
+// cada paquete × los paquetes que se ingresan. Se avisa que se puede ignorar cuando no aplica
+// (ej.: un producto que ya se compra por kilo o litro suelto).
+function AvisoStockReceta({ esFraccionable, etiqueta }) {
+  return (
+    <div
+      role="note"
+      style={{
+        ...ESTILO_AVISO.ambar,
+        borderRadius: 10, padding: '10px 12px', fontSize: 13, lineHeight: 1.4, marginBottom: 12,
+      }}
+    >
+      <strong>Producto de uso para recetas.</strong>{' '}
+      Si viene en paquetes, la <strong>Cantidad</strong> a ingresar debe ser lo que trae cada paquete{' '}
+      <strong>×</strong> el número de paquetes.
+      <div style={{ marginTop: 4 }}>
+        {esFraccionable
+          ? <>Ej.: bolsas de 2 {etiqueta} y compraste 5 → ingresa <strong>10</strong> (2 × 5).</>
+          : <>Ej.: salchichas en paquete de 12 unidades y compraste 5 paquetes → ingresa <strong>60</strong> (12 × 5).</>}
+      </div>
+      <div style={{ marginTop: 4, fontStyle: 'italic' }}>
+        Ignora este mensaje si no es necesario: por ejemplo, si el producto ya se compra
+        {esFraccionable ? ` por ${etiqueta} suelto (como tomate o papa)` : ' por unidad suelta, sin paquetes'}.
+      </div>
+    </div>
+  );
+}
 
 // Recomendación (no bloquea) al reponer un producto que va a vencer y aún tiene stock.
 function AvisoRecomendacion({ bloqueo, producto }) {
@@ -817,7 +927,16 @@ export function ActualizarStockModal({
 
         <div className="gp-or-divider">— o ingresa manualmente —</div>
 
-        <FormField label="Código de barras" value={codigo} onChangeText={setCodigo} placeholder="Ej: 7891234560012" type="text" />
+        {/* Mismas restricciones que el código de barras de "Registrar producto": máx. 16 caracteres,
+            solo dígitos o el formato interno GR-#### (normalizarCodigo) */}
+        <FormField
+          label="Código de barras"
+          value={codigo}
+          onChangeText={(v) => setCodigo(normalizarCodigo(v))}
+          placeholder="Ej: 7891234560012"
+          type="text"
+          maxLength={16}
+        />
 
         {productoEncontrado && (
           <div className="gp-found-box">
@@ -861,6 +980,10 @@ export function ActualizarStockModal({
           />
         )}
 
+        {productoEncontrado?.usoReceta === true && (
+          <AvisoStockReceta esFraccionable={esFraccionable} etiqueta={etiqueta} />
+        )}
+
         <FormField
           label={`Cantidad (${etiqueta})`}
           value={cantidad}
@@ -879,9 +1002,24 @@ export function ActualizarStockModal({
               <label className="gp-form-label">Proveedor *</label>
               <select className="gp-form-input" value={proveedorId} onChange={(e) => setProveedorId(e.target.value)}>
                 <option value="">Selecciona un proveedor...</option>
-                {proveedores.map((p) => (
-                  <option key={p.id} value={p.id}>{p.nombre}</option>
-                ))}
+                {(() => {
+                  // Arriba, los proveedores que ya repusieron ESTE producto en este local; abajo, el resto.
+                  const idsSugeridos = new Set(productoEncontrado?.idsProveedores ?? []);
+                  const porNombre = (a, b) => a.nombre.localeCompare(b.nombre, 'es');
+                  const sugeridos = proveedores.filter((p) => idsSugeridos.has(p.id)).sort(porNombre);
+                  const otros = proveedores.filter((p) => !idsSugeridos.has(p.id)).sort(porNombre);
+                  const opcion = (p) => <option key={p.id} value={p.id}>{p.nombre}</option>;
+                  return (
+                    <>
+                      {sugeridos.length > 0 && (
+                        <optgroup label="Sugeridos · ya repusieron este producto">{sugeridos.map(opcion)}</optgroup>
+                      )}
+                      {otros.length > 0 && (
+                        <optgroup label={sugeridos.length > 0 ? 'Otros proveedores' : 'Proveedores'}>{otros.map(opcion)}</optgroup>
+                      )}
+                    </>
+                  );
+                })()}
               </select>
               {errors.proveedorId && <p style={{ color: '#E24B4A', fontSize: 12 }}>{errors.proveedorId}</p>}
             </div>
@@ -961,6 +1099,7 @@ export function RegistrarModal({
   codigo, setCodigo, onBuscarCodigo, buscando, errorBusqueda,
   productoGlobal, productosGlobales, onSeleccionarGlobal,
   stockMinimo, setStockMinimo, precioVenta, setPrecioVenta,
+  precioOferta = '', setPrecioOferta,
   usoReceta = false, setUsoReceta,
   guardando, errors = {},
 }) {
@@ -984,7 +1123,11 @@ export function RegistrarModal({
               style={{ flex: 1 }}
               type="text"
               value={codigo}
-              onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))}
+              onChange={(e) => {
+                // dígitos (comerciales) o formato GR-0000 (a granel)
+                const v = e.target.value.toUpperCase();
+                setCodigo(v.startsWith('G') ? v.replace(/[^GR\d-]/g, '') : v.replace(/\D/g, ''));
+              }}
               placeholder="Ej: 7891234560012"
             />
             <button
@@ -1056,6 +1199,21 @@ export function RegistrarModal({
               />
             {errors.precioVenta && (
               <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.precioVenta}</p>
+            )}
+
+            <FormField
+              label={`${esFraccionable ? `Precio de oferta por ${etiqueta} ($)` : 'Precio de oferta ($)'} (opcional)`}
+              value={precioOferta}
+              onChangeText={(v) => setPrecioOferta?.(v.replace(/\D/g, ''))}
+              placeholder="Ej: 990"
+              type="number"
+            />
+            {errors.oferta ? (
+              <p style={{ color: '#E24B4A', fontSize: 12, marginTop: -10, marginBottom: 10 }}>{errors.oferta}</p>
+            ) : (
+              <p className="gp-scan-sub" style={{ marginTop: -6, marginBottom: 10 }}>
+                Opcional: podrás definirlo y activarlo más adelante desde el detalle del producto. La oferta queda desactivada.
+              </p>
             )}
 
             <label

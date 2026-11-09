@@ -15,7 +15,8 @@ export const LOCALES_VALIDOS = ['cafeteria', 'almacen', 'comidaRapida'];
 export const LOCAL_POR_DEFECTO = 'comidaRapida';
 
 // Nombres de las subcolecciones que cuelgan de cada local (fuera de los turnos).
-export const COLECCIONES_LOCAL = ['proveedores', 'productos', 'recetas', 'ventas'];
+// (Las ventas NO cuelgan del local: viven solo en la colección raíz `ventas`, con el campo `local`.)
+export const COLECCIONES_LOCAL = ['proveedores', 'productos', 'recetas'];
 
 
 // Validaciones
@@ -80,11 +81,6 @@ export function modificacionesProductoColRef(local, idProducto) {
 /** Ref a las recetas de un local: locales/{local}/recetas */
 export function recetasColRef(local) {
   return coleccionLocalRef(local, 'recetas');
-}
-
-/** Ref a las ventas de un local: locales/{local}/ventas */
-export function ventasColRef(local) {
-  return coleccionLocalRef(local, 'ventas');
 }
 
 // Modelos

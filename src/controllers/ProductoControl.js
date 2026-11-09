@@ -18,9 +18,24 @@ import { subirImagen, eliminarImagen, exigirImagenValida } from './ImagenControl
 const COLECCION = 'productos';
 
 // ─── Validación ──────────────────────────────────────────────────────────────
-function validarProducto({ nombre, categoria, codigoBarra, unidadMedida }) {
+// Nombre: solo letras y números (con espacios). Se permite el punto o la coma decimal
+// entre dos números ("Coca Cola 2.5 lts"). No puede ser solo números ni llevar
+// caracteres especiales. Devuelve el mensaje de error, o '' si el nombre es válido.
+export function validarNombreProducto(nombre) {
+  const n = String(nombre ?? '').trim();
+  if (!n) return 'El nombre es obligatorio';
+  const sinDecimales = n.replace(/(\d)[.,](?=\d)/g, '$1');
+  if (/[^\p{L}\p{N} ]/u.test(sinDecimales)) {
+    return 'El nombre solo puede tener letras y números, sin caracteres especiales';
+  }
+  if (!/\p{L}/u.test(n)) return 'El nombre debe incluir letras: no puede ser solo números';
+  return '';
+}
+
+export function validarProducto({ nombre, categoria, codigoBarra, unidadMedida }) {
   const errores = {};
-  if (!nombre || !nombre.trim()) errores.nombre = 'El nombre es obligatorio';
+  const errorNombre = validarNombreProducto(nombre);
+  if (errorNombre) errores.nombre = errorNombre;
   if (!categoria) errores.categoria = 'Selecciona una categoría';
   if (!codigoBarra || !codigoBarra.trim()) errores.codigoBarra = 'El código de barras es obligatorio';
   if (!unidadMedida) errores.unidadMedida = 'Selecciona una unidad de medida';
@@ -32,14 +47,43 @@ function validarProducto({ nombre, categoria, codigoBarra, unidadMedida }) {
   }
 }
 
+// ─── Variantes de un mismo código ───────────────────────────────────────────
+// Hay lectores que omiten el último dígito (verificador) del EAN-13, así que un mismo
+// producto puede estar guardado con 12 o con 13 dígitos. Para que "ya existe" no dependa de
+// cómo se leyó el código, se busca por todas sus formas equivalentes:
+//  · 12 dígitos  → el mismo, con su verificador EAN-13, y con un 0 delante (UPC-A)
+//  · 13 dígitos  → el mismo, sin el verificador (si es válido) y sin el 0 inicial (UPC-A)
+function digitoVerificadorEan13(doce) {
+  let suma = 0;
+  for (let i = 0; i < 12; i += 1) suma += Number(doce[i]) * (i % 2 === 0 ? 1 : 3);
+  return (10 - (suma % 10)) % 10;
+}
+
+export function variantesCodigoBarra(codigo) {
+  const c = String(codigo ?? '').trim();
+  const variantes = new Set([c]);
+  if (/^\d{12}$/.test(c)) {
+    variantes.add(c + digitoVerificadorEan13(c));
+    variantes.add(`0${c}`);
+  } else if (/^\d{13}$/.test(c)) {
+    if (digitoVerificadorEan13(c.slice(0, 12)) === Number(c[12])) variantes.add(c.slice(0, 12));
+    if (c[0] === '0') variantes.add(c.slice(1));
+  }
+  return [...variantes];
+}
+
 // ─── Buscar por código de barras ────────────────────────────────────────────
 // Se usa ANTES de registrar: al leer/ingresar el código (pistola o manual),
 // primero se verifica si el producto ya existe en el nodo global.
+// Considera las variantes del código (con/sin dígito verificador), ver arriba.
 export async function obtenerProductoPorCodigoBarra(codigoBarra) {
   const codigo = (codigoBarra ?? '').trim();
   if (!codigo) return null;
 
-  const q = query(collection(db, COLECCION), where('codigoBarra', '==', codigo));
+  const variantes = variantesCodigoBarra(codigo);
+  const q = variantes.length === 1
+    ? query(collection(db, COLECCION), where('codigoBarra', '==', codigo))
+    : query(collection(db, COLECCION), where('codigoBarra', 'in', variantes));
   const snap = await getDocs(q);
   if (snap.empty) return null;
 

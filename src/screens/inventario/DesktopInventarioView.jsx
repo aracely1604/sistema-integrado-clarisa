@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { FiChevronDown, FiCheckCircle, FiInbox } from 'react-icons/fi';
+import { FiChevronDown, FiCheckCircle, FiInbox, FiTruck } from 'react-icons/fi';
 
 import { LOCAL_LABELS, HOY_IDX } from './inventarioData';
 import { getLevel, getVencLevel, nextVisitOffset, formatearPrecioCorto } from './inventarioHelpers';
+import { calcularSugerenciasCompra, textoProximaVisita } from '../../models/SugerenciaCompraModel';
 
 import { Badge } from './InventarioShared';
 import {
@@ -17,6 +18,33 @@ import {
 } from './DetalleModals';
 
 import '../../css/DesktopInventarioView.css';
+
+// Línea bajo cada producto en alerta de stock: a qué proveedor se le puede comprar y cuándo visita.
+function LineaSugerenciaCompra({ sugerencia }) {
+  const { mejor, proveedores } = sugerencia;
+  const base = {
+    display: 'flex', alignItems: 'center', gap: 6, fontSize: 12,
+    padding: '2px 10px 8px', color: 'var(--c-textSecondary, #7F8C8D)',
+  };
+  if (!mejor) {
+    return (
+      <div style={base}>
+        <FiTruck size={12} />
+        <span>Sin proveedor conocido para este producto</span>
+      </div>
+    );
+  }
+  const visitaHoy = mejor.diasHasta === 0;
+  return (
+    <div style={{ ...base, color: visitaHoy ? '#633806' : base.color, fontWeight: visitaHoy ? 600 : 400 }}>
+      <FiTruck size={12} />
+      <span>
+        Comprar a <b>{mejor.nombre}</b> · visita {textoProximaVisita(mejor.diasHasta)}
+        {proveedores.length > 1 ? ` (+${proveedores.length - 1} más)` : ''}
+      </span>
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VISTA DESKTOP · MODO INVENTARIO
@@ -77,22 +105,39 @@ export default function DesktopInventarioView({
   // eliminar su stock) o por vencer (solo se recomienda priorizar su venta al reponer).
   const vencPorId = new Map(vencLocal.map(i => [i.id, i]));
 
+  // ── Sugerencia de compra ──
+  // Productos en alerta de stock (menos los ya vencidos: primero hay que dar de baja su stock) →
+  // proveedores ACTIVOS de este local que ya los repusieron, con su próxima visita.
+  const alertasStock = [...criticos, ...bajos]
+    .filter((i) => {
+      const venc = vencPorId.get(i.id);
+      return !(venc && getVencLevel(venc.vence) === 'expired');
+    })
+    .map((i) => ({ ...i, nivel: getLevel(i) }));
+  const sugerencias = calcularSugerenciasCompra({ alertas: alertasStock, proveedores: provLocal, hoyIdx: HOY_IDX });
+
   // Ítem del modal de detalle de stock, en vivo y con su vencimiento (si lo tiene), para que
   // el modal muestre la recomendación o el aviso de reposición no disponible.
   const itemStockModal = modalStock
     ? { ...(stockLocal.find(i => i.id === modalStock.id) ?? modalStock), venc: vencPorId.get(modalStock.id) ?? null }
     : null;
   const renderAlertaStock = (item) => {
-    const card = <StockAlertCard item={item} onVerDetalle={setModalStock} compact />;
+    const sugerencia = sugerencias.porProducto.get(item.id);
+    const contenido = (
+      <>
+        <StockAlertCard item={item} onVerDetalle={setModalStock} compact />
+        {sugerencia && <LineaSugerenciaCompra sugerencia={sugerencia} />}
+      </>
+    );
     const venc = vencPorId.get(item.id);
-    if (!venc) return <div key={item.id}>{card}</div>;
+    if (!venc) return <div key={item.id}>{contenido}</div>;
     return (
       <FilaStockConVencimiento
         key={item.id}
         vencido={getVencLevel(venc.vence) === 'expired'}
         onAbrir={() => setModalStock(item)}
       >
-        {card}
+        {contenido}
       </FilaStockConVencimiento>
     );
   };
@@ -346,6 +391,9 @@ export default function DesktopInventarioView({
                   <span className="div-kpi-prov-empresa">{p.empresa}</span>
                   <span className="div-kpi-prov-hint">Presiona para mas información</span>
                 </span>
+                {(sugerencias.porProveedor.get(p.id)?.length ?? 0) > 0 && (
+                  <Badge label={`${sugerencias.porProveedor.get(p.id).length} por pedir`} level="low" />
+                )}
               </button>
             ))
         }
@@ -379,7 +427,12 @@ export default function DesktopInventarioView({
         queda "detrás" al abrirse desde ahí. Al ir al final, siempre se
         pinta por encima sin importar desde qué lista/tarjeta se abrió.
       */}
-      <ModalDetalleProveedor proveedor={modalProv} onClose={() => setModalProv(null)} />
+      <ModalDetalleProveedor
+        proveedor={modalProv}
+        onClose={() => setModalProv(null)}
+        localActivo={activeLocal}
+        stockSugerido={modalProv ? (sugerencias.porProveedor.get(modalProv.id) ?? []) : undefined}
+      />
     </>
   );
 }
