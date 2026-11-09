@@ -1,3 +1,5 @@
+import { unidadBaseDesdeUnidadMedida, convertirACantidadBase } from './UnidadesMedidaModel';
+
 // ─── Model: Asignación de receta global a un local ─────────────────────────
 // Cada local, para cada receta global, define ÚNICAMENTE:
 //   - qué producto de su propio inventario representa cada ingrediente,
@@ -100,17 +102,34 @@ export function filtrarProductosPorIngrediente(productos, nombreIngrediente) {
 // ej., el mismo producto "Papas fritas 1kg" a dos ingredientes distintos).
 // Si el filtro por nombre no encuentra nada, cae de vuelta a mostrar todos
 // los productos no-ya-usados, para no dejar al usuario sin opciones.
+//
+// Solo se consideran productos marcados como "Uso para receta" (usoReceta === true):
+// los que se venden en caja y no son ingrediente nunca aparecen acá.
 export function productosDisponiblesParaIngrediente(productos, ingrediente, asignacion) {
+  const productosDeReceta = productos.filter((p) => p.usoReceta === true);
+
   const idsUsadosEnOtros = new Set(
     (asignacion.ingredientes ?? [])
       .filter((a) => a.idIngredienteGlobal !== ingrediente.id && a.idProductoLocal)
       .map((a) => a.idProductoLocal)
   );
 
-  const noUsados = productos.filter((p) => !idsUsadosEnOtros.has(p.id));
+  const noUsados = productosDeReceta.filter((p) => !idsUsadosEnOtros.has(p.id));
   const filtradosPorNombre = filtrarProductosPorIngrediente(noUsados, ingrediente.nombre);
 
   return filtradosPorNombre.length > 0 ? filtradosPorNombre : noUsados;
+}
+
+// ─── Cantidad de un ingrediente en unidad base ──────────────────────────────
+// El stock de los productos está SIEMPRE en unidad base (g / ml / uds). Los ingredientes
+// de receta se definen en g, ml o unidad (RecetaModel), o sea que ya vienen en base.
+// Si alguna vez llegara una unidad de compra ('kilogramos' / 'litros'), se convierte con
+// el MISMO conversor que usan los productos (UnidadesMedidaModel), sin duplicar la regla.
+export function cantidadIngredienteEnBase(cantidad, unidadMedida) {
+  if (unidadMedida === 'kilogramos' || unidadMedida === 'litros') {
+    return convertirACantidadBase(cantidad, unidadBaseDesdeUnidadMedida(unidadMedida));
+  }
+  return Number(cantidad) || 0;
 }
 
 // ─── Estimación de producción según el stock actual ─────────────────────────
@@ -123,8 +142,9 @@ export function productosDisponiblesParaIngrediente(productos, ingrediente, asig
 // 0 unidades posibles para ESE ingrediente (bloquea toda la receta), pero
 // se marca con `sinAsignar: true` para que la UI pueda explicar por qué.
 //
-// Nota: asume que la unidad del producto asignado coincide con la unidad
-// declarada en el ingrediente (g/ml/unidad) — no hace conversión de unidades.
+// Unidades: el stock del producto está en unidad base (g / ml / uds) y la cantidad del
+// ingrediente se lleva a esa misma base con `cantidadIngredienteEnBase` antes de dividir.
+// La UI muestra después el resultado en kg / lt (formatStock).
 export function calcularProduccionEstimada(recetaGlobal, asignacion, productosLocal) {
   const ingredientes = recetaGlobal?.ingredientes ?? [];
 
@@ -138,10 +158,11 @@ export function calcularProduccionEstimada(recetaGlobal, asignacion, productosLo
     const asignado = (asignacion.ingredientes ?? []).find((a) => a.idIngredienteGlobal === ing.id);
     const producto = asignado ? productosPorId.get(asignado.idProductoLocal) : null;
     const cantidadRequerida = Number(ing.cantidad) || 0;
+    const cantidadRequeridaBase = cantidadIngredienteEnBase(cantidadRequerida, ing.unidadMedida);
     const stockDisponible = producto ? Number(producto.stockActual) || 0 : 0;
-    const unidadesPosibles = (!producto || cantidadRequerida <= 0)
+    const unidadesPosibles = (!producto || cantidadRequeridaBase <= 0)
       ? 0
-      : Math.floor(stockDisponible / cantidadRequerida);
+      : Math.floor(stockDisponible / cantidadRequeridaBase);
 
     return {
       idIngrediente: ing.id,
@@ -149,6 +170,7 @@ export function calcularProduccionEstimada(recetaGlobal, asignacion, productosLo
       nombreProducto: producto?.nombre ?? null,
       sinAsignar: !producto,
       cantidadRequerida,
+      cantidadRequeridaBase,
       unidadMedida: ing.unidadMedida,
       stockDisponible,
       unidadesPosibles,

@@ -7,26 +7,27 @@
 // Estructura en Firestore:
 //   productos/{id}                       -> nombre, codigoBarra, unidadMedida...
 //   locales/{local}/productos/{id}       -> stockActual, stockMinimo, precioVenta, activo
-//   locales/{local}/movimientos/{auto}   -> historial de movimientos de stock
-//   ventas/{idVenta}                     -> la venta
+//   ventas/{idVenta}                     -> ÚNICO registro de ventas Y autoconsumos
+//                                           (campo `tipo`: 'venta' | 'autoconsumo').
+//
+// Una receta vendida se guarda como UNA línea (id de la receta, nombre, precio, cantidad) y
+// descuenta, en la misma transacción, cada ingrediente asignado en el local.
+//
+// Las ventas y los autoconsumos NO escriben en locales/{local}/movimientos,
+// ni en historialStock, ni en autoconsumos: solo descuentan el stock del producto
+// del local y guardan UN documento en `ventas`.
 
 import {
-  collection, doc, onSnapshot, runTransaction, serverTimestamp,
+  collection, doc, onSnapshot, runTransaction,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { LocalProductoModel } from '../models/LocalProductoModel';
 import { suscribirProductosGlobales } from './ProductoControl';
+import { suscribirRecetasConEstadoLocal } from './RecetaLocalControl';
+import { resolverRecetaVenta, consumoTotalPorProducto, lineaParaGuardar } from '../models/VentaModel';
 
 const refProductoLocal = (localId, idProducto) =>
   doc(db, 'locales', localId, 'productos', idProducto);
-
-// Cuánto stock descuenta una línea de venta, en la unidad en que se guarda el stock.
-//  - Productos unitarios: `cantidad` (unidades).
-//  - Productos a granel (esGranel): `cantidadBase`, que ya viene en g/ml (el stock de
-//    estos productos se guarda en gramos/mililitros; `cantidad` en esas líneas va en kg/lt).
-const cantidadADescontar = (linea) => (
-  linea.esGranel ? Number(linea.cantidadBase) || 0 : (Number(linea.cantidad) || 1)
-);
 
 // ─── Productos vendibles de un local (en vivo) ──────────────────────────────
 // Cruza locales/{local}/productos con el nodo global "productos" y entrega
@@ -82,28 +83,38 @@ export function suscribirProductosVenta(localId, callback) {
   return () => { unsubLocal(); unsubGlobal(); };
 }
 
-// ─── Registrar venta + descontar stock (ATÓMICO) ────────────────────────────
+// ─── Recetas vendibles de un local (en vivo) ────────────────────────────────
+// Entrega solo las recetas que este local tiene ASIGNADAS y ACTIVAS, listas para la caja:
+//   { id, nombre, precio, imagenUrl,
+//     ingredientes: [{ id, nombre, cantidad, unidadMedida, cantidadBase, idProducto }] }
+// (`idProducto` es el producto del local asignado a ese ingrediente; '' si falta asignarlo).
+// Se actualiza sola si cambia la receta, su asignación o su estado activo/inactivo.
+export function suscribirRecetasVenta(localId, callback) {
+  return suscribirRecetasConEstadoLocal(localId, (lista) => {
+    callback(
+      lista
+        .map(resolverRecetaVenta)
+        .filter(Boolean)
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    );
+  });
+}
+
+// ─── Descontar stock + guardar en `ventas` (ATÓMICO) ───────────────────────
 // En una sola transacción de Firestore:
-//   1. lee el stock actual de cada producto vendido (dato fresco del servidor)
+//   1. lee el stock actual de cada producto (dato fresco del servidor)
 //   2. si alguno no alcanza, aborta TODO (no se guarda nada)
-//   3. descuenta el stock, registra los movimientos y guarda la venta
+//   3. descuenta el stock del producto del local y guarda UN documento en `ventas`
 //
-// `venta.productos` debe traer { id, nombre, cantidad, ... } por línea.
-// Si el mismo producto aparece en varias líneas (ej. comida rápida con
-// distintos ingredientes) las cantidades se suman antes de descontar.
-//
+// Si el mismo producto aparece en varias líneas las cantidades se suman antes de descontar.
 // Si no alcanza el stock lanza un Error con `err.faltantes`:
 //   [{ id, nombre, disponible, pedido }]
-export async function registrarVentaConStock(localId, venta) {
-  const requeridos = new Map(); // idProducto -> { nombre, pedido }
-  for (const linea of venta.productos) {
-    if (!linea.id) throw new Error(`El producto "${linea.nombre}" no tiene id.`);
-    const previo = requeridos.get(linea.id);
-    requeridos.set(linea.id, {
-      nombre: linea.nombre,
-      pedido: (previo?.pedido ?? 0) + cantidadADescontar(linea),
-    });
-  }
+async function descontarStockYGuardarEnVentas(localId, documento, { tipo, mensajeSinStock }) {
+  const lineas = documento.productos || [];
+
+  // Consumo TOTAL por producto: se suma todo el carrito (productos y los ingredientes de cada
+  // receta) y se descuenta de una sola vez, no línea por línea.
+  const requeridos = consumoTotalPorProducto(lineas); // idProducto -> { nombre, pedido }
 
   await runTransaction(db, async (tx) => {
     const ids   = [...requeridos.keys()];
@@ -119,7 +130,7 @@ export async function registrarVentaConStock(localId, venta) {
     });
 
     if (faltantes.length > 0) {
-      const err = new Error('Stock insuficiente');
+      const err = new Error(mensajeSinStock);
       err.faltantes = faltantes;
       throw err;
     }
@@ -127,85 +138,37 @@ export async function registrarVentaConStock(localId, venta) {
     const ahora = new Date().toISOString();
 
     snaps.forEach((snap, i) => {
-      const id = ids[i];
-      const { pedido } = requeridos.get(id);
+      const { pedido } = requeridos.get(ids[i]);
       const stockAnterior = Number(snap.data().stockActual) || 0;
-      const stockNuevo    = stockAnterior - pedido;
-
-      tx.update(refs[i], { stockActual: stockNuevo, actualizadoEn: ahora });
-
-      tx.set(doc(collection(db, 'locales', localId, 'movimientos')), {
-        idProducto:    id,
-        tipo:          'venta',
-        cantidad:      -pedido,
-        stockAnterior,
-        stockNuevo,
-        idVenta:       venta.id,
-        usuario:       venta.usuario ?? null,
-        fecha:         ahora,
-      });
+      tx.update(refs[i], { stockActual: stockAnterior - pedido, actualizadoEn: ahora });
     });
 
-    tx.set(doc(db, 'ventas', venta.id), venta);
+    // Único registro: `ventas/{id}`. `tipo` distingue venta de autoconsumo.
+    tx.set(doc(db, 'ventas', documento.id), {
+      ...documento,
+      productos: lineas.map(lineaParaGuardar),
+      tipo,
+      ...(tipo === 'autoconsumo' ? { metodoPago: 'Autoconsumo' } : {}),
+    });
   });
 }
 
-// Guarda un autoconsumo y descuenta sus productos en una sola transacción.
-// Si el stock no alcanza para cualquiera de ellos, no se registra nada.
-export async function registrarAutoconsumoConStock(localId, registro) {
-  const requeridos = new Map();
-  for (const linea of registro.productos || []) {
-    if (!linea.id) throw new Error(`El producto "${linea.nombre}" no tiene id.`);
-    const previo = requeridos.get(linea.id);
-    requeridos.set(linea.id, {
-      nombre: linea.nombre,
-      pedido: (previo?.pedido ?? 0) + cantidadADescontar(linea),
-    });
-  }
+// Registra una venta de cliente. `venta.productos` trae { id, nombre, precio, cantidad, ... }
+// por línea. Las líneas a granel traen además esGranel + cantidadBase, y las de receta
+// esReceta + ingredientes + ingredientesReceta (solo para descontar; no se guardan).
+export function registrarVentaConStock(localId, venta) {
+  return descontarStockYGuardarEnVentas(localId, venta, {
+    tipo: 'venta',
+    mensajeSinStock: 'Stock insuficiente',
+  });
+}
 
-  await runTransaction(db, async (tx) => {
-    const ids = [...requeridos.keys()];
-    const refs = ids.map((id) => refProductoLocal(localId, id));
-    const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
-    const faltantes = [];
-
-    snaps.forEach((snap, index) => {
-      const { nombre, pedido } = requeridos.get(ids[index]);
-      const disponible = snap.exists() ? Number(snap.data().stockActual) || 0 : 0;
-      if (disponible < pedido) faltantes.push({ id: ids[index], nombre, disponible, pedido });
-    });
-
-    if (faltantes.length) {
-      const error = new Error('Stock insuficiente para registrar el autoconsumo.');
-      error.faltantes = faltantes;
-      throw error;
-    }
-
-    const fecha = new Date().toISOString();
-    snaps.forEach((snap, index) => {
-      const idProducto = ids[index];
-      const { pedido } = requeridos.get(idProducto);
-      const stockAnterior = Number(snap.data().stockActual) || 0;
-      const stockNuevo = stockAnterior - pedido;
-      tx.update(refs[index], { stockActual: stockNuevo, actualizadoEn: fecha });
-      tx.set(doc(collection(db, 'historialStock')), {
-        fecha: serverTimestamp(),
-        local: localId,
-        idProducto,
-        tipoMovimiento: 'autoconsumo',
-        cantidad: -pedido,
-        stockAnterior,
-        stockNuevo,
-        usuario: registro.trabajadorId ?? null,
-        idProveedor: null,
-        localRelacionado: null,
-        valorUnitario: null,
-        valorTotal: null,
-        fechaVencimiento: null,
-      });
-    });
-
-    tx.set(doc(db, 'autoconsumos', registro.id), registro);
-    tx.set(doc(db, 'ventas', registro.id), { ...registro, tipo: 'autoconsumo', metodoPago: 'Autoconsumo' });
+// Registra un autoconsumo del personal: mismo descuento de stock y mismo destino (`ventas`),
+// con tipo 'autoconsumo'. Si el stock no alcanza para cualquiera de los productos,
+// no se registra nada.
+export function registrarAutoconsumoConStock(localId, registro) {
+  return descontarStockYGuardarEnVentas(localId, registro, {
+    tipo: 'autoconsumo',
+    mensajeSinStock: 'Stock insuficiente para registrar el autoconsumo.',
   });
 }

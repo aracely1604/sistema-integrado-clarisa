@@ -21,16 +21,27 @@ const COLECCION = 'productos';
 // Nombre: solo letras y números (con espacios). Se permite el punto o la coma decimal
 // entre dos números ("Coca Cola 2.5 lts"). No puede ser solo números ni llevar
 // caracteres especiales. Devuelve el mensaje de error, o '' si el nombre es válido.
+
 export function validarNombreProducto(nombre) {
   const n = String(nombre ?? '').trim();
+
   if (!n) return 'El nombre es obligatorio';
-  const sinDecimales = n.replace(/(\d)[.,](?=\d)/g, '$1');
-  if (/[^\p{L}\p{N} ]/u.test(sinDecimales)) {
-    return 'El nombre solo puede tener letras y números, sin caracteres especiales';
+
+  // Permite letras, números, espacios y caracteres especiales específicos.
+  const caracteresPermitidos = /^[\p{L}\p{N}\s'".,()\-\/°×%+]+$/u;
+
+  if (!caracteresPermitidos.test(n)) {
+    return 'El nombre contiene caracteres especiales no permitidos';
   }
-  if (!/\p{L}/u.test(n)) return 'El nombre debe incluir letras: no puede ser solo números';
+
+  // Debe contener al menos una letra.
+  if (!/\p{L}/u.test(n)) {
+    return 'El nombre debe incluir letras: no puede ser solo números';
+  }
+
   return '';
 }
+
 
 export function validarProducto({ nombre, categoria, codigoBarra, unidadMedida }) {
   const errores = {};
