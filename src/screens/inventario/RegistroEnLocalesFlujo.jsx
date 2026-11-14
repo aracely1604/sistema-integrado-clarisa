@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FiCheckCircle, FiX } from 'react-icons/fi';
 import { useAuth, localesAsignados } from '../../controllers/AuthContext';
-import { crearProductoEnLocal } from '../../controllers/LocalProductoControl';
+import { crearProductoEnLocal, registrarMovimientoStock } from '../../controllers/LocalProductoControl';
+import { suscribirProveedoresPorLocal } from '../../controllers/ProveedorControl';
+import { nombreProveedor } from '../../models/ProveedorModel';
 import { LOCAL_LABELS, LOCALES_LIST } from './inventarioData';
 import { svgCode128, esCode128B } from './code128';
 import { svgCodigoComercial } from './barcodeSvg';
@@ -10,10 +12,14 @@ import {
 } from './gestionProductosData';
 
 // Flujo que se abre justo después de crear un producto global:
+// Si el usuario tiene UN solo local (cajero, o supervisor con un local) se salta el selector:
+// tras "Aceptar" va directo al formulario de ese local.
 //  1) "creado":      confirma que el producto fue creado (y con qué código) → Aceptar
 //  2) "selector":    elige en qué locales registrarlo (o "Ahora no")
 //  3) "formularios": un formulario por local elegido, todos visibles a la vez
 //                    (stock mínimo, precio y uso en receta propios de cada local)
+//  3b) "reposicion": tras registrar, una card por local con el formulario de reposición
+//                    (proveedor, cantidad, vencimiento y costo total); se puede omitir
 //  4) "listo":       mensaje "se asignó a ..." con botón Aceptar
 // Al terminar (o cancelar en cualquier paso) llama a onTerminar() y el modal
 // "Registrar producto" queda otra vez disponible.
@@ -56,7 +62,29 @@ const CSS = `
 .rel-chip-on { background: var(--c-btnBg, #1B1B1B); color: var(--c-btnText, #fff); border-color: var(--c-btnBg, #1B1B1B); }
 `;
 
-const ESTADO_INICIAL = { stockMinimo: '', precioVenta: '', precioOferta: '', usoReceta: false, errors: {}, estado: 'pendiente' };
+const ESTADO_INICIAL = {
+  stockMinimo: '', precioVenta: '', precioOferta: '', usoReceta: false, errors: {}, estado: 'pendiente',
+  // Reposición (paso posterior al registro)
+  reposProveedor: '', reposCantidad: '', reposVence: '', reposCosto: '', reposErrors: {}, reposEstado: 'pendiente',
+};
+
+// Fecha local (no UTC) en formato AAAA-MM-DD, para el min/max del <input type="date">.
+const aISOLocal = (f) =>
+  `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`;
+const hoyISO = () => aISOLocal(new Date());
+const maxVencISO = () => { const f = new Date(); f.setFullYear(f.getFullYear() + 10); return aISOLocal(f); };
+
+// Una card de reposición está "vacía" (se omite) si no se tocó ningún campo.
+const reposVacia = (d) =>
+  [d.reposProveedor, d.reposCantidad, d.reposVence, d.reposCosto].every((v) => String(v).trim() === '');
+
+// El controller devuelve errores con sus propios nombres de campo; se traducen a los de la card.
+const ERRORES_REPOS = { cantidad: 'cantidad', proveedorId: 'proveedor', fechaVencimiento: 'vence', valorUnitario: 'costo', general: 'general' };
+function traducirErroresRepos(errores) {
+  const salida = {};
+  Object.entries(errores ?? {}).forEach(([k, v]) => { salida[ERRORES_REPOS[k] ?? 'general'] = v; });
+  return salida;
+}
 
 export default function RegistroEnLocalesFlujo({ producto, onTerminar }) {
   const { usuario } = useAuth();
@@ -67,8 +95,23 @@ export default function RegistroEnLocalesFlujo({ producto, onTerminar }) {
   const [elegidos, setElegidos]   = useState([]);
   const [porLocal, setPorLocal]   = useState({});   // { [local]: { stockMinimo, precioVenta, usoReceta, errors, estado } }
   const [guardando, setGuardando] = useState(false);
+  const [proveedoresPorLocal, setProveedoresPorLocal] = useState({});  // { [local]: ProveedorModel[] activos }
+
+  // En el paso de reposición se cargan (en vivo) los proveedores activos de cada local elegido.
+  useEffect(() => {
+    if (paso !== 'reposicion') return undefined;
+    const cancelar = elegidos.map((local) =>
+      suscribirProveedoresPorLocal(local, (lista) =>
+        setProveedoresPorLocal((prev) => ({ ...prev, [local]: lista.filter((p) => p.activo) }))
+      )
+    );
+    return () => cancelar.forEach((fn) => fn());
+  }, [paso, elegidos]);
 
   if (!producto) return null;
+
+  // Un solo local (cajero, o supervisor con uno): no hay nada que elegir.
+  const unSoloLocal = localesDisponibles.length === 1;
 
   const unidadBase     = unidadBaseDesdeUnidadMedida(producto.unidadMedida);
   const etiqueta       = etiquetaUnidadIngreso(unidadBase);
@@ -77,6 +120,15 @@ export default function RegistroEnLocalesFlujo({ producto, onTerminar }) {
   const datosLocal = (local) => porLocal[local] ?? ESTADO_INICIAL;
   const actualizarLocal = (local, cambios) =>
     setPorLocal((prev) => ({ ...prev, [local]: { ...(prev[local] ?? ESTADO_INICIAL), ...cambios } }));
+
+  function continuarDesdeCreado() {
+    if (unSoloLocal) {
+      setElegidos([localesDisponibles[0]]);
+      setPaso('formularios');
+    } else {
+      setPaso('selector');
+    }
+  }
 
   function alternarLocal(local) {
     setElegidos((prev) => (prev.includes(local) ? prev.filter((l) => l !== local) : [...prev, local]));
@@ -106,7 +158,60 @@ export default function RegistroEnLocalesFlujo({ producto, onTerminar }) {
       }
     }
     setGuardando(false);
-    if (!fallo) setPaso('listo');   // todos los locales quedaron guardados
+    if (!fallo) setPaso('reposicion');   // todos los locales quedaron registrados → reposición
+  }
+
+  // Reposición: las cards sin ningún campo tocado se omiten; las demás se validan completas.
+  const hayReposicion = elegidos.some((l) => !reposVacia(datosLocal(l)));
+
+  async function guardarReposiciones() {
+    let invalido = false;
+    for (const local of elegidos) {
+      const d = datosLocal(local);
+      if (d.reposEstado === 'ok' || reposVacia(d)) continue;
+      const errs = {};
+      const cant = Number(d.reposCantidad);
+      const costo = Number(d.reposCosto);
+      if (!d.reposProveedor) errs.proveedor = 'Selecciona un proveedor';
+      if (!Number.isFinite(cant) || cant <= 0) errs.cantidad = 'Ingresa una cantidad mayor a 0';
+      if (!d.reposVence) errs.vence = 'La fecha de vencimiento es obligatoria';
+      else if (d.reposVence < hoyISO()) errs.vence = 'La fecha de vencimiento no puede ser anterior a hoy';
+      if (!Number.isFinite(costo) || costo <= 0) errs.costo = 'Ingresa el costo total (mayor a 0)';
+      if (Object.keys(errs).length) { invalido = true; actualizarLocal(local, { reposErrors: errs }); }
+    }
+    if (invalido) return;
+
+    setGuardando(true);
+    let fallo = false;
+    for (const local of elegidos) {
+      const d = datosLocal(local);
+      if (d.reposEstado === 'ok' || reposVacia(d)) continue;
+      actualizarLocal(local, { reposEstado: 'guardando', reposErrors: {} });
+      try {
+        const cantidadBase = Number(convertirACantidadBase(d.reposCantidad, unidadBase));
+        await registrarMovimientoStock({
+          local,
+          idProducto: producto.id,
+          tipoMovimiento: 'reposicion',
+          cantidad: cantidadBase,
+          proveedorId: d.reposProveedor,
+          fechaVencimiento: d.reposVence,                       // AAAA-MM-DD; el controller la normaliza
+          valorUnitario: Number(d.reposCosto) / cantidadBase,   // costo total ÷ cantidad (unidad base)
+          usuario,
+        });
+        actualizarLocal(local, { reposEstado: 'ok' });
+      } catch (err) {
+        fallo = true;
+        actualizarLocal(local, {
+          reposEstado: 'pendiente',
+          reposErrors: err?.errores
+            ? traducirErroresRepos(err.errores)
+            : { general: 'No se pudo registrar la reposición en este local. Intenta nuevamente.' },
+        });
+      }
+    }
+    setGuardando(false);
+    if (!fallo) setPaso('listo');
   }
 
   // "Comida Rápida", "Comida Rápida y Almacén", "Comida Rápida, Almacén y Cafetería"
@@ -163,7 +268,7 @@ export default function RegistroEnLocalesFlujo({ producto, onTerminar }) {
           )}
         </div>
         <div className="rel-actions">
-          <button type="button" className="rel-btn rel-btn-primary" onClick={() => setPaso('selector')}>
+          <button type="button" className="rel-btn rel-btn-primary" onClick={continuarDesdeCreado}>
             Aceptar
           </button>
         </div>
@@ -223,6 +328,11 @@ export default function RegistroEnLocalesFlujo({ producto, onTerminar }) {
           <p style={{ margin: '8px 0 0', fontSize: 14 }}>
             “{producto.nombre}” se asignó {atodos ? 'a todos los locales' : `a ${listarLocales(elegidos)}`}.
           </p>
+          {elegidos.some((l) => datosLocal(l).reposEstado === 'ok') && (
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--c-textSecondary, #7F8C8D)' }}>
+              Reposición registrada en {listarLocales(elegidos.filter((l) => datosLocal(l).reposEstado === 'ok'))}.
+            </p>
+          )}
         </div>
         <div className="rel-actions">
           <button type="button" className="rel-btn rel-btn-primary" onClick={onTerminar} autoFocus>
@@ -230,6 +340,135 @@ export default function RegistroEnLocalesFlujo({ producto, onTerminar }) {
           </button>
         </div>
       </>
+    );
+  }
+
+  // ── 3b) Reposición: una card por local ──
+  if (paso === 'reposicion') {
+    return overlay(
+      <>
+        <div className="rel-row">
+          <h2 className="rel-title">Reposición de “{producto.nombre}”</h2>
+          <button type="button" className="rel-close" onClick={() => setPaso('listo')} aria-label="Omitir" disabled={guardando}>
+            <FiX size={20} />
+          </button>
+        </div>
+        <p className="rel-hint">
+          El producto ya quedó registrado con stock 0. Ingresa la compra que repones en cada local; las cards que dejes
+          vacías se omiten y podrás reponerlas después.
+        </p>
+
+        <div className="rel-grid">
+          {elegidos.map((local) => {
+            const d = datosLocal(local);
+            const bloqueado = d.reposEstado === 'ok' || guardando;
+            const proveedores = proveedoresPorLocal[local];   // undefined = cargando
+            const sinProveedores = Array.isArray(proveedores) && proveedores.length === 0;
+            return (
+              <div key={local} className={`rel-local ${d.reposEstado === 'ok' ? 'rel-local-ok' : ''}`}>
+                <p className="rel-local-title">
+                  {LOCAL_LABELS[local]}
+                  {d.reposEstado === 'ok' && <span style={{ color: '#3B6D11', fontWeight: 600 }}> · Repuesto ✓</span>}
+                </p>
+
+                <div className="rel-field">
+                  <label className="rel-label" htmlFor={`repo-prov-${local}`}>Proveedor</label>
+                  <select
+                    id={`repo-prov-${local}`}
+                    className={`rel-input ${d.reposErrors.proveedor ? 'rel-input-error' : ''}`}
+                    disabled={bloqueado || !proveedores || sinProveedores}
+                    value={d.reposProveedor}
+                    onChange={(e) => actualizarLocal(local, {
+                      reposProveedor: e.target.value,
+                      reposErrors: { ...d.reposErrors, proveedor: undefined },
+                    })}
+                  >
+                    <option value="">{!proveedores ? 'Cargando...' : 'Selecciona un proveedor'}</option>
+                    {(proveedores ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>{nombreProveedor(p)}</option>
+                    ))}
+                  </select>
+                  {sinProveedores && (
+                    <p className="rel-error">Este local no tiene proveedores activos. Asigna uno desde Proveedores para reponer aquí.</p>
+                  )}
+                  {d.reposErrors.proveedor && <p className="rel-error">{d.reposErrors.proveedor}</p>}
+                </div>
+
+                <div className="rel-field">
+                  <label className="rel-label" htmlFor={`repo-cant-${local}`}>Cantidad a reponer ({etiqueta})</label>
+                  <input
+                    id={`repo-cant-${local}`}
+                    className={`rel-input ${d.reposErrors.cantidad ? 'rel-input-error' : ''}`}
+                    type="text"
+                    inputMode="decimal"
+                    disabled={bloqueado}
+                    value={d.reposCantidad}
+                    placeholder={esFraccionable ? 'Ej: 10' : 'Ej: 24'}
+                    onChange={(e) => actualizarLocal(local, {
+                      reposCantidad: esFraccionable ? e.target.value.replace(/[^\d.]/g, '') : e.target.value.replace(/\D/g, ''),
+                      reposErrors: { ...d.reposErrors, cantidad: undefined },
+                    })}
+                  />
+                  {d.reposErrors.cantidad && <p className="rel-error">{d.reposErrors.cantidad}</p>}
+                </div>
+
+                <div className="rel-field">
+                  <label className="rel-label" htmlFor={`repo-venc-${local}`}>Fecha de vencimiento</label>
+                  <input
+                    id={`repo-venc-${local}`}
+                    className={`rel-input ${d.reposErrors.vence ? 'rel-input-error' : ''}`}
+                    type="date"
+                    min={hoyISO()}
+                    max={maxVencISO()}
+                    disabled={bloqueado}
+                    value={d.reposVence}
+                    onChange={(e) => actualizarLocal(local, {
+                      reposVence: e.target.value,
+                      reposErrors: { ...d.reposErrors, vence: undefined },
+                    })}
+                  />
+                  {d.reposErrors.vence && <p className="rel-error">{d.reposErrors.vence}</p>}
+                </div>
+
+                <div className="rel-field">
+                  <label className="rel-label" htmlFor={`repo-costo-${local}`}>Costo total de la compra ($)</label>
+                  <input
+                    id={`repo-costo-${local}`}
+                    className={`rel-input ${d.reposErrors.costo ? 'rel-input-error' : ''}`}
+                    type="text"
+                    inputMode="numeric"
+                    disabled={bloqueado}
+                    value={d.reposCosto}
+                    placeholder="Ej: 15000"
+                    onChange={(e) => actualizarLocal(local, {
+                      reposCosto: e.target.value.replace(/\D/g, ''),
+                      reposErrors: { ...d.reposErrors, costo: undefined },
+                    })}
+                  />
+                  {d.reposErrors.costo && <p className="rel-error">{d.reposErrors.costo}</p>}
+                </div>
+
+                {d.reposErrors.general && <p className="rel-error">{d.reposErrors.general}</p>}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="rel-actions">
+          <button type="button" className="rel-btn" onClick={() => setPaso('listo')} disabled={guardando}>
+            Omitir por ahora
+          </button>
+          <button
+            type="button"
+            className="rel-btn rel-btn-primary"
+            onClick={guardarReposiciones}
+            disabled={guardando || !hayReposicion}
+          >
+            {guardando ? 'Registrando...' : 'Registrar reposición'}
+          </button>
+        </div>
+      </>,
+      elegidos.length > 1 ? 1000 : 460
     );
   }
 

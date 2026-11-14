@@ -69,10 +69,11 @@ export default function DesktopLayout({ state, actions }) {
 
   // ── Permisos según rol ──
   const esCajero       = usuario?.rol === 'cajero';
+  const esSupervisor   = usuario?.rol === 'supervisor';
   const localesUsuario = localesAsignados(usuario?.localAsignado || usuario?.local);
   const localesVisibles = LOCALES_LIST.filter(l => localesUsuario.includes(l));
 
-  // Subitems del desplegable: cajero ve Inventario y Proveedores
+  // Subitems del desplegable: cajero ve Inventario y Proveedores; supervisor no ve Reporte
   const SIDEBAR_SUBITEMS = esCajero
     ? [
         { id: 'inventario',  label: 'Inventario',  icon: FiBox },
@@ -82,14 +83,16 @@ export default function DesktopLayout({ state, actions }) {
         { id: 'inventario',  label: 'Inventario',  icon: FiBox },
         { id: 'recetas',     label: 'Recetas',     icon: FiBookOpen },
         { id: 'proveedores', label: 'Proveedores', icon: FiTruck },
-        { id: 'reporte',     label: 'Reporte',     icon: FiFileText },
+        // "Reporte" solo para administrador (y otros roles superiores): ni cajero ni supervisor lo ven
+        ...(esSupervisor ? [] : [{ id: 'reporte', label: 'Reporte', icon: FiFileText }]),
       ];
 
   // Iniciales y rol para mostrar en el perfil
   const inicialesUsuario = (usuario?.nombre ?? '')
     .split(' ').slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase() || '?';
   const rolLabel = {
-    admin:   'Administrador',
+    supervisor: 'Supervisor',
+    administrador:   'Administrador',
     cajero:  'Cajero',
     gerente: 'Gerente',
   }[usuario?.rol] ?? (usuario?.rol ?? '');
